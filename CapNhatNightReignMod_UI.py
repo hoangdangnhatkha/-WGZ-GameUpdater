@@ -28,7 +28,7 @@ def resource_path(relative_path):
 # --- MỚI: Hàm tải config từ Google Drive ---
 def load_config_from_drive():
     # SỬA: Đã cập nhật URL của file JSON
-    json_url = "https://drive.google.com/uc?id=1gwwgKCeaAjCXxcR3esV4as_C4IP4lSkw"
+    json_url = "https://raw.githubusercontent.com/hoangdangnhatkha/WGZGameUpdater/refs/heads/main/CapNhatNightReignMod.json?token=GHSAT0AAAAAADOA2QEOZ7B26A2EZFT5BV6G2H73PFA"
     
     try:
         print("Đang tải config từ Google Drive...")
