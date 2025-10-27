@@ -28,7 +28,7 @@ def resource_path(relative_path):
 # --- MỚI: Hàm tải config từ Google Drive ---
 def load_config_from_drive():
     # SỬA: Đã cập nhật URL của file JSON
-    json_url = "https://raw.githubusercontent.com/hoangdangnhatkha/WGZGameUpdater/refs/heads/main/CapNhatNightReignMod.json"
+    json_url = "https://raw.githubusercontent.com/hoangdangnhatkha/WGZGameUpdater/main/CapNhatNightReignMod.json"
     
     try:
         print("Đang tải config từ Google Drive...")
@@ -384,12 +384,12 @@ notebook = ttk.Notebook(root, padding=(10, 10))
 notebook.pack(expand=True, fill="both")
 main_tab_frame = ttk.Frame(notebook)
 second_tab_frame = ttk.Frame(notebook)
-notebook.add(main_tab_frame, text=" Cài đặt ")
+notebook.add(main_tab_frame, text="Tải/Cập Nhật Game")
 notebook.add(second_tab_frame, text=" Upload ")
 # --- Thêm logo ---
 try:
     # image_path = resource_path("logo.jpg")
-    image_path = resource_path("logo.png")
+    image_path = resource_path(r"C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\logo.png")
     my_image = Image.open(image_path)
     my_image = my_image.resize((150, 150), Image.Resampling.LANCZOS)
     tk_image = ImageTk.PhotoImage(my_image)
