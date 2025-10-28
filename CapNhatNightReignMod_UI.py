@@ -19,6 +19,7 @@ import sv_ttk
 # --- THÊM IMPORT CHO GITHUB ---
 from github import Github, InputGitAuthor, GithubException
 import base64
+import time
 # --- HẾT ---
 
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
@@ -31,11 +32,12 @@ def resource_path(relative_path):
 
 # --- Hàm tải config từ GitHub ---
 def load_config_from_github(): # Đổi tên hàm cho rõ
-    json_url = "https://raw.githubusercontent.com/hoangdangnhatkha/WGZGameUpdater/main/CapNhatNightReignMod.json"
-
+    json_url = "https://raw.githubusercontent.com/hoangdangnhatkha/WGZGameUpdater/refs/heads/main/CapNhatNightReignMod.json"
+    cache_buster = f"?_={int(time.time())}" # Thêm timestamp hiện tại
+    full_url = json_url + cache_buster
     try:
-        print("Đang tải config từ GitHub...") # Đổi tên
-        response = requests.get(json_url, timeout=10)
+        print(f"Đang tải config từ GitHub: {full_url}")
+        response = requests.get(full_url, timeout=10)
         response.raise_for_status()
         config_data = response.json()
         print("Tải config thành công.")
@@ -208,11 +210,11 @@ def upload_json_to_github(repo, config_dict_to_upload, current_sha): # Takes dic
                  updated_contents = repo.get_contents(GITHUB_FILE_PATH, ref=GITHUB_BRANCH)
                  new_file_sha = updated_contents.sha
                  print(f"New file SHA: {new_file_sha}")
-                 messagebox.showinfo("Thành công", "Đã cập nhật file JSON lên GitHub thành công!")
+                 messagebox.showinfo("Thành công", "Đã cập nhật file JSON lên database thành công!")
                  return True, new_file_sha # Return success and the new file SHA
             except Exception as sha_error:
                  print(f"Lỗi khi lấy SHA mới của file sau update: {sha_error}")
-                 messagebox.showinfo("Thành công", "Đã cập nhật file JSON lên GitHub! (Không thể lấy SHA mới)")
+                 messagebox.showinfo("Thành công", "Đã cập nhật file JSON lên Database! (Không thể lấy SHA mới)")
                  return True, None # Indicate success but SHA is unknown
 
     except GithubException as e:
@@ -461,12 +463,18 @@ def process_queue():
     root.after(100, process_queue)
 
 # --- Hàm xử lý khi bấm nút X ---
+# --- Hàm xử lý khi bấm nút X ---
 def on_closing():
-    # (Code hàm này không đổi)
-    if start_button['state'] == tk.DISABLED:
-        if messagebox.askyesno("Xác nhận thoát", "Đang tải file. Bạn có chắc chắn muốn thoát? \n (Việc tải sẽ bị hủy và phải tải lại từ đầu)"):
+    # Kiểm tra xem có đang tải file không (dựa vào trạng thái nút)
+    print(start_button.instate(['disabled']))
+    if start_button.instate(['disabled']): # <--- Kiểm tra ở đây
+        # Nếu đang tải, hỏi xác nhận
+        if messagebox.askyesno("Xác nhận thoát", "Đm dang tải file. m có chắc chắn muốn thoát? \n (Việc tải sẽ bị hủy và phải tải lại từ đầu)"):
+            # Nếu người dùng chọn "Yes", thoát chương trình
             root.destroy()
+        # else: (Nếu chọn "No", không làm gì cả, cửa sổ tiếp tục)
     else:
+        # Nếu không đang tải, thoát luôn
         root.destroy()
 
 # --- Hàm áp dụng theme cho title bar ---
@@ -488,7 +496,7 @@ def apply_theme_to_titlebar(root_window):
 root = tk.Tk()
 sv_ttk.set_theme("dark")
 apply_theme_to_titlebar(root)
-root.title("")
+root.title("[WGZ] Game Updater")
 root.geometry("800x650") # Giữ nguyên kích thước
 
 # --- Định nghĩa Style ---
@@ -596,7 +604,7 @@ speed_label.pack(side=tk.RIGHT)
 
 # --- SỬA: Tạo UI cho Tab 2 ("Upload Config") ---
 second_tab_frame = ttk.Frame(notebook, padding=(10, 10))
-notebook.add(second_tab_frame, text=" Upload Config ")
+notebook.add(second_tab_frame, text="Thêm/Xóa Option Tải")
 
 # --- Variables ---
 current_config_data = {} # Dictionary để giữ config đang sửa
@@ -663,7 +671,7 @@ clear_button = ttk.Button(form_button_frame, text="Xóa Hết")
 clear_button.pack(side=tk.LEFT, padx=5)
 
 # --- Bottom Status ---
-upload_status_label = ttk.Label(bottom_status_frame, text="Tải config từ GitHub để bắt đầu.")
+upload_status_label = ttk.Label(bottom_status_frame, text="Tải Config để bắt đầu")
 upload_status_label.pack(side=tk.LEFT)
 
 # --- Treeview Functions ---
@@ -676,23 +684,45 @@ def populate_treeview():
         ))
 
 def on_treeview_select(event):
+    """Fills the form when an item in the treeview is selected."""
     selected_items = options_treeview.selection()
     if not selected_items:
-        clear_form()
+        clear_form() # Clear form if selection is removed
         return
-    selected_key = selected_items[0]
+
+    selected_key = selected_items[0] # Get the item ID (which is the option key)
     if selected_key in current_config_data:
         data = current_config_data[selected_key]
-        form_widgets["Option Name:"].delete(0, tk.END); form_widgets["Option Name:"].insert(0, selected_key)
-        form_widgets["URL:"].delete(0, tk.END); form_widgets["URL:"].insert(0, data.get("url", ""))
-        form_widgets["Version:"].delete(0, tk.END); form_widgets["Version:"].insert(0, data.get("version", ""))
+        form_widgets["Option Name:"].delete(0, tk.END)
+        form_widgets["Option Name:"].insert(0, selected_key)
+
+        # --- SỬA LOGIC HIỂN THỊ URL ---
+        url_entry = form_widgets["URL:"]
+        url_entry.delete(0, tk.END)
+        stored_url = data.get("url", "")
+        # Check if it's a Google Drive direct link
+        gdrive_prefix = "https://drive.google.com/uc?id="
+        if stored_url.startswith(gdrive_prefix):
+            # Extract and display only the ID
+            file_id = stored_url[len(gdrive_prefix):]
+            url_entry.insert(0, file_id)
+        else:
+            # Display the full URL if it's not a GDrive link
+            url_entry.insert(0, stored_url)
+        # --- HẾT SỬA ---
+
+        form_widgets["Version:"].delete(0, tk.END)
+        form_widgets["Version:"].insert(0, data.get("version", ""))
         form_widgets["Type:"].set(data.get("type", "zip"))
-        form_widgets["Password:"].delete(0, tk.END); form_widgets["Password:"].insert(0, data.get("password", "") or "")
+        form_widgets["Password:"].delete(0, tk.END)
+        form_widgets["Password:"].insert(0, data.get("password", "") or "") # Insert empty string if None/null
+
         delete_list_widget = form_widgets["Delete List:"]
         delete_list_widget.config(state=tk.NORMAL) # Allow editing
         delete_list_widget.delete("1.0", tk.END)
         delete_items = data.get("delete_before_extract", [])
-        if delete_items: delete_list_widget.insert("1.0", "\n".join(delete_items))
+        if delete_items:
+            delete_list_widget.insert("1.0", "\n".join(delete_items))
 
 options_treeview.bind('<<TreeviewSelect>>', on_treeview_select)
 
@@ -708,30 +738,47 @@ def clear_form():
     options_treeview.selection_remove(options_treeview.selection())
 
 def action_add_update_option():
+    """Adds or updates an option in the current_config_data dictionary."""
     global current_config_data
     option_name = form_widgets["Option Name:"].get().strip()
     if not option_name:
         messagebox.showwarning("Thiếu tên", "Vui lòng nhập 'Option Name'.")
         return
 
-    url = form_widgets["URL:"].get().strip()
+    # --- SỬA LOGIC XỬ LÝ URL INPUT ---
+    url_input = form_widgets["URL:"].get().strip()
+    final_url = url_input # Assume it's a full URL initially
+
+    # Check if input looks like just a Google Drive ID (basic check)
+    # Simple check: no slashes, no colons, likely alphanumeric with maybe _-
+    if url_input and "/" not in url_input and ":" not in url_input and "drive.google.com" not in url_input:
+        # Assume it's an ID, construct the full URL
+        final_url = f"https://drive.google.com/uc?id={url_input}"
+        print(f"Detected ID, constructed URL: {final_url}") # Debug print
+    # --- HẾT SỬA ---
+
     version = form_widgets["Version:"].get().strip()
     option_type = form_widgets["Type:"].get()
     password = form_widgets["Password:"].get().strip()
     delete_list_raw = form_widgets["Delete List:"].get("1.0", tk.END).strip()
     delete_list = [line.strip() for line in delete_list_raw.splitlines() if line.strip()]
 
+    # Create the data object using final_url
     new_data = {
-        "url": url, "version": version, "type": option_type,
-        "password": password if password else None,
+        "url": final_url, # Use the potentially constructed URL
+        "version": version,
+        "type": option_type,
+        "password": password if password else None, # Store empty as None (JSON null)
         "delete_before_extract": delete_list
     }
+
     current_config_data[option_name] = new_data
-    populate_treeview()
+
+    populate_treeview() # Refresh the treeview
     # Select the added/updated item
     options_treeview.selection_set(option_name)
     options_treeview.focus(option_name) # Scroll to it
-    upload_status_label.config(text=f"'{option_name}' đã được thêm/cập nhật cục bộ.", style="White.TLabel") # Dùng style
+    upload_status_label.config(text=f"'{option_name}' đã được thêm/cập nhật cục bộ.", style="White.TLabel")
 
 def action_delete_option():
     global current_config_data
@@ -768,7 +815,7 @@ def action_load_from_github_wrapper():
             current_github_sha = sha
             populate_treeview()
             clear_form()
-            upload_status_label.config(text="Đã tải config từ GitHub.", style="Green.TLabel") # Dùng style
+            upload_status_label.config(text="Đã tải config từ database", style="Green.TLabel") # Dùng style
         except json.JSONDecodeError:
              messagebox.showerror("Lỗi JSON", "File JSON tải về từ GitHub không hợp lệ.")
              upload_status_label.config(text="Lỗi đọc JSON từ GitHub.", style="Red.TLabel")
@@ -790,7 +837,13 @@ def action_upload_to_github_wrapper():
         return
     repo = get_github_repo()
     if not repo: return
-    if messagebox.askyesno("Xác nhận Upload", "Ghi đè file config trên GitHub bằng dữ liệu hiện tại?"):
+    if messagebox.askyesno("Xác nhận Cập Nhật", "Bạn có chắc chắn muốn ghi đè file config bằng dữ liệu hiện tại?"):
+        entered_pin = simpledialog.askstring("Xác nhận PIN", "Nhập mã PIN quản trị:", show='*')
+        correct_pin = "2408" # Mã PIN cứng
+
+        if entered_pin != correct_pin:
+            messagebox.showerror("Sai PIN", "Mã PIN không chính xác. Đã hủy upload.")
+            return # Dừng nếu PIN sai
         upload_status_label.config(text="Đang upload lên GitHub...", style="White.TLabel")
         root.update_idletasks()
         success, new_sha = upload_json_to_github(repo, current_config_data, current_github_sha)
@@ -809,7 +862,7 @@ load_button_top = ttk.Button(top_button_frame, text="Tải Config (Làm mới)",
 load_button_top.pack(side=tk.LEFT, padx=5)
 delete_button_top = ttk.Button(top_button_frame, text="Xóa Option Đã Chọn", command=action_delete_option)
 delete_button_top.pack(side=tk.LEFT, padx=5)
-upload_button_top = ttk.Button(top_button_frame, text="Upload Config Lên GitHub", command=action_upload_to_github_wrapper, style="Accent.TButton")
+upload_button_top = ttk.Button(top_button_frame, text="Lưu Config", command=action_upload_to_github_wrapper, style="Accent.TButton")
 upload_button_top.pack(side=tk.LEFT, padx=5)
 # --- Hết phần sửa cho Tab 2 ---
 
@@ -817,7 +870,7 @@ upload_button_top.pack(side=tk.LEFT, padx=5)
 def load_config_thread():
     """Tải config và gửi vào queue."""
     global fallback_options
-    config = load_config_from_github() # Dùng hàm tải qua requests
+    config = load_config_from_github()
     if config:
         progress_queue.put(("config_loaded", config))
     else:
