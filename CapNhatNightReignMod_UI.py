@@ -21,6 +21,17 @@ import github
 from github import Github, InputGitAuthor, GithubException
 import base64
 import time
+
+from tkinterdnd2 import DND_FILES, TkinterDnD
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaFileUpload
+
+import httplib2 
+from google_auth_httplib2 import AuthorizedHttp
 # --- HẾT ---
 
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
@@ -31,6 +42,31 @@ def resource_path(relative_path):
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
+def format_bytes(size_in_bytes):
+    """Chuyển đổi bytes thành KB, MB, GB..."""
+    if size_in_bytes < 1024:
+        return f"{size_in_bytes} B"
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if size_in_bytes < 1024.0:
+            return f"{size_in_bytes:3.1f} {unit}"
+        size_in_bytes /= 1024.0
+    return f"{size_in_bytes:3.1f} PB" # Just in case
+
+def format_time(seconds):
+    """Chuyển đổi giây thành HH:MM:SS."""
+    try:
+        seconds = int(seconds)
+        if seconds < 0: return "00:00"
+        
+        m, s = divmod(seconds, 60)
+        h, m = divmod(m, 60)
+        
+        if h > 0:
+            return f"{h:02d}:{m:02d}:{s:02d}"
+        else:
+            return f"{m:02d}:{s:02d}"
+    except:
+        return "--:--"
 # --- Hàm tải config từ GitHub ---
 def load_config_from_github(): # Đổi tên hàm cho rõ
     json_url = "https://raw.githubusercontent.com/hoangdangnhatkha/WGZGameUpdater/refs/heads/main/CapNhatNightReignMod.json"
@@ -235,6 +271,182 @@ def upload_json_to_github(repo, config_dict_to_upload, current_sha): # Takes dic
          messagebox.showerror("Lỗi GitHub Upload", f"Lỗi không xác định khi upload: {e}")
          return False, None
 # --- Hết hàm GitHub ---
+
+# --- Hết hàm GitHub ---
+
+# --- THÊM CÁC HÀM XỬ LÝ GOOGLE DRIVE ---
+
+# Biến này sẽ lưu trữ dịch vụ Google Drive sau khi đăng nhập
+drive_service = None
+# Phạm vi (quyền) mà chúng ta yêu cầu: chỉ upload file
+SCOPES = ['https://www.googleapis.com/auth/drive']
+
+GOOGLE_DRIVE_FOLDER_ID = "1lO7qc485mhdLpirFgyhqMGKXAQvHoQYA"
+
+def authenticate_google_drive():
+    """Xác thực với Google Drive và trả về đối tượng service."""
+    global drive_service
+    creds = None
+    
+    # File token.json lưu trữ thông tin đăng nhập của người dùng.
+    # Nó được tạo tự động sau lần đăng nhập đầu tiên.
+    token_path = resource_path(r'C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\token.json')
+    creds_path = resource_path(r'C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\credentials.json') # File bạn tải ở Bước 2
+    
+    if not os.path.exists(creds_path):
+        messagebox.showerror("Lỗi Thiết Lập", "Không tìm thấy file 'credentials.json'.\nVui lòng làm theo Bước 2 trong hướng dẫn.")
+        return None
+
+    if os.path.exists(token_path):
+        creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+    
+    # Nếu chưa có (hoặc đã hết hạn), yêu cầu người dùng đăng nhập lại
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                print(f"Lỗi khi làm mới token: {e}")
+                creds = None # Buộc đăng nhập lại
+        else:
+            try:
+                flow = InstalledAppFlow.from_client_secrets_file(creds_path, SCOPES)
+                creds = flow.run_local_server(port=0)
+            except Exception as e:
+                messagebox.showerror("Lỗi Đăng Nhập", f"Không thể lấy thông tin xác thực: {e}")
+                return None
+        
+        # Lưu thông tin đăng nhập cho lần chạy sau
+        try:
+            with open(token_path, 'w') as token_file:
+                token_file.write(creds.to_json())
+        except Exception as e:
+            print(f"Không thể lưu token: {e}")
+            
+    try:
+    # --- SỬA: THÊM TIMEOUT CHO TẤT CẢ YÊU CẦU API ---
+    # 1. Tạo một http client từ credentials, set timeout là 15 giây
+
+    # 2. Xây dựng service với http client đã có timeout
+    
+        service = build('drive', 'v3', credentials=creds)
+    # --- HẾT SỬA ---
+
+        drive_service = service # Lưu vào biến toàn cục
+        return service
+    except HttpError as error:
+        messagebox.showerror("Lỗi API", f"Lỗi khi xây dựng dịch vụ Drive: {error}")
+        drive_service = None
+    return None
+
+def upload_file_logic(file_path, status_listbox):
+    """Hàm logic để upload file (chạy trong thread), CÓ THEO DÕI TIẾN TRÌNH."""
+    global drive_service
+    if not drive_service:
+        status_listbox.insert(tk.END, f"LỖI: Chưa đăng nhập Google Drive.")
+        status_listbox.itemconfig(tk.END, {'fg': 'red'})
+        return
+        
+    if GOOGLE_DRIVE_FOLDER_ID == "YOUR_FOLDER_ID_GOES_HERE":
+         status_listbox.insert(tk.END, f"LỖI: Vui lòng sửa GOOGLE_DRIVE_FOLDER_ID trong code.")
+         status_listbox.itemconfig(tk.END, {'fg': 'red'})
+         return
+
+    file_name = os.path.basename(file_path)
+    
+    try:
+        # 0. Gửi tin nhắn reset tiến trình
+        progress_queue.put(("drive_upload_progress", {
+            "percent": 0, "status_text": f"Đang tìm {file_name}...", 
+            "speed_text": "", "eta_text": ""
+        }))
+        
+        file_size = os.path.getsize(file_path) # Lấy kích thước file để tính %
+
+        # 1. Tìm file đã tồn tại
+        status_listbox.insert(tk.END, f"Đang tìm {file_name} trong folder...")
+        status_listbox.see(tk.END)
+        
+        query = f"name = '{file_name}' and '{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false"
+        response = drive_service.files().list(
+            q=query, spaces='drive', fields='files(id, name)'
+        ).execute()
+        files = response.get('files', [])
+        
+        # 2. Chuẩn bị media body và request
+        # Đặt chunksize (ví dụ 1MB), rất quan trọng cho resumable upload
+        media = MediaFileUpload(file_path, chunksize=1024*1024, resumable=True)
+        request = None
+        
+        if files:
+            # 2a. NẾU TÌM THẤY: Chuẩn bị request Cập nhật
+            existing_file_id = files[0].get('id')
+            status_listbox.insert(tk.END, f"Tìm thấy. Đang cập nhật {file_name}...")
+            request = drive_service.files().update(
+                fileId=existing_file_id,
+                media_body=media,
+                fields='id'
+            )
+        else:
+            # 2b. NẾU KHÔNG TÌM THẤY: Chuẩn bị request Tạo mới
+            status_listbox.insert(tk.END, f"Không tìm thấy. Đang tạo mới {file_name}...")
+            file_metadata = {'name': file_name, 'parents': [GOOGLE_DRIVE_FOLDER_ID]}
+            request = drive_service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields='id'
+            )
+        
+        status_listbox.see(tk.END)
+
+        # 3. Thực thi upload bằng vòng lặp next_chunk()
+        response = None
+        start_time = time.time()
+        
+        while response is None:
+            # status: chứa tiến trình; response: chứa kết quả khi hoàn thành
+            status, response = request.next_chunk()
+            
+            if status:
+                bytes_uploaded = status.resumable_progress
+                percent = int(status.progress() * 100)
+                
+                elapsed_time = time.time() - start_time
+                speed_bps = (bytes_uploaded / elapsed_time) if elapsed_time > 0 else 0
+                
+                remaining_bytes = file_size - bytes_uploaded
+                eta_seconds = (remaining_bytes / speed_bps) if speed_bps > 0 else 0
+                
+                # Gửi tiến trình về queue
+                progress_queue.put(("drive_upload_progress", {
+                    "percent": percent,
+                    "status_text": f"Đang upload: {percent}%",
+                    "speed_text": f"{format_bytes(speed_bps)}/s",
+                    "eta_text": f"ETA: {format_time(eta_seconds)}"
+                }))
+
+        # 4. Xử lý khi hoàn thành
+        if response:
+            action_text = "cập nhật" if files else "upload mới"
+            status_listbox.insert(tk.END, f"THÀNH CÔNG: Đã {action_text} {file_name}.")
+            status_listbox.itemconfig(tk.END, {'fg': 'green'})
+            progress_queue.put(("refresh_drive_list", None)) # Yêu cầu refresh list
+
+    except HttpError as error:
+        status_listbox.insert(tk.END, f"LỖI: {error} khi xử lý {file_name}.")
+        status_listbox.itemconfig(tk.END, {'fg': 'red'})
+    except Exception as e:
+        # Bắt các lỗi mạng (như SSL, timeout)
+        status_listbox.insert(tk.END, f"LỖI KHÁC: {e} khi xử lý {file_name}.")
+        status_listbox.itemconfig(tk.END, {'fg': 'red'})
+    finally:
+        # 5. Gửi tin nhắn reset (bất kể thành công hay thất bại)
+        progress_queue.put(("drive_upload_progress", {
+            "percent": 0, "status_text": "Sẵn sàng.", "speed_text": "", "eta_text": ""
+        }))
+        status_listbox.see(tk.END)
+
+# --- HẾT HÀM GOOGLE DRIVE ---
 
 # --- Thiết lập "bắt" tiến trình ---
 progress_queue = queue.Queue()
@@ -464,6 +676,29 @@ def process_queue():
                 speed_label.config(text=progress_data["speed"])
             if "eta" in progress_data:
                 eta_label.config(text=f"ETA: {progress_data['eta']}")
+        
+        elif message_type == "drive_file_list_updated":
+            drive_refresh_button.config(state=tk.NORMAL) # Bật lại nút Refresh
+            drive_file_treeview.delete(*drive_file_treeview.get_children()) # Xóa dòng "Loading..."
+
+            files = message_value
+            if files:
+                for file in files:
+                    drive_file_treeview.insert("", tk.END, values=(file.get('name'), file.get('id')))
+            else:
+            # Hiển thị nếu list rỗng
+                drive_file_treeview.insert("", tk.END, values=("(Folder rỗng hoặc có lỗi)", ""))
+
+    # --- THÊM MỚI: XỬ LÝ YÊU CẦU REFRESH TỪ THREAD KHÁC ---
+        elif message_type == "refresh_drive_list":
+            action_refresh_drive_list()
+        
+        elif message_type == "drive_upload_progress":
+            data = message_value
+            drive_upload_progressbar['value'] = data.get('percent', 0)
+            drive_upload_status_label.config(text=data.get('status_text', '...'))
+            drive_upload_speed_label.config(text=data.get('speed_text', ''))
+            drive_upload_eta_label.config(text=data.get('eta_text', ''))
 
     except queue.Empty:
         pass
@@ -501,7 +736,7 @@ def apply_theme_to_titlebar(root_window):
     else: print("Warning: Title bar theming only supported on Windows 10/11.")
 
 # --- Cài đặt cửa sổ Giao diện (UI) ---
-root = tk.Tk()
+root = TkinterDnD.Tk()
 sv_ttk.set_theme("dark")
 apply_theme_to_titlebar(root)
 root.title("[WGZ] Game Updater")
@@ -960,6 +1195,265 @@ delete_button_top.pack(side=tk.LEFT, padx=5)
 upload_button_top = ttk.Button(top_button_frame, text="Lưu Config", command=action_upload_to_github_wrapper, style="Accent.TButton")
 upload_button_top.pack(side=tk.LEFT, padx=5)
 # --- Hết phần sửa cho Tab 2 ---
+
+upload_button_top.pack(side=tk.LEFT, padx=5)
+# --- Hết phần sửa cho Tab 2 ---
+
+
+# --- BẮT ĐẦU CODE CHO TAB 3 ("Upload Lên Drive") ---
+third_tab_frame = ttk.Frame(notebook, padding=(10, 10))
+notebook.add(third_tab_frame, text=" Upload Lên Drive ")
+
+# --- Các biến và hàm cho Tab 3 ---
+# Biến này sẽ lưu danh sách các đường dẫn file đã kéo vào
+files_to_upload_list = []
+
+def handle_drop_enter(event):
+    # Thay đổi giao diện khi chuột kéo file vào
+    drop_target_listbox.config(background="lightblue")
+    
+def handle_drop_leave(event):
+    # Trả lại giao diện cũ
+    drop_target_listbox.config(background=style.lookup("TListbox", "background"))
+
+def handle_drop(event):
+    # Xử lý khi người dùng thả file
+    handle_drop_leave(event) # Trả lại màu nền
+    # event.data chứa một chuỗi các đường dẫn file
+    # Chúng có thể được bọc trong dấu {} nếu chứa dấu cách
+    
+    # Xóa danh sách cũ
+    files_to_upload_list.clear()
+    drop_target_listbox.delete(0, tk.END)
+    
+    # Phân tích chuỗi file paths (hơi phức tạp)
+    raw_paths = root.tk.splitlist(event.data)
+    
+    for file_path in raw_paths:
+        if os.path.exists(file_path) and os.path.isfile(file_path): # Chỉ chấp nhận file
+            files_to_upload_list.append(file_path)
+            drop_target_listbox.insert(tk.END, os.path.basename(file_path))
+        else:
+            print(f"Bỏ qua: {file_path} (không phải file hoặc không tồn tại)")
+    
+    upload_files_button.config(state=tk.NORMAL) # Bật nút upload
+
+def action_drive_login():
+    entered_pin = simpledialog.askstring("Xác nhận PIN", "Nhập mã PIN quản trị:", show='*')
+    correct_pin = "2408" # Mã PIN cứng
+
+    if entered_pin != correct_pin:
+        messagebox.showerror("Sai PIN", "Mã PIN không chính xác. Đã hủy upload.")
+        return # Dừng nếu PIN sai
+    # Gọi hàm xác thực
+    drive_auth_button.config(text="Đang đăng nhập...", state=tk.DISABLED)
+    root.update_idletasks()
+    
+    service = authenticate_google_drive() # Hàm này chúng ta đã thêm ở Bước 4
+    
+    if service:
+        drive_auth_button.config(text="Đã đăng nhập Google Drive", style="Green.TButton")
+        # Kiểm tra xem có file chờ upload không
+        if files_to_upload_list:
+            upload_files_button.config(state=tk.NORMAL)
+        action_refresh_drive_list()
+    else:
+        drive_auth_button.config(text="Đăng nhập Google Drive", state=tk.NORMAL)
+
+def action_start_upload_all():
+    # Bắt đầu upload tất cả các file trong danh sách
+    if not drive_service:
+        messagebox.showwarning("Chưa Đăng Nhập", "Vui lòng đăng nhập Google Drive trước.")
+        return
+        
+    if not files_to_upload_list:
+        messagebox.showinfo("Không có file", "Vui lòng kéo file vào ô bên trên trước.")
+        return
+
+    # Xóa log cũ
+    upload_status_listbox.delete(0, tk.END)
+    
+    # Vô hiệu hóa nút để tránh bấm nhiều lần
+    upload_files_button.config(state=tk.DISABLED)
+    drive_auth_button.config(state=tk.DISABLED)
+
+    # Chạy upload trong thread để không treo UI
+    def upload_all_thread():
+        for file_path in files_to_upload_list:
+            # Chúng ta gọi hàm logic trực tiếp
+            # (Hoặc có thể tạo thread riêng cho từng file)
+            upload_file_logic(file_path, upload_status_listbox)
+        
+        # Khi xong, bật lại nút
+        upload_status_listbox.insert(tk.END, "--- HOÀN THÀNH TẤT CẢ ---")
+        upload_status_listbox.see(tk.END)
+        upload_files_button.config(state=tk.NORMAL)
+        drive_auth_button.config(state=tk.NORMAL)
+
+    threading.Thread(target=upload_all_thread, daemon=True).start()
+
+def action_clear_upload_list():
+    files_to_upload_list.clear()
+    drop_target_listbox.delete(0, tk.END)
+    upload_status_listbox.delete(0, tk.END)
+    upload_files_button.config(state=tk.DISABLED)
+
+def action_refresh_drive_list():
+    """Bọc hàm tải danh sách file vào một thread (an toàn cho UI)."""
+    drive_refresh_button.config(state=tk.DISABLED) # Tắt nút
+
+    # Xóa list cũ và hiện loading
+    drive_file_treeview.delete(*drive_file_treeview.get_children())
+    loading_id = drive_file_treeview.insert("", tk.END, values=("Đang tải, vui lòng chờ...", ""))
+    drive_file_treeview.focus(loading_id)
+
+    # Bắt đầu thread để tải
+    root.after(100, process_queue)
+    threading.Thread(target=refresh_drive_file_list_thread, daemon=True).start()
+
+def refresh_drive_file_list_thread():
+    """Hàm logic (chạy trong thread) để lấy danh sách file từ Drive."""
+    global drive_service
+    if not drive_service:
+        progress_queue.put(("status", "Lỗi: Vui lòng đăng nhập Drive trước."))
+        progress_queue.put(("drive_file_list_updated", [])) # Gửi list rỗng để bật lại nút
+        return
+
+    if GOOGLE_DRIVE_FOLDER_ID == "YOUR_FOLDER_ID_GOES_HERE":
+        progress_queue.put(("status", "Lỗi: GOOGLE_DRIVE_FOLDER_ID chưa được set."))
+        progress_queue.put(("drive_file_list_updated", [])) # Gửi list rỗng
+        return
+
+    try:
+        # Query: tìm file trong folder, không bị xóa
+        query = f"'{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false"
+        response = drive_service.files().list(
+            q=query,
+            spaces='drive',
+            fields='files(id, name)',
+            orderBy='name' # Sắp xếp theo tên
+        ).execute()
+
+        files = response.get('files', [])
+
+        # Gửi file list về main thread qua queue để cập nhật UI
+        progress_queue.put(("drive_file_list_updated", files))
+    except HttpError as error:
+        progress_queue.put(("status", f"Lỗi khi tải danh sách file: {error}"))
+        progress_queue.put(("drive_file_list_updated", [])) # Gửi list rỗng
+    except Exception as e:
+        progress_queue.put(("status", f"Lỗi: {e}"))
+        progress_queue.put(("drive_file_list_updated", []))
+# --- Giao diện cho Tab 3 ---
+
+# Frame trên cho các nút
+drive_button_frame = ttk.Frame(third_tab_frame)
+drive_button_frame.pack(fill=tk.X, pady=5)
+
+drive_auth_button = ttk.Button(drive_button_frame, text="Đăng nhập Google Drive", command=action_drive_login, style="Accent.TButton")
+drive_auth_button.pack(side=tk.LEFT, padx=5)
+
+upload_files_button = ttk.Button(drive_button_frame, text="Upload Tất Cả File", command=action_start_upload_all, style="Accent.TButton", state=tk.DISABLED)
+upload_files_button.pack(side=tk.LEFT, padx=5)
+
+clear_upload_list_button = ttk.Button(drive_button_frame, text="Xóa Danh Sách Upload", command=action_clear_upload_list)
+clear_upload_list_button.pack(side=tk.LEFT, padx=5)
+
+drive_refresh_button = ttk.Button(drive_button_frame, text="Tải Danh Sách File", command=action_refresh_drive_list) # Sẽ định nghĩa hàm này sau
+drive_refresh_button.pack(side=tk.LEFT, padx=5)
+
+# Frame cho ô kéo thả
+drop_target_frame = ttk.LabelFrame(third_tab_frame, text="Kéo file vào đây để upload", padding=(10, 10))
+drop_target_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+
+drop_target_listbox = tk.Listbox(drop_target_frame, height=10, selectmode=tk.EXTENDED)
+drop_target_listbox.pack(fill=tk.BOTH, expand=True)
+
+# Đăng ký sự kiện kéo-thả
+drop_target_listbox.drop_target_register(DND_FILES)
+drop_target_listbox.dnd_bind('<<DropEnter>>', handle_drop_enter)
+drop_target_listbox.dnd_bind('<<DropLeave>>', handle_drop_leave)
+drop_target_listbox.dnd_bind('<<Drop>>', handle_drop)
+
+drive_list_frame = ttk.LabelFrame(third_tab_frame, text="File hiện có trên Drive", padding=(10, 10))
+drive_list_frame.pack(fill=tk.BOTH, expand=True, pady=5) # Sẽ chia sẻ không gian với ô Kéo thả
+
+drive_list_scrollbar = ttk.Scrollbar(drive_list_frame, orient="vertical")
+# Chúng ta sẽ dùng treeview để dễ dàng ẩn cột ID
+drive_file_treeview = ttk.Treeview(drive_list_frame, columns=("Name", "ID"), show='headings', yscrollcommand=drive_list_scrollbar.set, height=6)
+drive_list_scrollbar.config(command=drive_file_treeview.yview)
+
+drive_file_treeview.heading("Name", text="Tên File")
+drive_file_treeview.heading("ID", text="File ID") # <-- SỬA TIÊU ĐỀ
+drive_file_treeview.column("Name", width=250, anchor=tk.W) # Giảm độ rộng một chút
+drive_file_treeview.column("ID", width=250, anchor=tk.W) # <-- HIỂN THỊ CỘT ID
+
+drive_list_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+drive_file_treeview.pack(fill=tk.BOTH, expand=True)
+
+# --- THÊM MỚI: Menu chuột phải để copy ID ---
+drive_context_menu = tk.Menu(drive_file_treeview, tearoff=0)
+
+def copy_selected_file_id():
+    selected_items = drive_file_treeview.selection()
+    if not selected_items:
+        return
+
+    selected_iid = selected_items[0]
+    # Lấy giá trị từ cột thứ 2 (index 1), chính là cột "ID"
+    file_id = drive_file_treeview.item(selected_iid, "values")[1] 
+
+    if file_id:
+        root.clipboard_clear() # Xóa clipboard cũ
+        root.clipboard_append(file_id) # Thêm ID mới vào clipboard
+        print(f"Đã copy ID: {file_id}") # In ra terminal để xác nhận
+
+drive_context_menu.add_command(label="Copy File ID", command=copy_selected_file_id)
+
+def show_drive_context_menu(event):
+    # Lấy item ngay tại vị trí con trỏ chuột
+    iid = drive_file_treeview.identify_row(event.y)
+    if iid:
+        # Tự động chọn (focus) vào item đó
+        drive_file_treeview.selection_set(iid)
+        drive_file_treeview.focus(iid)
+        # Hiển thị menu tại vị trí chuột
+        drive_context_menu.post(event.x_root, event.y_root)
+
+# Gắn sự kiện chuột phải (Button-3 cho Win/Linux, Button-2 cho macOS)
+drive_file_treeview.bind("<Button-3>", show_drive_context_menu)
+drive_file_treeview.bind("<Button-2>", show_drive_context_menu) # Cho macOS
+# --- HẾT THÊM MỚI ---
+# Frame cho log trạng thái
+upload_status_frame = ttk.LabelFrame(third_tab_frame, text="Trạng thái Upload", padding=(10, 10))
+upload_status_frame.pack(fill=tk.X, expand=False, pady=5)
+
+# --- THÊM MỚI: Thanh Progress Bar và Nhãn (Giống Tab 1) ---
+drive_upload_progressbar = ttk.Progressbar(upload_status_frame, orient="horizontal", length=100, mode="determinate")
+drive_upload_progressbar.pack(fill=tk.X, pady=(0, 5))
+
+drive_upload_labels_frame = ttk.Frame(upload_status_frame)
+drive_upload_labels_frame.pack(fill=tk.X)
+
+drive_upload_status_label = ttk.Label(drive_upload_labels_frame, text="Sẵn sàng upload...", anchor=tk.W, style="White.TLabel")
+drive_upload_status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+drive_upload_eta_label = ttk.Label(drive_upload_labels_frame, text="", style="secondary.TLabel", anchor=tk.E, width=8)
+drive_upload_eta_label.pack(side=tk.RIGHT, padx=(10,0))
+
+drive_upload_speed_label = ttk.Label(drive_upload_labels_frame, text="", style="secondary.TLabel", anchor=tk.E, width=12)
+drive_upload_speed_label.pack(side=tk.RIGHT)
+# --- HẾT THÊM MỚI ---
+
+# Log listbox (nằm bên dưới)
+status_listbox_scrollbar = ttk.Scrollbar(upload_status_frame, orient="vertical")
+upload_status_listbox = tk.Listbox(upload_status_frame, height=8, yscrollcommand=status_listbox_scrollbar.set) # Giảm chiều cao
+status_listbox_scrollbar.config(command=upload_status_listbox.yview)
+
+status_listbox_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(5,0))
+upload_status_listbox.pack(fill=tk.BOTH, expand=True, pady=(5,0))
+
+# --- HẾT CODE CHO TAB 3 ---
 
 # --- Hàm cho luồng tải config ban đầu ---
 def load_config_thread():
