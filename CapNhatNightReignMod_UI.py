@@ -69,6 +69,10 @@ fallback_options = {
     "Tải/Cập Nhật Seamless Coop": {
         "url": "https://drive.google.com/uc?id=1182Ju68pjG9LfPTgLaeME6lHPk6aeIEe",
         "version": "v? (Dự phòng)", "type": "zip", "password": None, "delete_before_extract": []
+    },
+    "Tải/Cập Nhật Seamless Coop": {
+        "url": "https://drive.google.com/uc?id=1182Ju68pjG9LfPTgLaeME6lHPk6aeIEe",
+        "version": "v? (Dự phòng)", "type": "zip", "password": None, "delete_before_extract": []
     }
     
 }
@@ -501,8 +505,8 @@ root = tk.Tk()
 sv_ttk.set_theme("dark")
 apply_theme_to_titlebar(root)
 root.title("[WGZ] Game Updater")
-root.geometry("800x750") # Giữ nguyên kích thước
-root.minsize(750, 550)
+root.geometry("800x800") # Giữ nguyên kích thước
+root.minsize(800, 550)
 # --- Định nghĩa Style ---
 style = ttk.Style()
 style.configure("Red.TLabel", foreground="red")
@@ -547,35 +551,36 @@ except Exception as e:
     image_label.pack(pady=(10, 15))
     root.tk_image = tk_image
 
-# Frame này sẽ lấp đầy không gian còn lại (thay thế cho options_frame cũ)
-scroll_host_frame = ttk.Frame(main_tab_frame , height=150)
-scroll_host_frame.pack(fill=tk.BOTH, expand=True, pady=10, padx=(10, 0)) # Thêm padx
-scroll_host_frame.pack_propagate(False)
+# 1. Tạo options_frame (LabelFrame) làm frame host CỐ ĐỊNH
+# Frame này sẽ có chiều cao CỐ ĐỊNH và chứa cả canvas lẫn scrollbar
+options_frame = ttk.LabelFrame(main_tab_frame, text="Bro muốn làm gì?", padding=(5, 5), height=250)
+options_frame.pack(fill=tk.X, expand=False, pady=10, padx=(10, 0))
+options_frame.pack_propagate(False) # RẤT QUAN TRỌNG: Giữ chiều cao cố định
 
-# 2. Tạo Canvas (nơi hiển thị nội dung)
-canvas = tk.Canvas(scroll_host_frame, borderwidth=0, highlightthickness=0)
+# 2. Tạo Scrollbar BÊN TRONG options_frame
+scrollbar = ttk.Scrollbar(options_frame, orient="vertical")
+# Pack scrollbar BÊN PHẢI. Thêm padding nhỏ để không dính viền
+scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(0, 2), padx=(0, 2)) 
 
-# 3. Tạo Scrollbar và liên kết với Canvas
-scrollbar = ttk.Scrollbar(scroll_host_frame, orient="vertical", command=canvas.yview)
-canvas.configure(yscrollcommand=scrollbar.set)
-
-# 4. Pack Scrollbar và Canvas vào frame chính
-# Scrollbar bên phải, Canvas lấp đầy phần còn lại
-scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+# 3. Tạo Canvas BÊN TRONG options_frame
+canvas = tk.Canvas(options_frame, borderwidth=0, highlightthickness=0, yscrollcommand=scrollbar.set)
+# Pack canvas vào không gian còn lại
 canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-# 5. Tạo options_frame (LabelFrame) BÊN TRONG Canvas
-# Đây mới là frame chứa các radio button
-# Quan trọng: master của nó là 'canvas'
-options_frame = ttk.LabelFrame(canvas, text="Bro muốn làm gì?", padding=(15, 10))
+# 4. Liên kết scrollbar với canvas (làm ở bước 3 rồi)
+scrollbar.config(command=canvas.yview)
 
-# 6. Đặt options_frame vào trong canvas bằng create_window
-# Nó sẽ được neo ở góc Tây Bắc (nw)
-canvas_window_id = canvas.create_window((0, 0), window=options_frame, anchor="nw")
+# 5. Tạo content_frame (Frame MỚI) BÊN TRONG Canvas
+# Đây là frame sẽ chứa các radio button
+# Nó thay thế vai trò của options_frame cũ
+content_frame = ttk.Frame(canvas, padding=(10, 5)) # Bạn có thể chỉnh padding ở đây
+
+# 6. Đặt content_frame vào trong canvas
+canvas_window_id = canvas.create_window((0, 0), window=content_frame, anchor="nw")
 
 # --- Các hàm Helper cho việc cuộn ---
 
-def on_options_frame_configure(event):
+def on_content_frame_configure(event):
     """Cập nhật scroll region của canvas khi kích thước options_frame thay đổi."""
     canvas.configure(scrollregion=canvas.bbox("all"))
 
@@ -600,18 +605,18 @@ def on_mouse_wheel(event):
     canvas.yview_scroll(scroll_amount, "units")
 
 # 7. Bind (gắn) các sự kiện
-# Khi options_frame thay đổi (thêm radio), cập nhật scrollregion
-options_frame.bind("<Configure>", on_options_frame_configure)
-# Khi canvas thay đổi (resize cửa sổ), chỉnh lại chiều rộng của options_frame
+# Khi content_frame thay đổi (thêm radio), cập nhật scrollregion
+content_frame.bind("<Configure>", on_content_frame_configure) # <-- ĐỔI TÊN FRAME VÀ HÀM
+# Khi canvas thay đổi (resize cửa sổ), chỉnh lại chiều rộng của content_frame
 canvas.bind("<Configure>", on_canvas_configure)
 # Bind mousewheel để cuộn (áp dụng cho canvas và frame bên trong)
 canvas.bind("<MouseWheel>", on_mouse_wheel)
-options_frame.bind("<MouseWheel>", on_mouse_wheel)
+content_frame.bind("<MouseWheel>", on_mouse_wheel) # <-- ĐỔI TÊN FRAME
 # Cho Linux
 canvas.bind("<Button-4>", on_mouse_wheel)
 canvas.bind("<Button-5>", on_mouse_wheel)
-options_frame.bind("<Button-4>", on_mouse_wheel)
-options_frame.bind("<Button-5>", on_mouse_wheel)
+content_frame.bind("<Button-4>", on_mouse_wheel) # <-- ĐỔI TÊN FRAME
+content_frame.bind("<Button-5>", on_mouse_wheel)
 selected_option = tk.StringVar()
 radio_buttons = []
 
@@ -619,7 +624,7 @@ def update_radio_buttons_text():
     # (Code hàm này không đổi)
     global local_config, radio_buttons
     local_config = load_local_config()
-    for widget in options_frame.winfo_children(): widget.destroy()
+    for widget in content_frame.winfo_children(): widget.destroy()
     radio_buttons = []
 
     style = ttk.Style() # Lấy style object
@@ -629,7 +634,7 @@ def update_radio_buttons_text():
     for (key, data) in download_options.items():
         online_version = data['version']
         installed_version = local_config.get("installed_versions", {}).get(key, "Chưa cài đặt")
-        row_frame = ttk.Frame(options_frame)
+        row_frame = ttk.Frame(content_frame)
         row_frame.pack(fill=tk.X, pady=1)
         button_text = f"{key} "
         button_style = "TRadiobutton"
