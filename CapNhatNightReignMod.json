@@ -19,5 +19,12 @@
         "type": "exe",
         "password": null,
         "delete_before_extract": []
+    },
+    "Test GG Zip": {
+        "url": "https://drive.google.com/uc?id=1XZjGAE0CgpMP_DxL755oNMdjCGCpekgj",
+        "version": "v1.0",
+        "type": "zip",
+        "password": null,
+        "delete_before_extract": []
     }
 }
