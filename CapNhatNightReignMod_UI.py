@@ -17,6 +17,7 @@ from PIL import Image, ImageTk
 import pywinstyles
 import sv_ttk
 # --- THÊM IMPORT CHO GITHUB ---
+import github
 from github import Github, InputGitAuthor, GithubException
 import base64
 import time
@@ -69,6 +70,7 @@ fallback_options = {
         "url": "https://drive.google.com/uc?id=1182Ju68pjG9LfPTgLaeME6lHPk6aeIEe",
         "version": "v? (Dự phòng)", "type": "zip", "password": None, "delete_before_extract": []
     }
+    
 }
 download_options = {}
 
@@ -128,8 +130,10 @@ def get_github_repo():
     token = get_github_token()
     if not token:
         return None
+    
     try:
-        g = Github(token)
+        auth = github.Auth.Token(token)
+        g = github.Github(auth=auth)
         user = g.get_user(GITHUB_REPO_OWNER)
         repo = user.get_repo(GITHUB_REPO_NAME)
         print("Kết nối GitHub repo thành công.")
@@ -497,8 +501,8 @@ root = tk.Tk()
 sv_ttk.set_theme("dark")
 apply_theme_to_titlebar(root)
 root.title("[WGZ] Game Updater")
-root.geometry("800x650") # Giữ nguyên kích thước
-
+root.geometry("800x750") # Giữ nguyên kích thước
+root.minsize(750, 550)
 # --- Định nghĩa Style ---
 style = ttk.Style()
 style.configure("Red.TLabel", foreground="red")
@@ -512,7 +516,10 @@ except Exception as e: print(f"Lỗi nghiêm trọng: Không tìm thấy UnRAR.e
 try:
     icon_path = resource_path("logo.ico")
     root.iconbitmap(icon_path)
-except Exception as e: print(f"Lỗi khi tải icon: {e}")
+except Exception as e: 
+    print(f"Lỗi khi tải icon: {e}")
+    icon_path = resource_path(r"C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\logo.ico")
+    root.iconbitmap(icon_path)
 
 # --- Tạo Notebook và Tab 1 ---
 notebook = ttk.Notebook(root, padding=(15, 15))
@@ -530,10 +537,81 @@ try:
     image_label = ttk.Label(main_tab_frame, image=tk_image, anchor=tk.CENTER)
     image_label.pack(pady=(10, 15))
     root.tk_image = tk_image
-except Exception as e: print(f"Lỗi khi tải ảnh (bỏ qua): {e}")
+except Exception as e: 
+    print(f"Lỗi khi tải ảnh (bỏ qua): {e}")
+    image_path = resource_path(r"C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\logo.png")
+    my_image = Image.open(image_path)
+    my_image = my_image.resize((150, 150), Image.Resampling.LANCZOS)
+    tk_image = ImageTk.PhotoImage(my_image)
+    image_label = ttk.Label(main_tab_frame, image=tk_image, anchor=tk.CENTER)
+    image_label.pack(pady=(10, 15))
+    root.tk_image = tk_image
 
-options_frame = ttk.LabelFrame(main_tab_frame, text="Bro muốn làm gì?", padding=(15, 10))
-options_frame.pack(fill=tk.X, pady=10)
+# Frame này sẽ lấp đầy không gian còn lại (thay thế cho options_frame cũ)
+scroll_host_frame = ttk.Frame(main_tab_frame , height=150)
+scroll_host_frame.pack(fill=tk.BOTH, expand=True, pady=10, padx=(10, 0)) # Thêm padx
+scroll_host_frame.pack_propagate(False)
+
+# 2. Tạo Canvas (nơi hiển thị nội dung)
+canvas = tk.Canvas(scroll_host_frame, borderwidth=0, highlightthickness=0)
+
+# 3. Tạo Scrollbar và liên kết với Canvas
+scrollbar = ttk.Scrollbar(scroll_host_frame, orient="vertical", command=canvas.yview)
+canvas.configure(yscrollcommand=scrollbar.set)
+
+# 4. Pack Scrollbar và Canvas vào frame chính
+# Scrollbar bên phải, Canvas lấp đầy phần còn lại
+scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+# 5. Tạo options_frame (LabelFrame) BÊN TRONG Canvas
+# Đây mới là frame chứa các radio button
+# Quan trọng: master của nó là 'canvas'
+options_frame = ttk.LabelFrame(canvas, text="Bro muốn làm gì?", padding=(15, 10))
+
+# 6. Đặt options_frame vào trong canvas bằng create_window
+# Nó sẽ được neo ở góc Tây Bắc (nw)
+canvas_window_id = canvas.create_window((0, 0), window=options_frame, anchor="nw")
+
+# --- Các hàm Helper cho việc cuộn ---
+
+def on_options_frame_configure(event):
+    """Cập nhật scroll region của canvas khi kích thước options_frame thay đổi."""
+    canvas.configure(scrollregion=canvas.bbox("all"))
+
+def on_canvas_configure(event):
+    """Đảm bảo options_frame luôn fill chiều rộng của canvas."""
+    # Trừ đi một chút để tránh thanh cuộn ngang không cần thiết
+    canvas.itemconfig(canvas_window_id, width=event.width - 4)
+
+def on_mouse_wheel(event):
+    """Cho phép cuộn bằng bánh xe chuột trên các hệ điều hành."""
+    scroll_amount = 0
+    if sys.platform == "win32":
+        scroll_amount = int(-1 * (event.delta / 120))
+    elif sys.platform == "darwin": # macOS
+        scroll_amount = event.delta
+    else: # Linux
+        if event.num == 4:
+            scroll_amount = -1
+        elif event.num == 5:
+            scroll_amount = 1
+    
+    canvas.yview_scroll(scroll_amount, "units")
+
+# 7. Bind (gắn) các sự kiện
+# Khi options_frame thay đổi (thêm radio), cập nhật scrollregion
+options_frame.bind("<Configure>", on_options_frame_configure)
+# Khi canvas thay đổi (resize cửa sổ), chỉnh lại chiều rộng của options_frame
+canvas.bind("<Configure>", on_canvas_configure)
+# Bind mousewheel để cuộn (áp dụng cho canvas và frame bên trong)
+canvas.bind("<MouseWheel>", on_mouse_wheel)
+options_frame.bind("<MouseWheel>", on_mouse_wheel)
+# Cho Linux
+canvas.bind("<Button-4>", on_mouse_wheel)
+canvas.bind("<Button-5>", on_mouse_wheel)
+options_frame.bind("<Button-4>", on_mouse_wheel)
+options_frame.bind("<Button-5>", on_mouse_wheel)
 selected_option = tk.StringVar()
 radio_buttons = []
 
@@ -565,9 +643,21 @@ def update_radio_buttons_text():
         rb = ttk.Radiobutton(row_frame, text=button_text, variable=selected_option, value=key, style=button_style)
         rb.pack(side=tk.LEFT)
         radio_buttons.append(rb)
+
+        row_frame.bind("<MouseWheel>", on_mouse_wheel)
+        rb.bind("<MouseWheel>", on_mouse_wheel)
+        # Cho Linux
+        row_frame.bind("<Button-4>", on_mouse_wheel)
+        rb.bind("<Button-4>", on_mouse_wheel)
+        row_frame.bind("<Button-5>", on_mouse_wheel)
+        rb.bind("<Button-5>", on_mouse_wheel)
         if is_new:
             new_label = ttk.Label(row_frame, text="NEW!", style="New.TLabel")
             new_label.pack(side=tk.LEFT, padx=(5, 0))
+
+            new_label.bind("<MouseWheel>", on_mouse_wheel)
+            new_label.bind("<Button-4>", on_mouse_wheel)
+            new_label.bind("<Button-5>", on_mouse_wheel)
     if radio_buttons:
         first_option_key = list(download_options.keys())[0]
         selected_option.set(first_option_key)
