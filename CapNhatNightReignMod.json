@@ -1,35 +1,35 @@
 {
-  "updater": {
-    "latest_version": "1.1",
-    "release_notes": "- Thêm tính năng tự động cập nhật\n- Sửa lỗi highlight file trên Drive",
-    "download_url": "https://github.com/hoangdangnhatkha/-WGZ-GameUpdater/releases/download/v1.1/WGZ.Game.Updater.exe"
-  },
-  "Cập Nhật Mod": {
-    "url": "https://drive.google.com/uc?id=1f9rT20EHRoF4dfc19IcC3ykhwNmUPis_",
-    "version": "v1.3.2 Hotfix",
-    "type": "zip",
-    "password": null,
-    "delete_before_extract": []
-  },
-  "Tải/Cập Nhật Seamless Coop": {
-    "url": "https://drive.google.com/uc?id=1182Ju68pjG9LfPTgLaeME6lHPk6aeIEe",
-    "version": "v1.0.6",
-    "type": "zip",
-    "password": null,
-    "delete_before_extract": []
-  },
-  "Việt Hóa Mod": {
-    "url": "https://drive.google.com/uc?id=1Hw-JR5E_SrtPHpeK6RknRxoJKMbvdexe",
-    "version": "v1.2",
-    "type": "exe",
-    "password": null,
-    "delete_before_extract": []
-  },
-  "Test GG Zip": {
-    "url": "https://drive.google.com/uc?id=1XZjGAE0CgpMP_DxL755oNMdjCGCpekgj",
-    "version": "v1.0",
-    "type": "zip",
-    "password": null,
-    "delete_before_extract": []
-  }
+    "updater": {
+        "latest_version": "1.1",
+        "release_notes": "- Thêm tính năng tự động cập nhật\n- Sửa lỗi highlight file trên Drive",
+        "download_url": "https://github.com/hoangdangnhatkha/-WGZ-GameUpdater/releases/download/v1.1/WGZ.Game.Updater.exe"
+    },
+    "Cập Nhật Mod": {
+        "url": "https://drive.google.com/uc?id=1f9rT20EHRoF4dfc19IcC3ykhwNmUPis_",
+        "version": "v1.3.3 Hotfix",
+        "type": "zip",
+        "password": null,
+        "delete_before_extract": []
+    },
+    "Tải/Cập Nhật Seamless Coop": {
+        "url": "https://drive.google.com/uc?id=1182Ju68pjG9LfPTgLaeME6lHPk6aeIEe",
+        "version": "v1.0.6",
+        "type": "zip",
+        "password": null,
+        "delete_before_extract": []
+    },
+    "Việt Hóa Mod": {
+        "url": "https://drive.google.com/uc?id=1Hw-JR5E_SrtPHpeK6RknRxoJKMbvdexe",
+        "version": "v1.2",
+        "type": "exe",
+        "password": null,
+        "delete_before_extract": []
+    },
+    "Test GG Zip": {
+        "url": "https://drive.google.com/uc?id=1XZjGAE0CgpMP_DxL755oNMdjCGCpekgj",
+        "version": "v1.0",
+        "type": "zip",
+        "password": null,
+        "delete_before_extract": []
+    }
 }
