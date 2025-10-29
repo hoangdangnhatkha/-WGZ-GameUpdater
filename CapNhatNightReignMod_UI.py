@@ -37,7 +37,7 @@ import webbrowser
 from packaging import version
 import subprocess
 # --- HẾT ---
-CURRENT_VERSION = "1.0"
+CURRENT_VERSION = "1.1"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
 def resource_path(relative_path):
     """ Lấy đường dẫn tuyệt đối, hoạt động cho cả .py và .exe """
