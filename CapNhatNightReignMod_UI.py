@@ -1110,7 +1110,7 @@ browse_button.pack(side=tk.LEFT, padx=10)
 start_button = ttk.Button(button_frame, text="Bắt đầu Cài đặt", command=start_download_thread, style="Accent.TButton")
 start_button.pack(side=tk.LEFT, padx=10)
 
-path_label_credit = ttk.Label(main_tab_frame, text="by Mr-Mime", style="secondary.TLabel")
+path_label_credit = ttk.Label(main_tab_frame, text="by Mr-Mime 2025", style="secondary.TLabel")
 path_label_credit.pack(side=tk.BOTTOM, pady=(5, 5))
 option_label = ttk.Label(main_tab_frame, text = "GG", anchor=tk.W, style="White.TLabel")
 option_label.pack(side=tk.BOTTOM, pady=(5, 5))
@@ -1707,7 +1707,50 @@ status_listbox_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(5,0))
 upload_status_listbox.pack(fill=tk.BOTH, expand=True, pady=(5,0))
 
 # --- HẾT CODE CHO TAB 3 ---
+# --- BẮT ĐẦU CODE CHO TAB 4 ("Credit") ---
+fourth_tab_frame = ttk.Frame(notebook, padding=(20, 20)) # Increased padding
+notebook.add(fourth_tab_frame, text=" Credit ")
 
+# Add content to the Credit tab
+credit_title_label = ttk.Label(
+    fourth_tab_frame,
+    text="WGZ Game Updater",
+    font=("Segoe UI", 16, "bold"), # Larger, bold font
+    anchor=tk.CENTER
+)
+credit_title_label.pack(pady=(10, 20), fill=tk.X)
+
+credit_author_label = ttk.Label(
+    fourth_tab_frame,
+    text="Phát triển bởi: Mr-Mime (hoangdangnhatkha)",
+    anchor=tk.CENTER
+)
+credit_author_label.pack(pady=5, fill=tk.X)
+
+credit_github_label = ttk.Label(
+    fourth_tab_frame,
+    text="GitHub: https://github.com/hoangdangnhatkha",
+    style="Link.TLabel", # Requires Link.TLabel style definition (optional)
+    cursor="hand2",       # Make it look clickable
+    anchor=tk.CENTER
+)
+credit_github_label.pack(pady=5, fill=tk.X)
+
+# Function to open the link
+def open_github(event):
+    webbrowser.open_new_tab("https://github.com/hoangdangnhatkha/-WGZ-GameUpdater")
+
+# Bind click event to open the link
+credit_github_label.bind("<Button-1>", open_github)
+
+# Optional: Add more labels for libraries used, special thanks, etc.
+credit_thanks_label = ttk.Label(
+    fourth_tab_frame,
+    text="\n\nChỉ dành cho việc tải, upload và chia sẽ game của Discord WIBU's Gaming Zone",
+    style="secondary.TLabel",
+    anchor=tk.CENTER
+)
+credit_thanks_label.pack(pady=(20, 5), fill=tk.X)
 # --- Hàm cho luồng tải config ban đầu ---
 def load_config_thread():
     """Tải config và gửi vào queue."""

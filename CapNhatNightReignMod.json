@@ -1,8 +1,8 @@
 {
   "updater": {
-    "latest_version": "1.0",
-    "release_notes": "- Thêm tính năng tự động cập nhật\n- Sửa lỗi highlight file trên Drive",
-    "download_url": "https://github.com/hoangdangnhatkha/-WGZ-GameUpdater/releases/download/v1.1/WGZ.Game.Updater.exe"
+    "latest_version": "1.1",
+    "release_notes": "- Thêm credit\n- Sửa lỗi highlight file trên Drive",
+    "download_url": "https://drive.google.com/uc?export=download&id=1xLitheCe9ygKSajQl9LbwxYskikYSG1J"
   },
   "Cập Nhật Mod": {
     "url": "https://drive.google.com/uc?id=1f9rT20EHRoF4dfc19IcC3ykhwNmUPis_",
