@@ -1059,6 +1059,8 @@ def update_radio_buttons_text():
     style.configure("Green.TRadiobutton", foreground="green")
 
     for (key, data) in download_options.items():
+        if key == "updater":
+            continue
         online_version = data['version']
         installed_version = local_config.get("installed_versions", {}).get(key, "Chưa cài đặt")
         row_frame = ttk.Frame(content_frame)
@@ -1201,6 +1203,8 @@ def populate_treeview():
     options_treeview.delete(*options_treeview.get_children())
     if not current_config_data: return
     for key, data in current_config_data.items():
+        if key == "updater":
+            continue
         options_treeview.insert("", tk.END, iid=key, values=(
             key, data.get("version", ""), data.get("type", "zip")
         ))
@@ -1265,6 +1269,9 @@ def action_add_update_option():
     option_name = form_widgets["Option Name:"].get().strip()
     if not option_name:
         messagebox.showwarning("Thiếu tên", "Vui lòng nhập 'Option Name'.")
+        return
+    if option_name.lower() == "updater":
+        messagebox.showerror("Tên Bị Cấm", "Bạn không thể đặt tên 'updater'")
         return
 
     # --- SỬA LOGIC XỬ LÝ URL INPUT ---
