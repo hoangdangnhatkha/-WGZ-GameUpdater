@@ -32,14 +32,19 @@ from googleapiclient.http import MediaFileUpload
 
 import httplib2 
 from google_auth_httplib2 import AuthorizedHttp
-# --- HẾT ---
 
+import webbrowser
+from packaging import version
+import subprocess
+# --- HẾT ---
+CURRENT_VERSION = "1.0"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
 def resource_path(relative_path):
+    """ Lấy đường dẫn tuyệt đối, hoạt động cho cả .py và .exe """
     try:
         base_path = sys._MEIPASS
     except Exception:
-        base_path = os.path.abspath(".")
+        base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
 
 def format_bytes(size_in_bytes):
@@ -67,9 +72,62 @@ def format_time(seconds):
             return f"{m:02d}:{s:02d}"
     except:
         return "--:--"
+    
+def check_for_updates(config_data):
+    """So sánh phiên bản hiện tại với phiên bản trên GitHub."""
+    try:
+        updater_info = config_data.get("updater")
+        if not updater_info: return
+
+        latest_version_str = updater_info.get("latest_version")
+        if not latest_version_str: return
+
+        # So sánh phiên bản
+        if version.parse(latest_version_str) > version.parse(CURRENT_VERSION):
+            print(f"Phát hiện phiên bản mới: {latest_version_str}")
+
+            notes = updater_info.get("release_notes", "Không có ghi chú.")
+            url = updater_info.get("download_url") # Phải có URL trực tiếp
+
+            if not url:
+                print("Lỗi config: 'download_url' bị thiếu trong mục 'updater'.")
+                return
+
+            message = (
+                f"Đã có phiên bản mới: {latest_version_str}!\n"
+                f"(Bạn đang dùng: {CURRENT_VERSION})\n\n"
+                f"Ghi chú:\n{notes}\n\n"
+                "Bạn có muốn tự động cập nhật ngay bây giờ?"
+            )
+
+            # Hiển thị thông báo (an toàn vì đang chạy trong process_queue)
+            if messagebox.askyesno("Có Cập Nhật Mới!", message):
+                try:
+                    updater_exe_path = resource_path("updater.exe") 
+                    main_app_path = sys.executable # Đường dẫn đến file .exe chính
+
+                    if not os.path.exists(updater_exe_path):
+                        raise FileNotFoundError("Không tìm thấy file 'updater.exe'.")
+
+                    print("Bắt đầu chạy updater...")
+
+                    # Chạy updater.exe và truyền (1) URL và (2) Đường dẫn app chính
+                    subprocess.Popen([updater_exe_path, url, main_app_path])
+
+                    # Đóng ứng dụng chính
+                    root.destroy()
+
+                except Exception as e:
+                    messagebox.showerror("Lỗi Cập Nhật", f"Không thể chạy updater: {e}\nSẽ mở link tải thủ công.")
+                    webbrowser.open_new_tab(url)
+        else:
+            print("Ứng dụng đã ở phiên bản mới nhất.")
+
+    except Exception as e:
+        print(f"Lỗi khi kiểm tra cập nhật: {e}")
 # --- Hàm tải config từ GitHub ---
 def load_config_from_github(): # Đổi tên hàm cho rõ
-    json_url = "https://raw.githubusercontent.com/hoangdangnhatkha/WGZGameUpdater/refs/heads/main/CapNhatNightReignMod.json"
+    json_url = "https://raw.githubusercontent.com/hoangdangnhatkha/-WGZ-GameUpdater/refs/heads/main/CapNhatNightReignMod.json"
     cache_buster = f"?_={int(time.time())}" # Thêm timestamp hiện tại
     full_url = json_url + cache_buster
     try:
@@ -116,10 +174,10 @@ download_options = {}
 
 # --- THÊM CONFIG GITHUB ---
 GITHUB_REPO_OWNER = "hoangdangnhatkha"
-GITHUB_REPO_NAME = "WGZGameUpdater"
+GITHUB_REPO_NAME = "-WGZ-GameUpdater"
 GITHUB_FILE_PATH = "CapNhatNightReignMod.json"
 GITHUB_BRANCH = "main"
-GITHUB_TOKEN_FILE = r"C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\github_token.txt"
+GITHUB_TOKEN_FILE = "github_token.txt"
 # --- HẾT ---
 
 # --- Config file setup ---
@@ -290,8 +348,8 @@ def authenticate_google_drive():
     
     # File token.json lưu trữ thông tin đăng nhập của người dùng.
     # Nó được tạo tự động sau lần đăng nhập đầu tiên.
-    token_path = resource_path(r'C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\token.json')
-    creds_path = resource_path(r'C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\credentials.json') # File bạn tải ở Bước 2
+    token_path = resource_path('token.json')
+    creds_path = resource_path('credentials.json') # File bạn tải ở Bước 2
     
     if not os.path.exists(creds_path):
         messagebox.showerror("Lỗi Thiết Lập", "Không tìm thấy file 'credentials.json'.\nVui lòng làm theo Bước 2 trong hướng dẫn.")
@@ -636,6 +694,7 @@ def process_queue():
             if saved_path:
                 path_entry.insert(0, saved_path)
             status_label.configure(text="Hãy chọn đường dẫn và bấm bắt đầu.", style="White.TLabel")
+            check_for_updates(message_value)
             return
 
         elif message_type == "status":
@@ -733,18 +792,28 @@ def process_queue():
                         icon_to_use = icon_exe
 
                     # 2. Tạo 'mini-frame' cho item này
-                    item_frame = ttk.Frame(drive_icon_content_frame)
+                    item_frame = ttk.Frame(drive_icon_content_frame, style="Card.TFrame") # Dùng style 'Card'
                     item_frame.grid(row=current_row, column=current_col, padx=10, pady=10, sticky='n')
 
                     # 3. Tạo Icon Label
                     icon_label = ttk.Label(item_frame, image=icon_to_use)
-                    icon_label.pack(side=tk.TOP)
+                    icon_label.pack(side=tk.TOP, pady=(5, 0))
 
                     # 4. Tạo Name Label (tự động xuống dòng)
-                    name_label = ttk.Label(item_frame, text=file_name, anchor=tk.CENTER, wraplength=80) # Rộng 80px
-                    name_label.pack(side=tk.TOP, fill=tk.X, expand=True, pady=(5,0))
+                    name_label = ttk.Label(item_frame, text=file_name, anchor=tk.CENTER, wraplength=80) 
+                    name_label.pack(side=tk.TOP, fill=tk.X, expand=True, pady=(5, 5))
+                    # --- 5. Gắn sự kiện Click chuột trái ---
+                    def create_click_lambda(frame):
+                        return lambda e: on_drive_item_click(e, frame)
 
-                    # --- 5. Thêm menu chuột phải (Copy Name, ID, Delete) ---
+                    click_func = create_click_lambda(item_frame)
+                    item_frame.bind("<Button-1>", click_func)
+                    icon_label.bind("<Button-1>", click_func)
+                    name_label.bind("<Button-1>", click_func)
+                    # --- HẾT THÊM MỚI ---
+
+
+                    # --- 6. Thêm menu chuột phải (Copy Name, ID, Delete) --- 
 
                     # Hàm helper chung cho việc copy
                     def copy_to_clipboard(text_to_copy, type_name):
@@ -852,8 +921,9 @@ root = TkinterDnD.Tk()
 sv_ttk.set_theme("dark")
 apply_theme_to_titlebar(root)
 root.title("[WGZ] Game Updater")
-root.geometry("800x800") # Giữ nguyên kích thước
+root.geometry("800x900") # Giữ nguyên kích thước
 root.minsize(800, 550)
+root.resizable(False,False)
 # --- Định nghĩa Style ---
 style = ttk.Style()
 style.configure("Red.TLabel", foreground="red")
@@ -867,10 +937,9 @@ except Exception as e: print(f"Lỗi nghiêm trọng: Không tìm thấy UnRAR.e
 try:
     icon_path = resource_path("logo.ico")
     root.iconbitmap(icon_path)
+    root.iconbitmap(default=icon_path)
 except Exception as e: 
     print(f"Lỗi khi tải icon: {e}")
-    icon_path = resource_path(r"C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\logo.ico")
-    root.iconbitmap(icon_path)
 
 # --- Tạo Notebook và Tab 1 ---
 notebook = ttk.Notebook(root, padding=(15, 15))
@@ -890,13 +959,6 @@ try:
     root.tk_image = tk_image
 except Exception as e: 
     print(f"Lỗi khi tải ảnh (bỏ qua): {e}")
-    image_path = resource_path(r"C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\logo.png")
-    my_image = Image.open(image_path)
-    my_image = my_image.resize((150, 150), Image.Resampling.LANCZOS)
-    tk_image = ImageTk.PhotoImage(my_image)
-    image_label = ttk.Label(main_tab_frame, image=tk_image, anchor=tk.CENTER)
-    image_label.pack(pady=(10, 15))
-    root.tk_image = tk_image
 
 # --- THÊM MỚI: Tải các icon file chung ---
 def load_drive_icon(filename, size=(32, 32)):
@@ -910,10 +972,10 @@ def load_drive_icon(filename, size=(32, 32)):
         return None
 
 # Lưu vào root để không bị garbage-collected
-root.drive_icon_zip = load_drive_icon(r"C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\zip_icon.png")
-root.drive_icon_exe = load_drive_icon(r"C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\exe_icon.png")
-root.drive_icon_rar = load_drive_icon(r"C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\rar_icon.png")
-root.drive_icon_unknown = load_drive_icon(r"C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\unknown_icon.png")
+root.drive_icon_zip = load_drive_icon("zip_icon.png")
+root.drive_icon_exe = load_drive_icon("exe_icon.png")
+root.drive_icon_rar = load_drive_icon("rar_icon.png")
+root.drive_icon_unknown = load_drive_icon("unknown_icon.png")
 # --- HẾT THÊM MỚI ---
 
 # 1. Tạo options_frame (LabelFrame) làm frame host CỐ ĐỊNH
@@ -1532,6 +1594,29 @@ clear_upload_list_button.pack(side=tk.LEFT, padx=5)
 
 drive_refresh_button = ttk.Button(drive_button_frame, text="Tải Danh Sách File", command=action_refresh_drive_list) # Sẽ định nghĩa hàm này sau
 drive_refresh_button.pack(side=tk.LEFT, padx=5)
+
+g_selected_drive_item_frame = None # Biến theo dõi item đang được chọn
+
+def on_drive_item_click(event, clicked_frame):
+    """Xử lý khi click chuột trái vào một item trong lưới."""
+    global g_selected_drive_item_frame
+
+    # 1. Bỏ chọn item cũ (nếu có)
+    if g_selected_drive_item_frame and g_selected_drive_item_frame != clicked_frame:
+        try:
+            # Trả về style mặc định 'Card.TFrame'
+            g_selected_drive_item_frame.config(style="Card.TFrame")
+        except Exception as e:
+            print(f"Lỗi bỏ chọn item: {e}")
+
+    # 2. Chọn item mới
+    try:
+        # Đặt style mới là "Accent.TFrame" (màu xanh accent)
+        clicked_frame.config(style="Accent.TFrame") 
+        g_selected_drive_item_frame = clicked_frame
+    except Exception as e:
+        print(f"Lỗi chọn item: {e}")
+# --- HẾT THÊM MỚI ---
 
 # Frame cho ô kéo thả
 drop_target_frame = ttk.LabelFrame(third_tab_frame, text="Kéo file vào đây để upload", padding=(10, 10))
