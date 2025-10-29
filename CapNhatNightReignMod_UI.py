@@ -37,7 +37,7 @@ import webbrowser
 from packaging import version
 import subprocess
 # --- HẾT ---
-CURRENT_VERSION = "1.1"
+CURRENT_VERSION = "1.0"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
 def resource_path(relative_path):
     """ Lấy đường dẫn tuyệt đối, hoạt động cho cả .py và .exe """
@@ -103,9 +103,12 @@ def check_for_updates(config_data):
             # Hiển thị thông báo (an toàn vì đang chạy trong process_queue)
             if messagebox.askyesno("Có Cập Nhật Mới!", message):
                 try:
-                    updater_exe_path = resource_path("updater.exe") 
-                    main_app_path = sys.executable # Đường dẫn đến file .exe chính
-
+                    # Tìm đường dẫn của file .exe chính đang chạy
+                    main_app_path = sys.executable
+                    # Lấy thư mục chứa file .exe chính
+                    main_app_dir = os.path.dirname(main_app_path)
+                    # Xây dựng đường dẫn đến updater.exe (nằm ở thư mục cha)
+                    updater_exe_path = os.path.abspath(os.path.join(main_app_dir, "..", "updater.exe"))
                     if not os.path.exists(updater_exe_path):
                         raise FileNotFoundError("Không tìm thấy file 'updater.exe'.")
 
@@ -1714,7 +1717,7 @@ notebook.add(fourth_tab_frame, text=" Credit ")
 # Add content to the Credit tab
 credit_title_label = ttk.Label(
     fourth_tab_frame,
-    text="WGZ Game Updater",
+    text=f"WGZ Game Updater {CURRENT_VERSION}",
     font=("Segoe UI", 16, "bold"), # Larger, bold font
     anchor=tk.CENTER
 )

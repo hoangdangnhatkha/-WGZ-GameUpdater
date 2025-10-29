@@ -183,3 +183,4 @@ cython_debug/
 github_token.txt
 credentials.json
 token.json
+updater.exe
