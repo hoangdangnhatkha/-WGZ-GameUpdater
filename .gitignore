@@ -181,3 +181,5 @@ cython_debug/
 .cursorindexingignore
 
 github_token.txt
+credentials.json
+token.json

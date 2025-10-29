@@ -677,17 +677,124 @@ def process_queue():
             if "eta" in progress_data:
                 eta_label.config(text=f"ETA: {progress_data['eta']}")
         
-        elif message_type == "drive_file_list_updated":
-            drive_refresh_button.config(state=tk.NORMAL) # Bật lại nút Refresh
-            drive_file_treeview.delete(*drive_file_treeview.get_children()) # Xóa dòng "Loading..."
+        elif message_type == "drive_data_updated": # <-- ĐỔI TÊN TIN NHẮN
+            drive_refresh_button.config(state=tk.NORMAL)
 
-            files = message_value
+            # --- THÊM MỚI: Xử lý dữ liệu QUOTA ---
+            quota = message_value.get("quota")
+            if quota and 'limit' in quota and 'usage' in quota:
+                try:
+                    # Dùng hàm format_bytes() đã có
+                    usage_str = format_bytes(int(quota['usage']))
+                    limit_str = format_bytes(int(quota['limit']))
+                    drive_storage_label.config(text=f"Dung lượng Drive: {usage_str} / {limit_str}")
+                except Exception as e:
+                    print(f"Lỗi format dung lượng: {e}")
+                    drive_storage_label.config(text="Dung lượng Drive: Lỗi")
+            else:
+                drive_storage_label.config(text="Dung lượng Drive: Không thể tải")
+            # --- HẾT THÊM MỚI ---
+
+            # --- Code cũ: Xử lý danh sách FILES ---
+            # Xóa tất cả icon cũ
+            for widget in drive_icon_content_frame.winfo_children():
+                widget.destroy()
+
+            files = message_value.get("files", []) # Lấy 'files' từ dict
+
+            # (Toàn bộ code còn lại để tạo lưới icon...
+            # ... từ "icon_zip = root.drive_icon_zip" ...
+            # ... đến "empty_label.pack()" ...
+            # ... là GIỮ NGUYÊN KHÔNG ĐỔI)
+
+            # Lấy các icon đã tải
+            icon_zip = root.drive_icon_zip
+            icon_exe = root.drive_icon_exe
+            icon_rar = root.drive_icon_rar
+            icon_file = root.drive_icon_unknown
+
+            # Định nghĩa layout lưới (ví dụ: 6 cột)
+            MAX_COLS = 8
+            current_row = 0
+            current_col = 0
+
             if files:
                 for file in files:
-                    drive_file_treeview.insert("", tk.END, values=(file.get('name'), file.get('id')))
+                    file_name = file.get("name")
+                    file_id = file.get("id")
+
+                    # 1. Chọn icon dựa trên tên file
+                    icon_to_use = icon_file # Mặc định
+                    if file_name.endswith(".zip"):
+                        icon_to_use = icon_zip
+                    elif file_name.endswith(".rar"):
+                        icon_to_use = icon_rar
+                    elif file_name.endswith(".exe"):
+                        icon_to_use = icon_exe
+
+                    # 2. Tạo 'mini-frame' cho item này
+                    item_frame = ttk.Frame(drive_icon_content_frame)
+                    item_frame.grid(row=current_row, column=current_col, padx=10, pady=10, sticky='n')
+
+                    # 3. Tạo Icon Label
+                    icon_label = ttk.Label(item_frame, image=icon_to_use)
+                    icon_label.pack(side=tk.TOP)
+
+                    # 4. Tạo Name Label (tự động xuống dòng)
+                    name_label = ttk.Label(item_frame, text=file_name, anchor=tk.CENTER, wraplength=80) # Rộng 80px
+                    name_label.pack(side=tk.TOP, fill=tk.X, expand=True, pady=(5,0))
+
+                    # --- 5. Thêm menu chuột phải (Copy Name, ID, Delete) ---
+
+                    # Hàm helper chung cho việc copy
+                    def copy_to_clipboard(text_to_copy, type_name):
+                        root.clipboard_clear()
+                        root.clipboard_append(text_to_copy)
+                        print(f"Đã copy {type_name}: {text_to_copy}")
+
+                    # Hàm helper tạo lambda
+                    def create_copy_lambda(text, t_name):
+                        return lambda: copy_to_clipboard(text, t_name)
+
+                    # Hàm helper tạo lambda cho Xóa
+                    def create_delete_lambda(fid, fname):
+                        # Hàm này sẽ gọi thread xóa
+                        def start_delete_thread():
+                            threading.Thread(target=action_delete_drive_file_thread, args=(fid, fname), daemon=True).start()
+                        return start_delete_thread
+
+                    context_menu = tk.Menu(item_frame, tearoff=0)
+
+                    # Thêm 2 lệnh copy
+                    context_menu.add_command(label="Copy Tên File", command=create_copy_lambda(file_name, "Tên File"))
+                    context_menu.add_command(label="Copy File ID", command=create_copy_lambda(file_id, "File ID"))
+
+                    context_menu.add_separator()
+
+                    # Thêm lệnh Xóa
+                    context_menu.add_command(label="Xóa File...", command=create_delete_lambda(file_id, file_name))
+
+                    # Hàm hiển thị menu (không đổi)
+                    def create_show_menu_lambda(menu):
+                        return lambda e: menu.post(e.x_root, e.y_root)
+
+                    show_menu_func = create_show_menu_lambda(context_menu)
+
+                    # Gắn sự kiện chuột phải cho tất cả các phần (không đổi)
+                    item_frame.bind("<Button-3>", show_menu_func)
+                    icon_label.bind("<Button-3>", show_menu_func)
+                    name_label.bind("<Button-3>", show_menu_func)
+                    # --- Hết phần menu ---
+
+                    # 6. Cập nhật vị trí lưới
+                    current_col += 1
+                    if current_col >= MAX_COLS:
+                        current_col = 0
+                        current_row += 1
             else:
-            # Hiển thị nếu list rỗng
-                drive_file_treeview.insert("", tk.END, values=("(Folder rỗng hoặc có lỗi)", ""))
+                # Hiển thị nếu list rỗng
+                empty_label = ttk.Label(drive_icon_content_frame, text="(Folder rỗng hoặc có lỗi)")
+                empty_label.pack()
 
     # --- THÊM MỚI: XỬ LÝ YÊU CẦU REFRESH TỪ THREAD KHÁC ---
         elif message_type == "refresh_drive_list":
@@ -700,6 +807,11 @@ def process_queue():
             drive_upload_speed_label.config(text=data.get('speed_text', ''))
             drive_upload_eta_label.config(text=data.get('eta_text', ''))
 
+        # --- THÊM MỚI: XỬ LÝ LOG CHO TAB 3 ---
+        elif message_type == "drive_log":
+            upload_status_listbox.insert(tk.END, message_value)
+            upload_status_listbox.see(tk.END) # Cuộn xuống
+    # --- HẾT THÊM MỚI ---
     except queue.Empty:
         pass
 
@@ -785,6 +897,24 @@ except Exception as e:
     image_label = ttk.Label(main_tab_frame, image=tk_image, anchor=tk.CENTER)
     image_label.pack(pady=(10, 15))
     root.tk_image = tk_image
+
+# --- THÊM MỚI: Tải các icon file chung ---
+def load_drive_icon(filename, size=(32, 32)):
+    """Hàm helper để tải và resize icon, trả về None nếu lỗi."""
+    try:
+        icon_path = resource_path(filename)
+        icon_img = Image.open(icon_path).resize(size, Image.Resampling.LANCZOS)
+        return ImageTk.PhotoImage(icon_img)
+    except Exception as e:
+        print(f"Lỗi tải {filename} (bỏ qua): {e}")
+        return None
+
+# Lưu vào root để không bị garbage-collected
+root.drive_icon_zip = load_drive_icon(r"C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\zip_icon.png")
+root.drive_icon_exe = load_drive_icon(r"C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\exe_icon.png")
+root.drive_icon_rar = load_drive_icon(r"C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\rar_icon.png")
+root.drive_icon_unknown = load_drive_icon(r"C:\Users\Dang\Desktop\Exe File\[WGZ]GameUpdaterProject\WGZGameUpdater\unknown_icon.png")
+# --- HẾT THÊM MỚI ---
 
 # 1. Tạo options_frame (LabelFrame) làm frame host CỐ ĐỊNH
 # Frame này sẽ có chiều cao CỐ ĐỊNH và chứa cả canvas lẫn scrollbar
@@ -1204,6 +1334,7 @@ upload_button_top.pack(side=tk.LEFT, padx=5)
 third_tab_frame = ttk.Frame(notebook, padding=(10, 10))
 notebook.add(third_tab_frame, text=" Upload Lên Drive ")
 
+drive_storage_label = ttk.Label(third_tab_frame, text="Dung lượng Drive: Đang tải...", style="secondary.TLabel", anchor=tk.W)
 # --- Các biến và hàm cho Tab 3 ---
 # Biến này sẽ lưu danh sách các đường dẫn file đã kéo vào
 files_to_upload_list = []
@@ -1302,49 +1433,89 @@ def action_refresh_drive_list():
     """Bọc hàm tải danh sách file vào một thread (an toàn cho UI)."""
     drive_refresh_button.config(state=tk.DISABLED) # Tắt nút
 
+    # --- SỬA LỖI: Xóa item khỏi FRAME LƯỚI, không phải TREEVIEW ---
     # Xóa list cũ và hiện loading
-    drive_file_treeview.delete(*drive_file_treeview.get_children())
-    loading_id = drive_file_treeview.insert("", tk.END, values=("Đang tải, vui lòng chờ...", ""))
-    drive_file_treeview.focus(loading_id)
+    for widget in drive_icon_content_frame.winfo_children():
+        widget.destroy()
+
+    loading_label = ttk.Label(drive_icon_content_frame, text="Đang tải, vui lòng chờ...")
+    loading_label.pack(pady=10)
+    # --- HẾT SỬA ---
 
     # Bắt đầu thread để tải
     root.after(100, process_queue)
     threading.Thread(target=refresh_drive_file_list_thread, daemon=True).start()
 
 def refresh_drive_file_list_thread():
-    """Hàm logic (chạy trong thread) để lấy danh sách file từ Drive."""
+    """(Chạy trong thread) Lấy danh sách file VÀ dung lượng từ Drive."""
     global drive_service
     if not drive_service:
         progress_queue.put(("status", "Lỗi: Vui lòng đăng nhập Drive trước."))
-        progress_queue.put(("drive_file_list_updated", [])) # Gửi list rỗng để bật lại nút
+        progress_queue.put(("drive_data_updated", {"files": [], "quota": None})) # Gửi dữ liệu rỗng
         return
 
     if GOOGLE_DRIVE_FOLDER_ID == "YOUR_FOLDER_ID_GOES_HERE":
         progress_queue.put(("status", "Lỗi: GOOGLE_DRIVE_FOLDER_ID chưa được set."))
-        progress_queue.put(("drive_file_list_updated", [])) # Gửi list rỗng
+        progress_queue.put(("drive_data_updated", {"files": [], "quota": None})) # Gửi dữ liệu rỗng
         return
 
     try:
-        # Query: tìm file trong folder, không bị xóa
+        # 1. Lấy danh sách file (như cũ)
         query = f"'{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false"
-        response = drive_service.files().list(
+        response_files = drive_service.files().list(
             q=query,
             spaces='drive',
             fields='files(id, name)',
             orderBy='name' # Sắp xếp theo tên
         ).execute()
+        files = response_files.get('files', [])
 
-        files = response.get('files', [])
+        # 2. THÊM MỚI: Lấy thông tin dung lượng
+        quota_data = drive_service.about().get(fields='storageQuota').execute()
+        quota = quota_data.get('storageQuota', {})
 
-        # Gửi file list về main thread qua queue để cập nhật UI
-        progress_queue.put(("drive_file_list_updated", files))
+        # 3. Gửi cả hai về queue
+        progress_queue.put(("drive_data_updated", {"files": files, "quota": quota}))
+
     except HttpError as error:
-        progress_queue.put(("status", f"Lỗi khi tải danh sách file: {error}"))
-        progress_queue.put(("drive_file_list_updated", [])) # Gửi list rỗng
+        progress_queue.put(("status", f"Lỗi khi tải dữ liệu Drive: {error}"))
+        progress_queue.put(("drive_data_updated", {"files": [], "quota": None})) # Gửi rỗng
     except Exception as e:
         progress_queue.put(("status", f"Lỗi: {e}"))
-        progress_queue.put(("drive_file_list_updated", []))
+        progress_queue.put(("drive_data_updated", {"files": [], "quota": None})) # Gửi rỗng
+
+def action_delete_drive_file_thread(file_id, file_name):
+    """(Chạy trong thread) Xóa file khỏi Google Drive."""
+    global drive_service
+    if not drive_service:
+        messagebox.showerror("Lỗi", "Chưa đăng nhập Google Drive.")
+        return
+
+    # 1. Xác nhận
+    if not messagebox.askyesno("Xác nhận Xóa", f"Bạn có chắc chắn muốn XÓA VĨNH VIỄN file này khỏi Google Drive không?\n\nFile: {file_name}"):
+        progress_queue.put(("drive_log", "Đã hủy thao tác xóa."))
+        return # Hủy
+
+    # 2. Gửi trạng thái
+    progress_queue.put(("drive_log", f"Đang xóa {file_name}..."))
+
+    try:
+        # 3. Thực thi
+        drive_service.files().delete(fileId=file_id).execute()
+
+        # 4. Báo thành công và Yêu cầu Refresh
+        progress_queue.put(("drive_log", f"Đã xóa {file_name} thành công."))
+        progress_queue.put(("refresh_drive_list", None)) # <-- Yêu cầu tải lại lưới
+
+    except HttpError as error:
+        messagebox.showerror("Lỗi Xóa", f"Lỗi khi xóa file: {error}")
+        progress_queue.put(("drive_log", f"Lỗi khi xóa {file_name}."))
+    except Exception as e:
+        messagebox.showerror("Lỗi Xóa", f"Lỗi không xác định: {e}")
+        progress_queue.put(("drive_log", f"Lỗi khi xóa {file_name}."))
 # --- Giao diện cho Tab 3 ---
+
+
 
 # Frame trên cho các nút
 drive_button_frame = ttk.Frame(third_tab_frame)
@@ -1375,54 +1546,44 @@ drop_target_listbox.dnd_bind('<<DropEnter>>', handle_drop_enter)
 drop_target_listbox.dnd_bind('<<DropLeave>>', handle_drop_leave)
 drop_target_listbox.dnd_bind('<<Drop>>', handle_drop)
 
-drive_list_frame = ttk.LabelFrame(third_tab_frame, text="File hiện có trên Drive", padding=(10, 10))
-drive_list_frame.pack(fill=tk.BOTH, expand=True, pady=5) # Sẽ chia sẻ không gian với ô Kéo thả
+drive_storage_label.pack(fill=tk.X, pady=(10, 2), padx=(5,0))
+# --- THAY THẾ: Tạo giao diện lưới (grid) có thể cuộn ---
+drive_list_frame = ttk.LabelFrame(third_tab_frame, text="File hiện có trên Drive", padding=(5, 5))
+drive_list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
 
-drive_list_scrollbar = ttk.Scrollbar(drive_list_frame, orient="vertical")
-# Chúng ta sẽ dùng treeview để dễ dàng ẩn cột ID
-drive_file_treeview = ttk.Treeview(drive_list_frame, columns=("Name", "ID"), show='headings', yscrollcommand=drive_list_scrollbar.set, height=6)
-drive_list_scrollbar.config(command=drive_file_treeview.yview)
+# 1. Tạo Canvas và Scrollbar
+drive_canvas = tk.Canvas(drive_list_frame, borderwidth=0, highlightthickness=0)
+drive_scrollbar = ttk.Scrollbar(drive_list_frame, orient="vertical", command=drive_canvas.yview)
+drive_canvas.configure(yscrollcommand=drive_scrollbar.set)
 
-drive_file_treeview.heading("Name", text="Tên File")
-drive_file_treeview.heading("ID", text="File ID") # <-- SỬA TIÊU ĐỀ
-drive_file_treeview.column("Name", width=250, anchor=tk.W) # Giảm độ rộng một chút
-drive_file_treeview.column("ID", width=250, anchor=tk.W) # <-- HIỂN THỊ CỘT ID
+drive_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+drive_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-drive_list_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-drive_file_treeview.pack(fill=tk.BOTH, expand=True)
+# 2. Tạo Frame nội dung BÊN TRONG Canvas
+# Frame này sẽ chứa các icon
+drive_icon_content_frame = ttk.Frame(drive_canvas, padding=(5, 5))
 
-# --- THÊM MỚI: Menu chuột phải để copy ID ---
-drive_context_menu = tk.Menu(drive_file_treeview, tearoff=0)
+# 3. Đặt Frame nội dung vào Canvas
+drive_canvas_window_id = drive_canvas.create_window((0, 0), window=drive_icon_content_frame, anchor="nw")
 
-def copy_selected_file_id():
-    selected_items = drive_file_treeview.selection()
-    if not selected_items:
-        return
+# --- Các hàm helper cho việc cuộn (Tương tự Tab 1) ---
+def on_drive_content_frame_configure(event):
+    """Cập nhật scroll region của canvas."""
+    drive_canvas.configure(scrollregion=drive_canvas.bbox("all"))
 
-    selected_iid = selected_items[0]
-    # Lấy giá trị từ cột thứ 2 (index 1), chính là cột "ID"
-    file_id = drive_file_treeview.item(selected_iid, "values")[1] 
+def on_drive_canvas_configure(event):
+    """Đảm bảo frame nội dung luôn fill chiều rộng của canvas."""
+    drive_canvas.itemconfig(drive_canvas_window_id, width=event.width - 4)
 
-    if file_id:
-        root.clipboard_clear() # Xóa clipboard cũ
-        root.clipboard_append(file_id) # Thêm ID mới vào clipboard
-        print(f"Đã copy ID: {file_id}") # In ra terminal để xác nhận
+# 4. Bind (gắn) các sự kiện cuộn
+drive_icon_content_frame.bind("<Configure>", on_drive_content_frame_configure)
+drive_canvas.bind("<Configure>", on_drive_canvas_configure)
 
-drive_context_menu.add_command(label="Copy File ID", command=copy_selected_file_id)
-
-def show_drive_context_menu(event):
-    # Lấy item ngay tại vị trí con trỏ chuột
-    iid = drive_file_treeview.identify_row(event.y)
-    if iid:
-        # Tự động chọn (focus) vào item đó
-        drive_file_treeview.selection_set(iid)
-        drive_file_treeview.focus(iid)
-        # Hiển thị menu tại vị trí chuột
-        drive_context_menu.post(event.x_root, event.y_root)
-
-# Gắn sự kiện chuột phải (Button-3 cho Win/Linux, Button-2 cho macOS)
-drive_file_treeview.bind("<Button-3>", show_drive_context_menu)
-drive_file_treeview.bind("<Button-2>", show_drive_context_menu) # Cho macOS
+# Gắn sự kiện cuộn chuột cho tất cả
+drive_canvas.bind_all("<MouseWheel>", on_mouse_wheel) # Dùng on_mouse_wheel chung
+drive_canvas.bind_all("<Button-4>", on_mouse_wheel)
+drive_canvas.bind_all("<Button-5>", on_mouse_wheel)
+# --- HẾT THAY THẾ ---
 # --- HẾT THÊM MỚI ---
 # Frame cho log trạng thái
 upload_status_frame = ttk.LabelFrame(third_tab_frame, text="Trạng thái Upload", padding=(10, 10))
