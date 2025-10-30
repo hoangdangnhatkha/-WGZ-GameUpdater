@@ -16,6 +16,7 @@ import rarfile
 from PIL import Image, ImageTk
 import pywinstyles
 import sv_ttk
+import hashlib
 # --- THÊM IMPORT CHO GITHUB ---
 import github
 from github import Github, InputGitAuthor, GithubException
@@ -41,6 +42,7 @@ import subprocess
 g_update_info = None
 scan_loading_window = None
 CURRENT_VERSION = "1.1"
+EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
 def resource_path(relative_path):
     """ Lấy đường dẫn tuyệt đối, hoạt động cho cả .py và .exe """
@@ -156,31 +158,76 @@ def check_for_updates(config_data):
             # Hiển thị thông báo (an toàn vì đang chạy trong process_queue)
             if messagebox.askyesno("Có Cập Nhật Mới!", message):
                 try:
-                    # Tìm đường dẫn của file .exe chính đang chạy
+                    # 1. Lấy đường dẫn của file .exe chính đang chạy
                     main_app_path = sys.executable
-                    # Lấy thư mục chứa file .exe chính
+
+                    # 2. Lấy thư mục chứa file .exe chính
                     main_app_dir = os.path.dirname(main_app_path)
-                    # Xây dựng đường dẫn đến updater.exe (nằm ở thư mục cha)
-                    updater_exe_path = os.path.abspath(os.path.join(main_app_dir, "..", "updater.exe"))
+
+                    # 3. Xây dựng đường dẫn đến updater.exe (nằm CÙNG thư mục)
+                    updater_exe_path = os.path.join(main_app_dir, "updater.exe") 
+
                     if not os.path.exists(updater_exe_path):
                         raise FileNotFoundError("Không tìm thấy file 'updater.exe'.")
 
-                    print("Bắt đầu chạy updater...")
+                    # --- THÊM MỚI: BƯỚC KIỂM TRA HASH ---
+                    print("Đang xác thực file updater.exe...")
+                    is_valid, reason = verify_file_hash(updater_exe_path, EXPECTED_UPDATER_HASH)
 
-                    # Chạy updater.exe và truyền (1) URL và (2) Đường dẫn app chính
+                    if not is_valid:
+                        # Nếu hash không khớp, báo lỗi và KHÔNG chạy file
+                        messagebox.showerror(
+                            "Lỗi An Ninh",
+                            f"Không thể chạy trình cập nhật. Lý do: {reason}.\n\n"
+                            "File 'updater.exe' có thể đã bị hỏng hoặc bị thay thế bởi virus. "
+                            "Vui lòng tải lại toàn bộ ứng dụng."
+                        )
+                        webbrowser.open_new_tab(url) # Vẫn mở link tải thủ công
+                        return # Dừng lại
+                    # --- HẾT KIỂM TRA HASH ---
+
+                    print("Xác thực thành công. Bắt đầu chạy updater...")
+
+                    # 4. Chạy updater.exe (nếu hash đã khớp)
                     subprocess.Popen([updater_exe_path, url, main_app_path])
 
-                    # Đóng ứng dụng chính
+                    # 5. Đóng ứng dụng chính
                     root.destroy()
 
                 except Exception as e:
                     messagebox.showerror("Lỗi Cập Nhật", f"Không thể chạy updater: {e}\nSẽ mở link tải thủ công.")
-                    webbrowser.open_new_tab(url)
+                    webbrowser.open_new_tab(url) # Quay lại cách cũ
         else:
             print("Ứng dụng đã ở phiên bản mới nhất.")
 
     except Exception as e:
         print(f"Lỗi khi kiểm tra cập nhật: {e}")
+
+def verify_file_hash(file_path, expected_hash):
+    """Tính hash SHA-256 của file và so sánh với hash mong đợi."""
+    if not os.path.exists(file_path):
+        return False, "File không tồn tại"
+
+    sha256_hash = hashlib.sha256()
+    try:
+        with open(file_path, "rb") as f:
+            # Đọc file theo từng khối để tránh tốn RAM
+            for byte_block in iter(lambda: f.read(4096), b""):
+                sha256_hash.update(byte_block)
+
+        # Lấy hash đã tính (dạng chữ thường)
+        calculated_hash = sha256_hash.hexdigest().lower()
+
+        if calculated_hash == expected_hash.lower():
+            return True, "Hash hợp lệ"
+        else:
+            print(f"CẢNH BÁO HASH: Hash mong đợi: {expected_hash.lower()}")
+            print(f"CẢNH BÁO HASH: Hash tính được: {calculated_hash}")
+            return False, "Hash không khớp (file giả mạo hoặc bị hỏng)"
+
+    except Exception as e:
+        print(f"Lỗi khi tính hash: {e}")
+        return False, f"Lỗi đọc file: {e}"
 
 # --- THÊM MỚI: HÀM TRÍCH XUẤT ID TỪ URL ---
 def extract_gdrive_id_from_url(url):
