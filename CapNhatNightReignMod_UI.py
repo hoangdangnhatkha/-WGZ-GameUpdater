@@ -21,6 +21,7 @@ import github
 from github import Github, InputGitAuthor, GithubException
 import base64
 import time
+from datetime import datetime
 
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from google.auth.transport.requests import Request
@@ -37,7 +38,9 @@ import webbrowser
 from packaging import version
 import subprocess
 # --- HẾT ---
-CURRENT_VERSION = "1.0"
+g_update_info = None
+scan_loading_window = None
+CURRENT_VERSION = "1.1"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
 def resource_path(relative_path):
     """ Lấy đường dẫn tuyệt đối, hoạt động cho cả .py và .exe """
@@ -73,6 +76,56 @@ def format_time(seconds):
     except:
         return "--:--"
     
+# --- THÊM MỚI: LỚP HELPER ĐỂ TẠO TOOLTIP ---
+class CreateToolTip(object):
+    """
+    Tạo một tooltip (chú thích) cho một widget.
+    """
+    def __init__(self, widget, text):
+        self.widget = widget
+        self.text = text
+        self.widget.bind("<Enter>", self.enter)
+        self.widget.bind("<Leave>", self.leave)
+        self.tooltip_window = None
+
+    def enter(self, event=None):
+        self.schedule()
+
+    def leave(self, event=None):
+        self.unschedule()
+        self.hidetip()
+
+    def schedule(self):
+        self.unschedule()
+        self.id = self.widget.after(500, self.showtip) # Chờ 500ms
+
+    def unschedule(self):
+        id = getattr(self, 'id', None)
+        if id:
+            self.widget.after_cancel(id)
+
+    def showtip(self, event=None):
+        x, y, cx, cy = self.widget.bbox("insert")
+        x += self.widget.winfo_rootx() + 25
+        y += self.widget.winfo_rooty() + 20
+        
+        # Tạo cửa sổ Toplevel
+        self.tooltip_window = tk.Toplevel(self.widget)
+        self.tooltip_window.wm_overrideredirect(True) # Xóa title bar
+        self.tooltip_window.wm_geometry(f"+{x}+{y}")
+        
+        label = tk.Label(self.tooltip_window, text=self.text, justify='left',
+                         background="#2b2b2b", foreground="white", relief='solid', borderwidth=1,
+                         font=("Segoe UI", 9))
+        label.pack(ipadx=4, ipady=4)
+
+    def hidetip(self):
+        tw = self.tooltip_window
+        self.tooltip_window = None
+        if tw:
+            tw.destroy()
+
+
 def check_for_updates(config_data):
     """So sánh phiên bản hiện tại với phiên bản trên GitHub."""
     try:
@@ -128,6 +181,23 @@ def check_for_updates(config_data):
 
     except Exception as e:
         print(f"Lỗi khi kiểm tra cập nhật: {e}")
+
+# --- THÊM MỚI: HÀM TRÍCH XUẤT ID TỪ URL ---
+def extract_gdrive_id_from_url(url):
+    """Trích xuất File ID từ link Google Drive (uc?id=...)"""
+    if not isinstance(url, str):
+        return None
+    # Tìm chuỗi ký tự sau 'id='
+    match = re.search(r'id=([a-zA-Z0-9_-]+)', url)
+    if match:
+        return match.group(1)
+
+    # Nếu không tìm thấy, có thể người dùng đã nhập ID trực tiếp (như trong Tab 2)
+    # Chúng ta kiểm tra xem nó có "trông giống" một ID không
+    if "drive.google.com" not in url and "/" not in url and len(url) > 20:
+        return url
+
+    return None
 # --- Hàm tải config từ GitHub ---
 def load_config_from_github(): # Đổi tên hàm cho rõ
     json_url = "https://raw.githubusercontent.com/hoangdangnhatkha/-WGZ-GameUpdater/refs/heads/main/CapNhatNightReignMod.json"
@@ -436,7 +506,7 @@ def upload_file_logic(file_path, status_listbox):
         
         # 2. Chuẩn bị media body và request
         # Đặt chunksize (ví dụ 1MB), rất quan trọng cho resumable upload
-        media = MediaFileUpload(file_path, chunksize=1024*1024, resumable=True)
+        media = MediaFileUpload(file_path, chunksize=1024*1024*5, resumable=True)
         request = None
         
         if files:
@@ -546,7 +616,7 @@ def download_and_extract_logic():
     selected_key = selected_option.get()
     option_label.configure(text="Đang " + selected_key, style="White.TLabel")
 
-    if not selected_key:
+    if not selected_key or selected_key == "updater":
         progress_queue.put(("status", "Lỗi: Vui lòng chọn một gói tải."))
         progress_queue.put(("status", "ENABLE_BUTTONS"))
         return
@@ -600,18 +670,59 @@ def download_and_extract_logic():
             progress_queue.put(("status", "Bắt đầu tải file..."))
             gdown.download(file_url, temp_archive_path, quiet=False)
 
+            # --- THAY THẾ: Logic Xóa bằng Logic Sao lưu ---
             if delete_list:
-                progress_queue.put(("status", "Đang dọn dẹp file cũ..."))
-                # (Code dọn dẹp không đổi)
-                for item_name in delete_list:
-                    item_path = os.path.join(destination_folder, item_name)
-                    try:
-                        if os.path.exists(item_path):
-                            if os.path.isfile(item_path) or os.path.islink(item_path): os.remove(item_path)
-                            elif os.path.isdir(item_path): shutil.rmtree(item_path)
-                    except Exception as e:
-                        print(f"Lỗi khi xóa {item_path}: {e}")
-                        progress_queue.put(("status", f"Lỗi khi dọn dẹp: {e}"))
+                progress_queue.put(("status", "Đang sao lưu file cũ..."))
+
+                # 1. Tạo thư mục backup
+                backup_root_dir = os.path.join(destination_folder, "_BACKUPS")
+                timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+                # Lấy tên mod (đã có ở 'selected_key') và làm sạch nó
+                safe_key_name = re.sub(r'[\\/*?:"<>|]', "", selected_key)
+                backup_folder_name = f"{safe_key_name} - {timestamp}"
+                specific_backup_dir = os.path.join(backup_root_dir, backup_folder_name)
+
+                try:
+                    os.makedirs(specific_backup_dir, exist_ok=True)
+                except Exception as e:
+                    print(f"Lỗi khi tạo thư mục backup: {e}")
+                    progress_queue.put(("status", f"Lỗi tạo backup dir: {e}"))
+                    # Nếu không tạo được backup, dừng lại để bảo vệ file
+                    raise Exception(f"Không thể tạo thư mục backup. Đã hủy cài đặt. {e}")
+
+                # 2. Di chuyển file/folder vào thư mục backup
+                moved_items = [] # Theo dõi các file đã di chuyển để khôi phục nếu lỗi
+                try:
+                    for item_name in delete_list:
+                        source_path = os.path.join(destination_folder, item_name)
+                        dest_path = os.path.join(specific_backup_dir, item_name)
+
+                        if os.path.exists(source_path):
+                            print(f"Đang sao lưu: {item_name} -> {specific_backup_dir}")
+                            # Di chuyển (Move) file/folder
+                            shutil.move(source_path, dest_path)
+                            # Lưu lại (đích, nguồn) để khôi phục nếu cần
+                            moved_items.append((dest_path, source_path))
+
+                except Exception as e:
+                    # Nếu có lỗi khi đang di chuyển (ví dụ file bị khóa),
+                    # hãy cố gắng khôi phục lại những file đã di chuyển
+                    print(f"Lỗi khi đang sao lưu {item_name}: {e}")
+                    progress_queue.put(("status", f"Lỗi sao lưu: {e}. Đang khôi phục..."))
+
+                    # --- Logic Khôi phục (Rollback) ---
+                    for (moved_file_path, original_location) in moved_items:
+                        try:
+                            shutil.move(moved_file_path, original_location)
+                        except Exception as restore_e:
+                            progress_queue.put(("status", f"LỖI KHÔI PHỤC: {restore_e}"))
+                    # --- Hết Rollback ---
+
+                    # Dừng cài đặt
+                    raise Exception(f"Không thể sao lưu file {item_name}. Đã hủy cài đặt. {e}")
+
+                progress_queue.put(("status", f"Sao lưu thành công vào: {backup_folder_name}"))
+            # --- HẾT THAY THẾ ---
 
             progress_queue.put(("status", "Đã tải xong! Đang giải nén..."))
 
@@ -698,7 +809,6 @@ def process_queue():
                 path_entry.insert(0, saved_path)
             status_label.configure(text="Hãy chọn đường dẫn và bấm bắt đầu.", style="White.TLabel")
             check_for_updates(message_value)
-            return
 
         elif message_type == "status":
             if message_value == "DISABLE_BUTTONS":
@@ -830,10 +940,21 @@ def process_queue():
 
                     # Hàm helper tạo lambda cho Xóa
                     def create_delete_lambda(fid, fname):
-                        # Hàm này sẽ gọi thread xóa
-                        def start_delete_thread():
-                            threading.Thread(target=action_delete_drive_file_thread, args=(fid, fname), daemon=True).start()
-                        return start_delete_thread
+                        # --- SỬA LỖI THREADING & THÊM NGẮT DÒNG ---
+                        def start_delete_with_confirm():
+                            # 1. Tạo tin nhắn (thêm \n để ngắt dòng, giảm độ rộng)
+                            message = f"Bạn có chắc chắn muốn XÓA VĨNH VIỄN file này\nkhỏi Google Drive không?\n\nFile: {fname}"
+
+                            # 2. Hỏi xác nhận (chạy trong thread chính, an toàn)
+                            if messagebox.askyesno("Xác nhận Xóa", message):
+                                # 3. Chỉ bắt đầu thread nếu người dùng bấm "Yes"
+                                threading.Thread(target=action_delete_drive_file_thread, args=(fid, fname), daemon=True).start()
+                            else:
+                                # 4. Báo cáo nếu người dùng hủy
+                                progress_queue.put(("drive_log", "Đã hủy thao tác xóa."))
+
+                        return start_delete_with_confirm # Trả về hàm mới
+                        # --- HẾT SỬA ---
 
                     context_menu = tk.Menu(item_frame, tearoff=0)
 
@@ -842,6 +963,21 @@ def process_queue():
                     context_menu.add_command(label="Copy File ID", command=create_copy_lambda(file_id, "File ID"))
 
                     context_menu.add_separator()
+
+                    # --- THÊM MỚI: Tùy chọn "Tạo Nhanh Option" (CÓ ĐIỀU KIỆN) ---
+                    # Chỉ hiển thị nếu file là exe, zip, hoặc rar
+                    if file_name.lower().endswith((".exe", ".zip", ".rar")):
+                        # Hàm helper tạo lambda cho "Tạo Nhanh"
+                        def create_quick_add_lambda(fname, fid):
+                            return lambda: action_quick_add_option(fname, fid)
+
+                        context_menu.add_command(
+                            label="Tạo Option Tải từ file này", 
+                            command=create_quick_add_lambda(file_name, file_id)
+                        )
+
+                        context_menu.add_separator() # Thêm một dấu gạch nữa
+                    # --- HẾT THÊM MỚI ---
 
                     # Thêm lệnh Xóa
                     context_menu.add_command(label="Xóa File...", command=create_delete_lambda(file_id, file_name))
@@ -883,6 +1019,16 @@ def process_queue():
         elif message_type == "drive_log":
             upload_status_listbox.insert(tk.END, message_value)
             upload_status_listbox.see(tk.END) # Cuộn xuống
+        
+        elif message_type == "scan_report_ready":
+            if scan_loading_window:
+                scan_loading_window.destroy()
+            show_scan_report(message_value["errors"], message_value["warnings"])
+
+        elif message_type == "scan_failed":
+            if scan_loading_window:
+                scan_loading_window.destroy()
+            messagebox.showerror("Lỗi Quét", f"Không thể hoàn thành quét: {message_value}")
     # --- HẾT THÊM MỚI ---
     except queue.Empty:
         pass
@@ -924,7 +1070,7 @@ root = TkinterDnD.Tk()
 sv_ttk.set_theme("dark")
 apply_theme_to_titlebar(root)
 root.title("[WGZ] Game Updater")
-root.geometry("800x900") # Giữ nguyên kích thước
+root.geometry("850x900") # Giữ nguyên kích thước
 root.minsize(800, 550)
 root.resizable(False,False)
 # --- Định nghĩa Style ---
@@ -935,6 +1081,7 @@ style.configure("White.TLabel", foreground="white") # Cho theme tối
 style.configure("New.TLabel", foreground="red", font=('TkDefaultFont', 9, 'bold'))
 style.configure("Green.TRadiobutton", foreground="green")
 
+    
 try: rarfile.UNRAR_TOOL = resource_path("UnRAR.exe")
 except Exception as e: print(f"Lỗi nghiêm trọng: Không tìm thấy UnRAR.exe đã đóng gói: {e}")
 try:
@@ -1562,15 +1709,7 @@ def action_delete_drive_file_thread(file_id, file_name):
     if not drive_service:
         messagebox.showerror("Lỗi", "Chưa đăng nhập Google Drive.")
         return
-
-    # 1. Xác nhận
-    if not messagebox.askyesno("Xác nhận Xóa", f"Bạn có chắc chắn muốn XÓA VĨNH VIỄN file này khỏi Google Drive không?\n\nFile: {file_name}"):
-        progress_queue.put(("drive_log", "Đã hủy thao tác xóa."))
-        return # Hủy
-
-    # 2. Gửi trạng thái
-    progress_queue.put(("drive_log", f"Đang xóa {file_name}..."))
-
+    
     try:
         # 3. Thực thi
         drive_service.files().delete(fileId=file_id).execute()
@@ -1587,6 +1726,182 @@ def action_delete_drive_file_thread(file_id, file_name):
         progress_queue.put(("drive_log", f"Lỗi khi xóa {file_name}."))
 # --- Giao diện cho Tab 3 ---
 
+# --- THÊM MỚI: CÁC HÀM "TRỢ LÝ AI" ---
+def action_start_scan():
+    """Bắt đầu quá trình quét lỗi đồng bộ."""
+    global scan_loading_window, drive_service
+
+    if not drive_service:
+        messagebox.showerror("Lỗi", "Vui lòng đăng nhập Google Drive trước.")
+        return
+
+    # Hiển thị cửa sổ "Đang tải"
+    scan_loading_window = tk.Toplevel(root)
+    scan_loading_window.title("Đang Quét...")
+    scan_loading_window.geometry("350x100")
+    scan_loading_window.transient(root) # Giữ nó luôn ở trên app chính
+    scan_loading_window.grab_set() # Chặn tương tác với app chính
+    loading_label = ttk.Label(scan_loading_window, text="Đang so sánh file GitHub JSON và Google Drive...")
+    loading_label.pack(expand=True, padx=20, pady=20)
+
+    # Bắt đầu luồng quét
+    threading.Thread(target=scan_logic_thread, daemon=True).start()
+
+def scan_logic_thread():
+    """(Chạy ngầm) Tải JSON, tải list Drive và so sánh."""
+    global drive_service
+    errors_list = []
+    warnings_list = []
+
+    try:
+        # 1. Tải GitHub JSON (dùng hàm đã có của Tab 1)
+        print("Scan: Đang tải config GitHub...")
+        github_data = load_config_from_github()
+        if not github_data:
+            github_data = fallback_options # Dùng fallback nếu tải lỗi
+
+        # 2. Tải danh sách file Google Drive
+        print("Scan: Đang tải danh sách Google Drive...")
+        response_files = drive_service.files().list(
+            q=f"'{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false",
+            spaces='drive',
+            fields='files(id, name)'
+        ).execute()
+        drive_files = response_files.get('files', [])
+
+        # 3. So Sánh (Phần "AI")
+        print("Scan: Đang so sánh...")
+
+        # Lấy tất cả File ID được dùng trong JSON
+        json_file_ids = set()
+        for key, data in github_data.items():
+            if key == "updater": continue
+
+            url_or_id = data.get("url")
+            file_id = extract_gdrive_id_from_url(url_or_id) # Dùng helper
+
+            if file_id:
+                json_file_ids.add(file_id)
+            else:
+                errors_list.append(f"Option '{key}': URL không hợp lệ hoặc không phải Google Drive.")
+
+        # Lấy tất cả File ID có trên Drive
+        drive_file_map = {file['id']: file['name'] for file in drive_files}
+        drive_file_ids = set(drive_file_map.keys())
+
+        # 4. Tìm Lỗi (Có trong JSON, nhưng không có trên Drive)
+        broken_ids = json_file_ids - drive_file_ids # Phép trừ tập hợp
+        for broken_id in broken_ids:
+            # Tìm xem key nào đang dùng ID bị hỏng này
+            key_name = "[Không tìm thấy tên key]"
+            for key, data in github_data.items():
+                if extract_gdrive_id_from_url(data.get("url")) == broken_id:
+                    key_name = key
+                    break
+            errors_list.append(f"Option '{key_name}': File ID '{broken_id}' KHÔNG TỒN TẠI trên Drive.")
+
+        # 5. Tìm Cảnh Báo (Có trên Drive, nhưng không dùng trong JSON)
+        orphaned_ids = drive_file_ids - json_file_ids # Phép trừ tập hợp
+        for orphaned_id in orphaned_ids:
+            file_name = drive_file_map[orphaned_id]
+            # Thêm dictionary thay vì string
+            warnings_list.append({"name": file_name, "id": orphaned_id})
+
+        print("Scan: Hoàn tất so sánh.")
+        # Gửi báo cáo về cho queue
+        progress_queue.put(("scan_report_ready", {"errors": errors_list, "warnings": warnings_list}))
+
+    except Exception as e:
+        print(f"Lỗi khi quét: {e}")
+        progress_queue.put(("scan_failed", str(e)))
+
+def show_scan_report(errors, warnings):
+    """Tạo cửa sổ Toplevel MỚI để hiển thị báo cáo TƯƠNG TÁC."""
+    report_window = tk.Toplevel(root)
+    report_window.title("Báo Cáo Quét Lỗi Đồng Bộ")
+    report_window.geometry("700x500")
+    report_window.transient(root)
+    report_window.grab_set()
+
+    report_frame = ttk.Frame(report_window, padding=10)
+    report_frame.pack(fill=tk.BOTH, expand=True)
+
+    report_text = tk.Text(report_frame, wrap="word", height=20, width=80, relief=tk.FLAT)
+    report_scroll = ttk.Scrollbar(report_frame, orient="vertical", command=report_text.yview)
+    report_text['yscrollcommand'] = report_scroll.set
+
+    report_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+    report_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    # --- SỬA: Thêm các tag màu cho LINK ---
+    report_text.tag_configure("header", font=("Segoe UI", 14, "bold"), spacing3=10)
+    report_text.tag_configure("error", foreground="red", font=("Segoe UI", 10, "bold"))
+    report_text.tag_configure("warning", foreground="#FFB000") # Màu vàng cam
+    report_text.tag_configure("success", foreground="green")
+    report_text.tag_configure("note", foreground=style.lookup("TLabel", "foreground"), lmargin1=10, lmargin2=10)
+
+    # Tag cho link (màu xanh, gạch chân)
+    report_text.tag_configure("quick_add_link", foreground="dodgerblue", underline=True, font=("Segoe UI", 9, "underline"))
+    report_text.tag_configure("delete_link", foreground="#FF6347", underline=True, font=("Segoe UI", 9, "underline")) # Màu đỏ cà chua
+    # --- HẾT SỬA ---
+
+    # --- Chèn nội dung vào Text ---
+    if not errors and not warnings:
+        report_text.insert(tk.END, "QUÉT HOÀN TẤT\n", "header")
+        report_text.insert(tk.END, "Chúc mừng! File JSON và Google Drive của bạn đã đồng bộ hoàn hảo.", "success")
+    else:
+        if errors:
+            report_text.insert(tk.END, f"LỖI ({len(errors)}) - CẦN SỬA NGAY\n", "header")
+            report_text.insert(tk.END, "(Các option này trong JSON đang trỏ đến file không tồn tại trên Drive)\n\n", "note")
+            for i, err in enumerate(errors):
+                report_text.insert(tk.END, f" {i+1}. {err}\n", "error")
+            report_text.insert(tk.END, "\n\n")
+
+        if warnings:
+            report_text.insert(tk.END, f"CẢNH BÁO ({len(warnings)}) - NÊN DỌN DẸP\n", "header")
+            report_text.insert(tk.END, "(Các file này có trên Drive nhưng không được dùng. Bạn có thể xóa chúng, hoặc dùng 'Tạo Option Tải'.)\n\n", "note")
+
+            # --- SỬA: Vòng lặp tạo link ---
+            for i, warn_item in enumerate(warnings):
+                file_name = warn_item['name']
+                file_id = warn_item['id']
+
+                # 1. Chèn text cảnh báo
+                report_text.insert(tk.END, f" {i+1}. File: ", "warning")
+                report_text.insert(tk.END, f"{file_name}\n", "warning")
+
+                # 2. Tạo tag duy nhất cho mỗi link
+                qa_tag = f"qa_{file_id}" # Quick Add tag
+                del_tag = f"del_{file_id}" # Delete tag
+
+                # 3. Chèn các link
+                report_text.insert(tk.END, "      ") # Thụt lề
+                report_text.insert(tk.END, "[Tạo Option Tải]", ("quick_add_link", qa_tag))
+                report_text.insert(tk.END, "   ")
+                report_text.insert(tk.END, "[Xóa File này]", ("delete_link", del_tag))
+                report_text.insert(tk.END, "\n\n")
+
+                # 4. Gắn (Bind) sự kiện cho các tag duy nhất đó
+                # Dùng lambda để truyền đúng file_info (gồm name và id)
+                report_text.tag_bind(
+                    qa_tag, 
+                    "<Button-1>", 
+                    lambda e, win=report_window, info=warn_item: handle_quick_add_click(win, info)
+                )
+                report_text.tag_bind(
+                    del_tag, 
+                    "<Button-1>", 
+                    lambda e, win=report_window, info=warn_item: handle_delete_click(win, info)
+                )
+
+                # 5. Thêm hiệu ứng con trỏ chuột
+                report_text.tag_bind(qa_tag, "<Enter>", lambda e: report_text.config(cursor="hand2"))
+                report_text.tag_bind(qa_tag, "<Leave>", lambda e: report_text.config(cursor=""))
+                report_text.tag_bind(del_tag, "<Enter>", lambda e: report_text.config(cursor="hand2"))
+                report_text.tag_bind(del_tag, "<Leave>", lambda e: report_text.config(cursor=""))
+            # --- HẾT SỬA ---
+
+    report_text.config(state=tk.DISABLED) # Chỉ đọc
 
 
 # Frame trên cho các nút
@@ -1596,15 +1911,21 @@ drive_button_frame.pack(fill=tk.X, pady=5)
 drive_auth_button = ttk.Button(drive_button_frame, text="Đăng nhập Google Drive", command=action_drive_login, style="Accent.TButton")
 drive_auth_button.pack(side=tk.LEFT, padx=5)
 
-upload_files_button = ttk.Button(drive_button_frame, text="Upload Tất Cả File", command=action_start_upload_all, style="Accent.TButton", state=tk.DISABLED)
+upload_files_button = ttk.Button(drive_button_frame, text="📤", command=action_start_upload_all, style="Accent.TButton", state=tk.DISABLED)
 upload_files_button.pack(side=tk.LEFT, padx=5)
+CreateToolTip(upload_files_button, "Upload Tất Cả File")
 
-clear_upload_list_button = ttk.Button(drive_button_frame, text="Xóa Danh Sách Upload", command=action_clear_upload_list)
+clear_upload_list_button = ttk.Button(drive_button_frame, text="🧹",  command=action_clear_upload_list, style="Danger.TButton")
 clear_upload_list_button.pack(side=tk.LEFT, padx=5)
+CreateToolTip(clear_upload_list_button, "Xóa Danh Sách Upload")
 
-drive_refresh_button = ttk.Button(drive_button_frame, text="Tải Danh Sách File", command=action_refresh_drive_list) # Sẽ định nghĩa hàm này sau
+drive_refresh_button = ttk.Button(drive_button_frame, text="🔄", command=action_refresh_drive_list)
 drive_refresh_button.pack(side=tk.LEFT, padx=5)
+CreateToolTip(drive_refresh_button, "Tải Danh Sách File (Làm mới)")
 
+scan_button = ttk.Button(drive_button_frame, text="🤖", command=action_start_scan)
+scan_button.pack(side=tk.LEFT, padx=5)
+CreateToolTip(scan_button, "Trợ lý AI: Quét Lỗi Đồng Bộ")
 g_selected_drive_item_frame = None # Biến theo dõi item đang được chọn
 
 def on_drive_item_click(event, clicked_frame):
@@ -1628,6 +1949,59 @@ def on_drive_item_click(event, clicked_frame):
         print(f"Lỗi chọn item: {e}")
 # --- HẾT THÊM MỚI ---
 
+
+# ---HÀM TẠO NHANH OPTION ---
+def action_quick_add_option(file_name, file_id):
+    """Tự động chuyển sang Tab 2 và điền form."""
+    print(f"Tạo nhanh option cho: {file_name}")
+
+    # 1. Tự động phát hiện loại file
+    file_type = "zip" # Mặc định
+    if file_name.lower().endswith(".rar"):
+        file_type = "rar"
+    elif file_name.lower().endswith(".exe"):
+        file_type = "exe"
+
+    # 2. Lấy tên file (bỏ đuôi)
+    base_name = os.path.splitext(file_name)[0]
+
+    # 3. Chuyển sang Tab 2
+    notebook.select(second_tab_frame)
+
+    # 4. Xóa form cũ (gọi hàm đã có)
+    clear_form()
+
+    # 5. Điền thông tin vào form
+    try:
+        form_widgets["Option Name:"].insert(0, base_name)
+        form_widgets["URL:"].insert(0, file_id) # Form đã được sửa để nhận ID
+        form_widgets["Type:"].set(file_type)
+
+        # 6. (UX) Focus vào ô Version để bạn gõ tiếp
+        form_widgets["Version:"].focus()
+    except Exception as e:
+        print(f"Lỗi khi điền form: {e}")
+        messagebox.showerror("Lỗi", f"Không thể tự động điền form: {e}")
+
+def handle_quick_add_click(report_window, file_info):
+    """Đóng báo cáo và gọi hàm 'Tạo Nhanh Option'."""
+    report_window.destroy() # Đóng cửa sổ báo cáo
+    action_quick_add_option(file_info['name'], file_info['id'])
+
+def handle_delete_click(report_window, file_info):
+    """Đóng báo cáo và gọi logic xóa (có xác nhận)."""
+    report_window.destroy() # Đóng cửa sổ báo cáo
+
+    # Chúng ta sao chép logic xác nhận an toàn (từ thread chính) ở đây
+    message = f"Bạn có chắc chắn muốn XÓA VĨNH VIỄN file này\nkhỏi Google Drive không?\n\nFile: {file_info['name']}"
+
+    if messagebox.askyesno("Xác nhận Xóa (Từ Trợ lý AI)", message):
+        # Chỉ bắt đầu thread nếu người dùng bấm "Yes"
+        threading.Thread(target=action_delete_drive_file_thread, 
+                         args=(file_info['id'], file_info['name']), 
+                         daemon=True).start()
+    else:
+        progress_queue.put(("drive_log", "Đã hủy thao tác xóa."))
 # Frame cho ô kéo thả
 drop_target_frame = ttk.LabelFrame(third_tab_frame, text="Kéo file vào đây để upload", padding=(10, 10))
 drop_target_frame.pack(fill=tk.BOTH, expand=True, pady=5)

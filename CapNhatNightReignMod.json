@@ -1,28 +1,28 @@
 {
-    "updater": {
-        "latest_version": "1.0",
-        "release_notes": "- Thêm credit\n- Sửa lỗi highlight file trên Drive",
-        "download_url": "https://drive.google.com/uc?export=download&id=1xLitheCe9ygKSajQl9LbwxYskikYSG1J"
-    },
-    "Cập Nhật Mod": {
-        "url": "https://drive.google.com/uc?id=1f9rT20EHRoF4dfc19IcC3ykhwNmUPis_",
-        "version": "v1.3.2 Hotfix",
-        "type": "zip",
-        "password": null,
-        "delete_before_extract": []
-    },
-    "Tải/Cập Nhật Seamless Coop": {
-        "url": "https://drive.google.com/uc?id=1182Ju68pjG9LfPTgLaeME6lHPk6aeIEe",
-        "version": "v1.0.6",
-        "type": "zip",
-        "password": null,
-        "delete_before_extract": []
-    },
-    "Việt Hóa Mod": {
-        "url": "https://drive.google.com/uc?id=1Hw-JR5E_SrtPHpeK6RknRxoJKMbvdexe",
-        "version": "v1.2",
-        "type": "exe",
-        "password": null,
-        "delete_before_extract": []
-    }
+  "updater": {
+    "latest_version": "1.1",
+    "release_notes": "- Tăng tốc độ upload lên drive\n- Thêm quét dữ liệu để đồng bộ",
+    "download_url": "https://drive.google.com/uc?export=download&id=1xLitheCe9ygKSajQl9LbwxYskikYSG1J"
+  },
+  "Cập Nhật Mod": {
+    "url": "https://drive.google.com/uc?id=1f9rT20EHRoF4dfc19IcC3ykhwNmUPis_",
+    "version": "v1.3.2 Hotfix",
+    "type": "zip",
+    "password": null,
+    "delete_before_extract": []
+  },
+  "Tải/Cập Nhật Seamless Coop": {
+    "url": "https://drive.google.com/uc?id=1182Ju68pjG9LfPTgLaeME6lHPk6aeIEe",
+    "version": "v1.0.6",
+    "type": "zip",
+    "password": null,
+    "delete_before_extract": []
+  },
+  "Việt Hóa Mod": {
+    "url": "https://drive.google.com/uc?id=1Hw-JR5E_SrtPHpeK6RknRxoJKMbvdexe",
+    "version": "v1.2",
+    "type": "exe",
+    "password": null,
+    "delete_before_extract": []
+  }
 }
