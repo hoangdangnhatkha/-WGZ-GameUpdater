@@ -39,9 +39,8 @@ import webbrowser
 from packaging import version
 import subprocess
 # --- HẾT ---
-g_update_info = None
 scan_loading_window = None
-CURRENT_VERSION = "1.1"
+CURRENT_VERSION = "1.0"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
 def resource_path(relative_path):
@@ -129,24 +128,27 @@ class CreateToolTip(object):
 
 
 def check_for_updates(config_data):
-    """So sánh phiên bản hiện tại với phiên bản trên GitHub."""
+    """
+    So sánh phiên bản hiện tại, HIỂN THỊ POPUP NGAY LẬP TỨC.
+    Trả về True nếu tìm thấy update, False nếu không.
+    """
     try:
         updater_info = config_data.get("updater")
-        if not updater_info: return
+        if not updater_info: return False
 
         latest_version_str = updater_info.get("latest_version")
-        if not latest_version_str: return
+        if not latest_version_str: return False
 
         # So sánh phiên bản
         if version.parse(latest_version_str) > version.parse(CURRENT_VERSION):
             print(f"Phát hiện phiên bản mới: {latest_version_str}")
 
             notes = updater_info.get("release_notes", "Không có ghi chú.")
-            url = updater_info.get("download_url") # Phải có URL trực tiếp
+            url = updater_info.get("download_url") 
 
             if not url:
-                print("Lỗi config: 'download_url' bị thiếu trong mục 'updater'.")
-                return
+                print("Lỗi config: 'download_url' bị thiếu.")
+                return False
 
             message = (
                 f"Đã có phiên bản mới: {latest_version_str}!\n"
@@ -155,53 +157,42 @@ def check_for_updates(config_data):
                 "Bạn có muốn tự động cập nhật ngay bây giờ?"
             )
 
-            # Hiển thị thông báo (an toàn vì đang chạy trong process_queue)
+            # --- SỬA: Hiển thị popup và chạy updater ngay lập tức ---
             if messagebox.askyesno("Có Cập Nhật Mới!", message):
                 try:
-                    # 1. Lấy đường dẫn của file .exe chính đang chạy
                     main_app_path = sys.executable
-
-                    # 2. Lấy thư mục chứa file .exe chính
                     main_app_dir = os.path.dirname(main_app_path)
-
-                    # 3. Xây dựng đường dẫn đến updater.exe (nằm CÙNG thư mục)
                     updater_exe_path = os.path.join(main_app_dir, "updater.exe") 
 
                     if not os.path.exists(updater_exe_path):
                         raise FileNotFoundError("Không tìm thấy file 'updater.exe'.")
 
-                    # --- THÊM MỚI: BƯỚC KIỂM TRA HASH ---
                     print("Đang xác thực file updater.exe...")
                     is_valid, reason = verify_file_hash(updater_exe_path, EXPECTED_UPDATER_HASH)
 
                     if not is_valid:
-                        # Nếu hash không khớp, báo lỗi và KHÔNG chạy file
-                        messagebox.showerror(
-                            "Lỗi An Ninh",
-                            f"Không thể chạy trình cập nhật. Lý do: {reason}.\n\n"
-                            "File 'updater.exe' có thể đã bị hỏng hoặc bị thay thế bởi virus. "
-                            "Vui lòng tải lại toàn bộ ứng dụng."
-                        )
-                        webbrowser.open_new_tab(url) # Vẫn mở link tải thủ công
-                        return # Dừng lại
-                    # --- HẾT KIỂM TRA HASH ---
+                        messagebox.showerror("Lỗi An Ninh", f"Không thể chạy trình cập nhật. Lý do: {reason}.")
+                        webbrowser.open_new_tab(url)
+                        return True # Vẫn trả về True vì đã tìm thấy
 
                     print("Xác thực thành công. Bắt đầu chạy updater...")
-
-                    # 4. Chạy updater.exe (nếu hash đã khớp)
                     subprocess.Popen([updater_exe_path, url, main_app_path])
-
-                    # 5. Đóng ứng dụng chính
                     root.destroy()
 
                 except Exception as e:
                     messagebox.showerror("Lỗi Cập Nhật", f"Không thể chạy updater: {e}\nSẽ mở link tải thủ công.")
-                    webbrowser.open_new_tab(url) # Quay lại cách cũ
+                    webbrowser.open_new_tab(url)
+
+            return True # Đã tìm thấy update (dù người dùng bấm Yes hay No)
+            # --- HẾT SỬA ---
+
         else:
             print("Ứng dụng đã ở phiên bản mới nhất.")
+            return False # Không tìm thấy update
 
     except Exception as e:
         print(f"Lỗi khi kiểm tra cập nhật: {e}")
+        return False
 
 def verify_file_hash(file_path, expected_hash):
     """Tính hash SHA-256 của file và so sánh với hash mong đợi."""
@@ -230,6 +221,23 @@ def verify_file_hash(file_path, expected_hash):
         return False, f"Lỗi đọc file: {e}"
 
 # --- THÊM MỚI: HÀM TRÍCH XUẤT ID TỪ URL ---
+
+def action_manual_check_for_updates():
+    """(Nút bấm) Vô hiệu hóa nút và bắt đầu thread kiểm tra."""
+    # Chắc chắn rằng nút tồn tại trước khi cấu hình
+    if 'update_app_button' in globals():
+        update_app_button.config(state=tk.DISABLED, text="Đang kiểm tra...")
+    threading.Thread(target=manual_check_thread, daemon=True).start()
+
+def manual_check_thread():
+    """(Thread ngầm) Tải config và gửi về queue để xử lý."""
+    try:
+        config = load_config_from_github()
+        progress_queue.put(("manual_update_check", config))
+    except Exception as e:
+        progress_queue.put(("manual_update_check_failed", str(e)))
+# --- HẾT THÊM MỚI ---
+
 def extract_gdrive_id_from_url(url):
     """Trích xuất File ID từ link Google Drive (uc?id=...)"""
     if not isinstance(url, str):
@@ -308,12 +316,22 @@ config_file_path = os.path.join(config_folder, 'settings.json')
 
 # --- Logic cho việc lưu/tải file config local ---
 def load_local_config():
+    """Tải config local (đường dẫn và cài đặt backup)."""
     try:
         os.makedirs(config_folder, exist_ok=True)
         with open(config_file_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
+            config = json.load(f)
+            # Đặt giá trị mặc định nếu thiếu
+            if "destination_folder" not in config:
+                config["destination_folder"] = ""
+            if "installed_versions" not in config:
+                config["installed_versions"] = {}
+            if "backup_enabled" not in config:
+                config["backup_enabled"] = False # Mặc định là TẮT
+            return config
     except (FileNotFoundError, json.JSONDecodeError):
-        return {"destination_folder": "", "installed_versions": {}}
+        # Trả về config mặc định nếu file không tồn tại hoặc lỗi
+        return {"destination_folder": "", "installed_versions": {}, "backup_enabled": False}
 
 def save_local_config(config_data):
     try:
@@ -324,6 +342,7 @@ def save_local_config(config_data):
         print(f"Cảnh báo: Không thể lưu config local: {e}")
 
 local_config = load_local_config()
+
 
 # --- THÊM CÁC HÀM GITHUB ---
 def get_github_token():
@@ -718,16 +737,18 @@ def download_and_extract_logic():
             gdown.download(file_url, temp_archive_path, quiet=False)
 
             # --- THAY THẾ: Logic Xóa bằng Logic Sao lưu ---
-            if delete_list:
-                progress_queue.put(("status", "Đang sao lưu file cũ..."))
+            if g_backup_enabled.get():
 
-                # 1. Tạo thư mục backup
-                backup_root_dir = os.path.join(destination_folder, "_BACKUPS")
-                timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-                # Lấy tên mod (đã có ở 'selected_key') và làm sạch nó
-                safe_key_name = re.sub(r'[\\/*?:"<>|]', "", selected_key)
-                backup_folder_name = f"{safe_key_name} - {timestamp}"
-                specific_backup_dir = os.path.join(backup_root_dir, backup_folder_name)
+                if delete_list:
+                    progress_queue.put(("status", "Đang sao lưu file cũ..."))
+
+                    # 1. Tạo thư mục backup
+                    backup_root_dir = os.path.join(destination_folder, "_BACKUPS")
+                    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+                    # Lấy tên mod (đã có ở 'selected_key') và làm sạch nó
+                    safe_key_name = re.sub(r'[\\/*?:"<>|]', "", selected_key)
+                    backup_folder_name = f"{safe_key_name} - {timestamp}"
+                    specific_backup_dir = os.path.join(backup_root_dir, backup_folder_name)
 
                 try:
                     os.makedirs(specific_backup_dir, exist_ok=True)
@@ -769,7 +790,21 @@ def download_and_extract_logic():
                     raise Exception(f"Không thể sao lưu file {item_name}. Đã hủy cài đặt. {e}")
 
                 progress_queue.put(("status", f"Sao lưu thành công vào: {backup_folder_name}"))
-            # --- HẾT THAY THẾ ---
+
+            else: 
+                # 2. Nếu TẮT backup, quay lại logic XÓA (như ban đầu)
+                if delete_list:
+                    progress_queue.put(("status", "Đang dọn dẹp file cũ (Backup đã tắt)..."))
+                    for item_name in delete_list:
+                        item_path = os.path.join(destination_folder, item_name)
+                        try:
+                            if os.path.exists(item_path):
+                                if os.path.isfile(item_path) or os.path.islink(item_path): os.remove(item_path)
+                                elif os.path.isdir(item_path): shutil.rmtree(item_path)
+                        except Exception as e:
+                            print(f"Lỗi khi xóa {item_path}: {e}")
+                            progress_queue.put(("status", f"Lỗi khi dọn dẹp: {e}"))
+                            # (Không dừng lại nếu xóa lỗi, chỉ cảnh báo)
 
             progress_queue.put(("status", "Đã tải xong! Đang giải nén..."))
 
@@ -1076,7 +1111,29 @@ def process_queue():
             if scan_loading_window:
                 scan_loading_window.destroy()
             messagebox.showerror("Lỗi Quét", f"Không thể hoàn thành quét: {message_value}")
-    # --- HẾT THÊM MỚI ---
+        
+        # --- THÊM MỚI: XỬ LÝ KẾT QUẢ KIỂM TRA CẬP NHẬT THỦ CÔNG ---
+        elif message_type == "manual_update_check":
+            if 'update_app_button' in globals():
+                update_app_button.config(state=tk.NORMAL, text="Kiểm tra Cập nhật")
+
+            config_data = message_value
+            if not config_data:
+                messagebox.showerror("Lỗi", "Không thể tải config. Kiểm tra lại mạng.")
+                return
+
+            # Chạy hàm check_for_updates và kiểm tra kết quả trả về
+            found_update = check_for_updates(config_data) 
+
+            # Nếu hàm trả về False (không tìm thấy update), thì báo cho người dùng
+            if not found_update:
+                messagebox.showinfo("Kiểm tra Cập nhật", "Bạn đang dùng phiên bản mới nhất!")
+
+        elif message_type == "manual_update_check_failed":
+            if 'update_app_button' in globals():
+                update_app_button.config(state=tk.NORMAL, text="Kiểm tra Cập nhật")
+            messagebox.showerror("Lỗi", f"Không thể kiểm tra cập nhật: {message_value}")
+
     except queue.Empty:
         pass
 
@@ -1120,7 +1177,10 @@ root.title("[WGZ] Game Updater")
 root.geometry("850x900") # Giữ nguyên kích thước
 root.minsize(800, 550)
 root.resizable(False,False)
+
+g_backup_enabled = tk.BooleanVar(value=local_config.get("backup_enabled", False))
 # --- Định nghĩa Style ---
+
 style = ttk.Style()
 style.configure("Red.TLabel", foreground="red")
 style.configure("Green.TLabel", foreground="green")
@@ -1141,6 +1201,7 @@ except Exception as e:
 # --- Tạo Notebook và Tab 1 ---
 notebook = ttk.Notebook(root, padding=(15, 15))
 notebook.pack(expand=True, fill="both")
+
 main_tab_frame = ttk.Frame(notebook, padding=(10, 10))
 notebook.add(main_tab_frame, text=" Tải/Cập Nhật Game ")
 
@@ -2175,6 +2236,48 @@ credit_thanks_label = ttk.Label(
     anchor=tk.CENTER
 )
 credit_thanks_label.pack(pady=(20, 5), fill=tk.X)
+# --- THÊM MỚI: NÚT BẬT/TẮT BACKUP ---
+
+# Hàm này được gọi khi bấm nút tích
+def on_backup_toggle():
+    global local_config
+    is_enabled = g_backup_enabled.get()
+    local_config["backup_enabled"] = is_enabled
+    save_local_config(local_config) # Lưu cài đặt ngay lập tức
+    print(f"Đã đặt cài đặt Backup thành: {is_enabled}")
+
+# --- THÊM MỚI: KHUNG CÀI ĐẶT ---
+setting_frame = ttk.LabelFrame(fourth_tab_frame, text="Cài đặt Ứng dụng", padding=(10, 10))
+setting_frame.pack(fill=tk.X, pady=(20, 10))
+
+# Hàm on_backup_toggle (không đổi, chỉ copy vào đây)
+def on_backup_toggle():
+    global local_config
+    is_enabled = g_backup_enabled.get()
+    local_config["backup_enabled"] = is_enabled
+    save_local_config(local_config)
+    print(f"Đã đặt cài đặt Backup thành: {is_enabled}")
+
+# 1. Nút Backup (DI CHUYỂN VÀO FRAME MỚI)
+backup_checkbutton = ttk.Checkbutton(
+    setting_frame, # <-- Đổi master
+    text="Tự động sao lưu file trước khi cập nhật",
+    variable=g_backup_enabled,
+    command=on_backup_toggle,
+    style="Switch.TCheckbutton"
+)
+backup_checkbutton.pack(pady=(5, 10), padx=5, anchor=tk.W)
+
+# 2. Nút Kiểm tra Cập nhật (NÚT MỚI)
+# Khai báo nút ở phạm vi global để process_queue có thể truy cập
+global update_app_button 
+update_app_button = ttk.Button(
+    setting_frame, 
+    text="Kiểm tra Cập nhật Ứng dụng", 
+    command=action_manual_check_for_updates,
+    style="Accent.TButton" # Nút màu xanh
+)
+update_app_button.pack(pady=(5, 5), padx=5, anchor=tk.W)
 # --- Hàm cho luồng tải config ban đầu ---
 def load_config_thread():
     """Tải config và gửi vào queue."""
