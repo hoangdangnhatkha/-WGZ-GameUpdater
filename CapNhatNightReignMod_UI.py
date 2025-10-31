@@ -40,6 +40,7 @@ from packaging import version
 import subprocess
 # --- HẾT ---
 scan_loading_window = None
+g_secret_click_count = 0
 CURRENT_VERSION = "1.1"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
@@ -328,10 +329,14 @@ def load_local_config():
                 config["installed_versions"] = {}
             if "backup_enabled" not in config:
                 config["backup_enabled"] = False # Mặc định là TẮT
+            if "secret_exe_id" not in config:
+                config["secret_exe_id"] = "" # Mặc định
+            if "secret_zip_id" not in config:
+                config["secret_zip_id"] = "" # Mặc định
             return config
     except (FileNotFoundError, json.JSONDecodeError):
         # Trả về config mặc định nếu file không tồn tại hoặc lỗi
-        return {"destination_folder": "", "installed_versions": {}, "backup_enabled": False}
+        return {"destination_folder": "", "installed_versions": {}, "backup_enabled": False, "secret_exe_id": "", "secret_zip_id": ""}
 
 def save_local_config(config_data):
     try:
@@ -1133,6 +1138,26 @@ def process_queue():
             if 'update_app_button' in globals():
                 update_app_button.config(state=tk.NORMAL, text="Kiểm tra Cập nhật")
             messagebox.showerror("Lỗi", f"Không thể kiểm tra cập nhật: {message_value}")
+
+        # --- THÊM MỚI: XỬ LÝ UPLOAD BÍ MẬT ---
+        elif message_type == "secret_status":
+            if scan_loading_window and secret_loading_label:
+                secret_loading_label.config(text=message_value)
+
+        elif message_type == "secret_done":
+            if scan_loading_window:
+                scan_loading_window.destroy()
+            if secret_window:
+                secret_window.destroy() # Đóng cửa sổ bí mật
+            messagebox.showinfo("Hoàn tất", "Đã upload thành công cả 2 file!")
+            action_refresh_drive_list() # Tự động làm mới lưới
+
+        elif message_type == "secret_error":
+            if scan_loading_window:
+                scan_loading_window.destroy()
+            # Không đóng cửa sổ bí mật để user sửa lỗi
+            messagebox.showerror("Lỗi Upload Bí mật", f"Upload thất bại:\n{message_value}", parent=secret_window)
+        # --- HẾT THÊM MỚI ---
 
     except queue.Empty:
         pass
@@ -2158,6 +2183,7 @@ drop_target_listbox.dnd_bind('<<DropLeave>>', handle_drop_leave)
 drop_target_listbox.dnd_bind('<<Drop>>', handle_drop)
 
 drive_storage_label.pack(fill=tk.X, pady=(10, 2), padx=(5,0))
+
 # --- THAY THẾ: Tạo giao diện lưới (grid) có thể cuộn ---
 drive_list_frame = ttk.LabelFrame(third_tab_frame, text="File hiện có trên Drive", padding=(5, 5))
 drive_list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
@@ -2325,6 +2351,207 @@ def action_clean_temp_files():
         messagebox.showinfo("Hoàn tất", f"Đã dọn dẹp thành công {files_deleted} file tạm.")
     else:
         messagebox.showinfo("Hoàn tất", "Không tìm thấy file tạm nào để dọn dẹp.")
+
+def on_secret_click(event):
+    """Đếm số lần click vào label dung lượng."""
+    global g_secret_click_count, drive_service
+
+    
+
+    g_secret_click_count += 1
+
+    # Đặt lại bộ đếm sau 2 giây
+    event.widget.after(2000, lambda: globals().update(g_secret_click_count=0))
+
+    if g_secret_click_count == 3:
+        if not drive_service:
+            messagebox.showwarning("Chưa đăng nhập", "Bạn phải đăng nhập Google Drive trước.")
+            return
+        print("Đã kích hoạt tính năng bí mật!")
+        g_secret_click_count = 0
+        open_secret_uploader()
+
+def open_secret_uploader():
+    """Mở cửa sổ upload bí mật."""
+    global secret_drop_listbox, secret_exe_id_entry, secret_zip_id_entry, secret_window
+
+    secret_window = tk.Toplevel(root)
+    secret_window.title("Secret Updater Config")
+    secret_window.geometry("500x350")
+    secret_window.transient(root)
+    secret_window.grab_set()
+
+    main_frame = ttk.Frame(secret_window, padding=10)
+    main_frame.pack(fill=tk.BOTH, expand=True)
+
+    # 1. Khung kéo thả
+    drop_frame = ttk.LabelFrame(main_frame, text="1. Kéo 1 file .exe (bản build mới) vào đây")
+    drop_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+
+    secret_drop_listbox = tk.Listbox(drop_frame, height=3)
+    secret_drop_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+    secret_drop_listbox.drop_target_register(DND_FILES)
+    secret_drop_listbox.dnd_bind('<<Drop>>', handle_secret_drop)
+
+    # 2. Khung config
+    config_frame = ttk.LabelFrame(main_frame, text="2. Cấu hình Link Drive")
+    config_frame.pack(fill=tk.X, pady=5)
+
+    row1 = ttk.Frame(config_frame)
+    row1.pack(fill=tk.X, padx=5, pady=5)
+    ttk.Label(row1, text="File ID của .EXE Chính:", width=22).pack(side=tk.LEFT)
+    secret_exe_id_entry = ttk.Entry(row1)
+    secret_exe_id_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    secret_exe_id_entry.insert(0, local_config.get("secret_exe_id", ""))
+
+    row2 = ttk.Frame(config_frame)
+    row2.pack(fill=tk.X, padx=5, pady=5)
+    ttk.Label(row2, text="File ID của Bundle (.ZIP):", width=22).pack(side=tk.LEFT)
+
+    secret_zip_id_entry = ttk.Entry(row2)
+    secret_zip_id_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    secret_zip_id_entry.insert(0, local_config.get("secret_zip_id", ""))
+    # 3. Nút bắt đầu
+    start_button = ttk.Button(main_frame, text="Bắt đầu Upload Lên 2 Link", 
+                              command=start_secret_upload, style="Accent.TButton")
+    start_button.pack(pady=10)
+
+def handle_secret_drop(event):
+    """Xử lý khi kéo file vào cửa sổ bí mật."""
+    secret_drop_listbox.delete(0, tk.END) # Chỉ cho phép 1 file
+    raw_paths = root.tk.splitlist(event.data)
+
+    if raw_paths:
+        file_path = raw_paths[0] # Lấy file đầu tiên
+        if os.path.exists(file_path) and os.path.isfile(file_path) and file_path.endswith(".exe"):
+            secret_drop_listbox.insert(tk.END, file_path)
+        else:
+            secret_drop_listbox.insert(tk.END, "Lỗi: Chỉ chấp nhận 1 file .exe")
+
+def start_secret_upload():
+    """Bắt đầu luồng upload bí mật."""
+    global scan_loading_window # Tái sử dụng cửa sổ loading
+
+    try:
+        file_path = secret_drop_listbox.get(0)
+    except tk.TclError:
+        messagebox.showerror("Lỗi", "Chưa kéo file .exe vào.", parent=secret_window)
+        return
+
+    exe_id = secret_exe_id_entry.get().strip()
+    zip_id = secret_zip_id_entry.get().strip()
+
+    # --- THÊM MỚI: Lưu ID mới vào config ---
+    global local_config
+    local_config["secret_exe_id"] = exe_id
+    local_config["secret_zip_id"] = zip_id
+    save_local_config(local_config)
+    print("Đã lưu secret File IDs vào settings.json")
+
+    if not file_path or not exe_id or not zip_id:
+        messagebox.showerror("Lỗi", "Vui lòng kéo file và điền cả 2 File ID.", parent=secret_window)
+        return
+
+    if not file_path.endswith(".exe"):
+        messagebox.showerror("Lỗi", "File kéo vào phải là file .exe.", parent=secret_window)
+        return
+
+    # Hiển thị cửa sổ "Đang tải"
+    scan_loading_window = tk.Toplevel(root)
+    scan_loading_window.title("Đang Upload...")
+    scan_loading_window.geometry("350x100")
+    scan_loading_window.transient(secret_window)
+    scan_loading_window.grab_set()
+
+    global secret_loading_label # Cần global để cập nhật text
+    secret_loading_label = ttk.Label(scan_loading_window, text="Đang chuẩn bị...")
+    secret_loading_label.pack(expand=True, padx=20, pady=20)
+
+    threading.Thread(target=secret_upload_thread, 
+                     args=(file_path, exe_id, zip_id), 
+                     daemon=True).start()
+
+def secret_upload_thread(file_path, exe_id, zip_id):
+    """(Chạy ngầm) Upload file .exe, nén .zip, và upload .zip."""
+    try:
+        # --- 1. UPLOAD FILE .EXE CHÍNH ---
+        progress_queue.put(("secret_status", "Đang upload file .exe chính..."))
+        _secret_update_file(file_path, exe_id)
+
+        # --- 2. NÉN BUNDLE .ZIP ---
+        progress_queue.put(("secret_status", "Đang nén file .zip (gồm .exe và updater.exe)..."))
+
+        # SỬA: Tìm updater.exe BÊN CẠNH file .exe MỚI được thả vào
+        # 'file_path' là đường dẫn đến .exe MỚI (ví dụ: C:\NewBuild\WGZGameUpdater.exe)
+        new_app_dir = os.path.dirname(file_path)
+        updater_path = os.path.join(new_app_dir, "updater.exe")
+
+        if not os.path.exists(updater_path):
+            raise FileNotFoundError(f"Không tìm thấy 'updater.exe' trong cùng thư mục với file bạn vừa thả vào:\n({new_app_dir})")
+
+        temp_zip_path = os.path.join(os.environ['TEMP'], "_temp_secret_bundle.zip")
+
+        # Xóa file zip cũ nếu có
+        if os.path.exists(temp_zip_path):
+            os.remove(temp_zip_path)
+
+        print(f"Đang nén '{file_path}' và '{updater_path}' vào '{temp_zip_path}'")
+        with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            # Thêm file .exe mới (đặt tên là tên file gốc)
+            zf.write(file_path, arcname=os.path.basename(file_path))
+            # Thêm file updater.exe
+            zf.write(updater_path, arcname="updater.exe")
+
+        print("Nén file .zip thành công.")
+
+        # --- 3. UPLOAD FILE .ZIP ---
+        progress_queue.put(("secret_status", "Đang upload file .zip..."))
+        _secret_update_file(temp_zip_path, zip_id)
+
+        # --- 4. DỌN DẸP ---
+        progress_queue.put(("secret_status", "Đang dọn dẹp file tạm..."))
+        if os.path.exists(temp_zip_path):
+            os.remove(temp_zip_path)
+
+        progress_queue.put(("secret_done", "Hoàn thành cả 2 file!"))
+
+    except Exception as e:
+        print(f"Lỗi trong secret_upload_thread: {e}")
+        progress_queue.put(("secret_error", str(e)))
+
+def _secret_update_file(file_path, file_id):
+    """Hàm helper (chạy ngầm) để upload (update) 1 file."""
+    global drive_service
+    try:
+        print(f"Đang update File ID: {file_id} bằng file: {file_path}")
+        # Dùng MediaFileUpload (không cần chunk)
+        media_body = MediaFileUpload(file_path, resumable=False)
+
+        # Gọi .update() để ghi đè file đã có
+        drive_service.files().update(
+            fileId=file_id,
+            media_body=media_body
+        ).execute()
+        print(f"Update thành công File ID: {file_id}")
+
+    except HttpError as error:
+        # Nếu lỗi, thử tạo file mới (phòng trường hợp ID bị xóa)
+        if error.resp.status == 404:
+            print(f"Lỗi 404: File ID {file_id} không tồn tại. Đang thử tạo file mới...")
+            file_metadata = {'name': os.path.basename(file_path), 'parents': [GOOGLE_DRIVE_FOLDER_ID]}
+            media_body = MediaFileUpload(file_path, resumable=False)
+            new_file = drive_service.files().create(
+                body=file_metadata,
+                media_body=media_body,
+                fields='id'
+            ).execute()
+            print(f"TẠO FILE MỚI THAY THẾ. ID MỚI: {new_file.get('id')}")
+            progress_queue.put(("secret_status", f"Cảnh báo: ID cũ {file_id} bị lỗi.\nĐã tạo file mới với ID: {new_file.get('id')}"))
+        else:
+            raise error # Ném lại lỗi nếu không phải 404
+        
+drive_storage_label.bind("<Button-1>", on_secret_click)
 
 # --- THÊM MỚI: KHUNG CÀI ĐẶT ---
 setting_frame = ttk.LabelFrame(fourth_tab_frame, text="Cài Đặt", padding=(10, 10))
