@@ -24,15 +24,5 @@
         "type": "exe",
         "password": null,
         "delete_before_extract": []
-    },
-    "TestRar": {
-        "url": "https://drive.google.com/uc?id=1rZHJh65lBfXHymNOj5WrNX_glmi4882L",
-        "version": "v1.0",
-        "type": "rar",
-        "password": null,
-        "delete_before_extract": [
-            "Hello",
-            "Hello.txt"
-        ]
     }
 }
