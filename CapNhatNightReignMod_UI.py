@@ -40,7 +40,7 @@ from packaging import version
 import subprocess
 # --- HẾT ---
 scan_loading_window = None
-CURRENT_VERSION = "1.0"
+CURRENT_VERSION = "1.1"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
 def resource_path(relative_path):
@@ -1047,9 +1047,9 @@ def process_queue():
                     context_menu.add_separator()
 
                     # --- THÊM MỚI: Tùy chọn "Tạo Nhanh Option" (CÓ ĐIỀU KIỆN) ---
-                    # Chỉ hiển thị nếu file là exe, zip, hoặc rar
                     if file_name.lower().endswith((".exe", ".zip", ".rar")):
-                        # Hàm helper tạo lambda cho "Tạo Nhanh"
+
+                        # Nút Tạo Nhanh (luôn bật)
                         def create_quick_add_lambda(fname, fid):
                             return lambda: action_quick_add_option(fname, fid)
 
@@ -2033,7 +2033,7 @@ CreateToolTip(drive_refresh_button, "Tải Danh Sách File (Làm mới)")
 
 scan_button = ttk.Button(drive_button_frame, text="🤖", command=action_start_scan)
 scan_button.pack(side=tk.LEFT, padx=5)
-CreateToolTip(scan_button, "Trợ lý AI: Quét Lỗi Đồng Bộ")
+CreateToolTip(scan_button, "Quét Lỗi Đồng Bộ")
 g_selected_drive_item_frame = None # Biến theo dõi item đang được chọn
 
 def on_drive_item_click(event, clicked_frame):
@@ -2060,8 +2060,22 @@ def on_drive_item_click(event, clicked_frame):
 
 # ---HÀM TẠO NHANH OPTION ---
 def action_quick_add_option(file_name, file_id):
-    """Tự động chuyển sang Tab 2 và điền form."""
-    print(f"Tạo nhanh option cho: {file_name}")
+    """(TỰ ĐỘNG TẢI CONFIG) và Thêm thẳng vào config, bỏ qua form."""
+    global current_config_data, current_github_sha # Cần để sửa
+
+    # --- THÊM MỚI: TỰ ĐỘNG TẢI CONFIG NẾU CHƯA CÓ ---
+    if current_github_sha is None:
+
+        # Gọi hàm "Tải Config" (giống hệt nút bấm ở Tab 2)
+        action_load_from_github_wrapper() 
+
+        # Kiểm tra xem việc tải có thất bại không
+        if current_github_sha is None:
+            messagebox.showerror("Lỗi", "Tải config từ GitHub thất bại.\nKhông thể 'Tạo Nhanh'. Vui lòng thử lại.")
+            return # Dừng lại nếu tải lỗi
+    # --- HẾT THÊM MỚI ---
+
+    print(f"Thêm nhanh option cho: {file_name}")
 
     # 1. Tự động phát hiện loại file
     file_type = "zip" # Mặc định
@@ -2073,23 +2087,43 @@ def action_quick_add_option(file_name, file_id):
     # 2. Lấy tên file (bỏ đuôi)
     base_name = os.path.splitext(file_name)[0]
 
-    # 3. Chuyển sang Tab 2
-    notebook.select(second_tab_frame)
+    # 3. TẠO LẠI URL ĐẦY ĐỦ
+    final_url = f"https://drive.google.com/uc?id={file_id}"
 
-    # 4. Xóa form cũ (gọi hàm đã có)
-    clear_form()
+    # 4. Kiểm tra xem option này đã tồn tại chưa
+    if base_name in current_config_data:
+        if not messagebox.askyesno("Xác nhận Ghi đè", 
+            f"Option '{base_name}' đã tồn tại.\n"
+            "Bạn có muốn ghi đè URL/Type (nhưng giữ Version cũ) không?"):
+            return # Hủy nếu không muốn ghi đè
 
-    # 5. Điền thông tin vào form
+        current_config_data[base_name]["url"] = final_url
+        current_config_data[base_name]["type"] = file_type
+    else:
+        # 5. Nếu chưa có, tạo dữ liệu mới
+        new_data = {
+            "url": final_url, 
+            "version": "CHƯA SET VERSION", # Đặt placeholder
+            "type": file_type,
+            "password": None, 
+            "delete_before_extract": []
+        }
+        current_config_data[base_name] = new_data
+
+    # 6. Làm mới Treeview (Tab 2) ở chế độ nền
     try:
-        form_widgets["Option Name:"].insert(0, base_name)
-        form_widgets["URL:"].insert(0, file_id) # Form đã được sửa để nhận ID
-        form_widgets["Type:"].set(file_type)
-
-        # 6. (UX) Focus vào ô Version để bạn gõ tiếp
-        form_widgets["Version:"].focus()
+        populate_treeview()
     except Exception as e:
-        print(f"Lỗi khi điền form: {e}")
-        messagebox.showerror("Lỗi", f"Không thể tự động điền form: {e}")
+        print(f"Lỗi khi làm mới treeview (nền): {e}")
+
+    # 7. Thông báo cho admin
+    messagebox.showinfo("Đã Thêm Nhanh", 
+        f"Đã thêm/cập nhật '{base_name}' vào config.\n\n"
+        "VUI LÒNG:\n"
+        "1. Chuyển qua Tab 2.\n"
+        "2. Click vào option mới (version đang là 'CHƯA SET...').\n"
+        "3. Nhập 'Version' và bấm 'Thêm / Cập nhật'.\n"
+        "4. Bấm 'Lưu Config' để hoàn tất.")
 
 def handle_quick_add_click(report_window, file_info):
     """Đóng báo cáo và gọi hàm 'Tạo Nhanh Option'."""
@@ -2246,8 +2280,54 @@ def on_backup_toggle():
     save_local_config(local_config) # Lưu cài đặt ngay lập tức
     print(f"Đã đặt cài đặt Backup thành: {is_enabled}")
 
+# --- THÊM MỚI: HÀM DỌN DẸP TEMP ---
+def action_clean_temp_files():
+    """Quét thư mục TEMP và chỉ xóa các file do app này tạo ra."""
+
+    temp_dir = os.environ.get('TEMP')
+    if not temp_dir or not os.path.isdir(temp_dir):
+        messagebox.showerror("Lỗi", "Không thể tìm thấy thư mục Temp của Windows.")
+        return
+
+    files_deleted = 0
+    errors = 0
+
+    # Hỏi xác nhận trước khi xóa
+    if not messagebox.askyesno("Xác nhận Dọn dẹp",
+                               "Bạn có muốn quét và xóa các file tải về tạm (.zip, .rar) "
+                               "còn sót lại do ứng dụng này tạo ra không?"):
+        return
+
+    try:
+        # Duyệt qua tất cả file trong thư mục Temp
+        for filename in os.listdir(temp_dir):
+            # Chỉ xóa file do app này tạo ra (tên file được định nghĩa ở dòng 512)
+            if filename.startswith("my_temp_download") and \
+               (filename.endswith(".zip") or filename.endswith(".rar")):
+
+                file_path = os.path.join(temp_dir, filename)
+                try:
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                        print(f"Đã xóa file tạm: {filename}")
+                        files_deleted += 1
+                except Exception as e:
+                    print(f"Lỗi khi xóa {filename}: {e}")
+                    errors += 1
+    except Exception as e:
+        messagebox.showerror("Lỗi", f"Không thể quét thư mục Temp: {e}")
+        return
+
+    # Hiển thị kết quả
+    if errors > 0:
+        messagebox.showwarning("Hoàn tất (Có lỗi)", f"Đã xóa {files_deleted} file tạm.\nKhông thể xóa {errors} file (có thể đang được sử dụng).")
+    elif files_deleted > 0:
+        messagebox.showinfo("Hoàn tất", f"Đã dọn dẹp thành công {files_deleted} file tạm.")
+    else:
+        messagebox.showinfo("Hoàn tất", "Không tìm thấy file tạm nào để dọn dẹp.")
+
 # --- THÊM MỚI: KHUNG CÀI ĐẶT ---
-setting_frame = ttk.LabelFrame(fourth_tab_frame, text="Cài đặt Ứng dụng", padding=(10, 10))
+setting_frame = ttk.LabelFrame(fourth_tab_frame, text="Cài Đặt", padding=(10, 10))
 setting_frame.pack(fill=tk.X, pady=(20, 10))
 
 # Hàm on_backup_toggle (không đổi, chỉ copy vào đây)
@@ -2267,6 +2347,15 @@ backup_checkbutton = ttk.Checkbutton(
     style="Switch.TCheckbutton"
 )
 backup_checkbutton.pack(pady=(5, 10), padx=5, anchor=tk.W)
+# --- THÊM MỚI: NÚT DỌN DẸP TEMP ---
+clean_temp_button = ttk.Button(
+    setting_frame, 
+    text="Dọn dẹp File Tải %TEMP%", 
+    command=action_clean_temp_files
+)
+clean_temp_button.pack(pady=(5, 5), padx=5, anchor=tk.W)
+CreateToolTip(clean_temp_button, "Xóa các file .zip/.rar tạm (my_temp_download...)\n"
+                                 "còn sót lại trong thư mục Temp của Windows.")
 
 # 2. Nút Kiểm tra Cập nhật (NÚT MỚI)
 # Khai báo nút ở phạm vi global để process_queue có thể truy cập
@@ -2279,6 +2368,7 @@ update_app_button = ttk.Button(
 )
 update_app_button.pack(pady=(5, 5), padx=5, anchor=tk.W)
 # --- Hàm cho luồng tải config ban đầu ---
+
 def load_config_thread():
     """Tải config và gửi vào queue."""
     global fallback_options
