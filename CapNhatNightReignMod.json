@@ -6,10 +6,11 @@
   },
   "Cập Nhật Mod": {
     "url": "https://drive.google.com/uc?id=1f9rT20EHRoF4dfc19IcC3ykhwNmUPis_",
-    "version": "v1.3.2 Hotfix",
+    "version": "v1.4.0",
     "type": "zip",
     "password": null,
-    "delete_before_extract": []
+    "delete_before_extract": [],
+    "path_guide": "Hướng dẫn cho Cập Nhật Mod:\n\n1. Chọn thư mục mod ...\\ELDEN VINS NIGHTREIGN. (Nơi có file ELDEN VINS NIGHTREIGN.me3)"
   },
   "Tải/Cập Nhật Seamless Coop": {
     "url": "https://drive.google.com/uc?id=1182Ju68pjG9LfPTgLaeME6lHPk6aeIEe",
@@ -22,6 +23,13 @@
     "url": "https://drive.google.com/uc?id=1Hw-JR5E_SrtPHpeK6RknRxoJKMbvdexe",
     "version": "v1.2",
     "type": "exe",
+    "password": null,
+    "delete_before_extract": []
+  },
+  "Update Việt Hóa Mod": {
+    "url": "https://drive.google.com/uc?id=16hP8Q7Bx2tx_G0eQl0F-uEhTTQ2DJ3Or",
+    "version": "v1.3.1",
+    "type": "zip",
     "password": null,
     "delete_before_extract": []
   }
