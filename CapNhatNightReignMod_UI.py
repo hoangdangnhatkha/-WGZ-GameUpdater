@@ -1267,6 +1267,19 @@ options_frame = ttk.LabelFrame(main_tab_frame, text="Bro muốn làm gì?", padd
 options_frame.pack(fill=tk.X, expand=False, pady=10, padx=(10, 0))
 options_frame.pack_propagate(False) # RẤT QUAN TRỌNG: Giữ chiều cao cố định
 
+# --- THÊM MỚI: KHUNG HƯỚNG DẪN CHỌN ĐƯỜNG DẪN ---
+guide_frame = ttk.LabelFrame(main_tab_frame, text="💡 Hướng dẫn chọn đường dẫn", padding=(10, 5))
+guide_frame.pack(fill=tk.X, pady=(0, 5), padx=(10, 0))
+
+guide_label = ttk.Label(
+    guide_frame, 
+    text="Hãy chọn một mod ở trên để xem hướng dẫn...", 
+    style="secondary.TLabel", 
+    wraplength=700, # Tự động xuống dòng nếu text quá dài
+    justify=tk.LEFT
+)
+guide_label.pack(fill=tk.X, expand=True, pady=5)
+
 # 2. Tạo Scrollbar BÊN TRONG options_frame
 scrollbar = ttk.Scrollbar(options_frame, orient="vertical")
 # Pack scrollbar BÊN PHẢI. Thêm padding nhỏ để không dính viền
@@ -1330,6 +1343,22 @@ content_frame.bind("<Button-5>", on_mouse_wheel)
 selected_option = tk.StringVar()
 radio_buttons = []
 
+# --- THÊM MỚI: HÀM CẬP NHẬT TEXT HƯỚNG DẪN ---
+def update_guide_text():
+    """Lấy key đã chọn và cập nhật text hướng dẫn."""
+    try:
+        selected_key = selected_option.get()
+        if selected_key in download_options:
+            # Lấy text từ key mới, ví dụ: "path_guide"
+            # Dùng .get() để tránh lỗi nếu key không tồn tại
+            guide_text = download_options[selected_key].get("path_guide", "Không có hướng dẫn cho mod này.")
+            guide_label.config(text=guide_text)
+        else:
+            guide_label.config(text="Hãy chọn một mod ở trên để xem hướng dẫn...")
+    except Exception as e:
+        print(f"Lỗi khi cập nhật hướng dẫn: {e}")
+        guide_label.config(text="Lỗi khi tải hướng dẫn.")
+
 def update_radio_buttons_text():
     # (Code hàm này không đổi)
     global local_config, radio_buttons
@@ -1357,7 +1386,7 @@ def update_radio_buttons_text():
         else:
             button_text += f" - Hãy cập nhật phiên bản mới nhất ({online_version})"
             is_new = True
-        rb = ttk.Radiobutton(row_frame, text=button_text, variable=selected_option, value=key, style=button_style)
+        rb = ttk.Radiobutton(row_frame, text=button_text, variable=selected_option, value=key, style=button_style, command=update_guide_text)
         rb.pack(side=tk.LEFT)
         radio_buttons.append(rb)
 
@@ -1376,8 +1405,11 @@ def update_radio_buttons_text():
             new_label.bind("<Button-4>", on_mouse_wheel)
             new_label.bind("<Button-5>", on_mouse_wheel)
     if radio_buttons:
-        first_option_key = list(download_options.keys())[0]
-        selected_option.set(first_option_key)
+        # Tìm key hợp lệ đầu tiên (không phải 'updater')
+        first_valid_key = next((key for key in download_options.keys() if key != "updater"), None)
+        if first_valid_key:
+            selected_option.set(first_valid_key)
+            update_guide_text()
 
 path_frame = ttk.Frame(main_tab_frame)
 path_frame.pack(fill=tk.X, pady=(5, 10))
