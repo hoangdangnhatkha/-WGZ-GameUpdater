@@ -1516,6 +1516,17 @@ tree_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 cols = ("ID", "Option Name", "Version", "Type")
 options_treeview = ttk.Treeview(tree_frame, columns=cols, show='headings', yscrollcommand=tree_scrollbar.set, height=15)
 options_treeview.pack(expand=True, fill=tk.BOTH)
+move_button_frame = ttk.Frame(tree_frame)
+move_button_frame.pack(fill=tk.X, pady=5)
+
+# (Chúng ta sẽ thêm 'command' ở bước 3)
+move_up_button = ttk.Button(move_button_frame, text="▲ Di chuyển Lên",
+                            command=lambda: action_move_option("up"))
+move_up_button.pack(side=tk.LEFT, padx=5, expand=True)
+
+move_down_button = ttk.Button(move_button_frame, text="▼ Di chuyển Xuống",
+                              command=lambda: action_move_option("down"))
+move_down_button.pack(side=tk.LEFT, padx=5, expand=True)
 tree_scrollbar.config(command=options_treeview.yview)
 for col in cols:
     options_treeview.heading(col, text=col)
@@ -1743,6 +1754,61 @@ def action_delete_option():
             clear_form()
             upload_status_label.config(text=f"'{option_name_display}' đã được xóa cục bộ.", style="Red.TLabel")
         else: messagebox.showerror("Lỗi", "Option đã chọn không còn tồn tại?")
+
+# --- THÊM MỚI: HÀM DI CHUYỂN ITEM ---
+def action_move_option(direction):
+    """Di chuyển item đã chọn lên hoặc xuống trong danh sách."""
+    global current_config_data
+
+    selected_items = options_treeview.selection()
+    if not selected_items:
+        messagebox.showwarning("Chưa chọn", "Vui lòng chọn một option để di chuyển.")
+        return
+
+    selected_key = selected_items[0] # Đây là ID (ví dụ: "2")
+
+    # Chuyển dict thành list (để giữ trật tự)
+    items_list = list(current_config_data.items())
+
+    # Tìm vị trí (index) của item đã chọn
+    current_index = -1
+    for i, (key, data) in enumerate(items_list):
+        if key == selected_key:
+            current_index = i
+            break
+
+    if current_index == -1:
+        print(f"Lỗi: Không tìm thấy key {selected_key} trong list")
+        return # Không tìm thấy (lỗi)
+
+    # Tính vị trí mới
+    if direction == "up":
+        new_index = current_index - 1
+        if new_index < 0:
+            print("Đã ở trên cùng")
+            return # Đã ở trên cùng
+    else: # "down"
+        new_index = current_index + 1
+        if new_index >= len(items_list):
+            print("Đã ở dưới cùng")
+            return # Đã ở dưới cùng
+
+    # Di chuyển item
+    item_to_move = items_list.pop(current_index)
+    items_list.insert(new_index, item_to_move)
+
+    # Tạo lại dictionary (đã sắp xếp lại)
+    # (Dùng dict() sẽ giữ trật tự chèn (insertion order) trong Python 3.7+)
+    current_config_data = dict(items_list)
+
+    # Cập nhật UI
+    populate_treeview()
+
+    # Chọn lại item vừa di chuyển
+    options_treeview.selection_set(selected_key)
+    options_treeview.focus(selected_key)
+
+    upload_status_label.config(text="Đã thay đổi thứ tự. (Nhớ 'Lưu Config')")
 
 add_update_button.config(command=action_add_update_option)
 clear_button.config(command=clear_form)
