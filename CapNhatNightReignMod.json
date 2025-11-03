@@ -1,26 +1,29 @@
 {
   "updater": {
-    "latest_version": "1.1",
+    "latest_version": "1.1.2",
     "release_notes": "- Tăng tốc độ upload lên drive\n- Thêm quét dữ liệu để đồng bộ",
     "download_url": "https://drive.google.com/uc?export=download&id=1xLitheCe9ygKSajQl9LbwxYskikYSG1J"
   },
   "Cập Nhật Mod": {
+    "name": "Cập Nhật Mod",
     "url": "https://drive.google.com/uc?id=1f9rT20EHRoF4dfc19IcC3ykhwNmUPis_",
     "version": "v1.4.0",
     "type": "zip",
     "password": null,
     "delete_before_extract": [],
-    "path_guide": "Hướng dẫn cho Cập Nhật Mod:\n\n1. Chọn thư mục mod ...\\ELDEN VINS NIGHTREIGN. (Nơi có file ELDEN VINS NIGHTREIGN.me3)"
+    "path_guide": "Chọn thư mục mod ...\\ELDEN VINS NIGHTREIGN. (Nơi có file ELDEN VINS NIGHTREIGN.me3)"
   },
   "Tải/Cập Nhật Seamless Coop": {
+    "name": "Tải/Cập Nhật Seamless Coop",
     "url": "https://drive.google.com/uc?id=1182Ju68pjG9LfPTgLaeME6lHPk6aeIEe",
     "version": "v1.0.6",
     "type": "zip",
     "password": null,
     "delete_before_extract": [],
-    "path_guide": "Hướng dẫn cho Cập Nhật Mod:\n\n1. Chọn thư mục mod ...\\ELDEN VINS NIGHTREIGN. (Nơi có file ELDEN VINS NIGHTREIGN.me3)"
+    "path_guide": "Chọn thư mục mod ...\\ELDEN VINS NIGHTREIGN. (Nơi có file ELDEN VINS NIGHTREIGN.me3)"
   },
   "Việt Hóa Mod": {
+    "name": "Việt Hóa Mod",
     "url": "https://drive.google.com/uc?id=1Hw-JR5E_SrtPHpeK6RknRxoJKMbvdexe",
     "version": "v1.2",
     "type": "exe",
@@ -29,11 +32,12 @@
     "path_guide": "Tải về bất cứ đâu. App cài việt hóa sẽ hiện lên thì hãy chọn đường dẫn đến file game gốc của Elden Ring Nightreign"
   },
   "Update Việt Hóa Mod": {
+    "name": "Update Việt Hóa Mod",
     "url": "https://drive.google.com/uc?id=16hP8Q7Bx2tx_G0eQl0F-uEhTTQ2DJ3Or",
     "version": "v1.3.1",
     "type": "zip",
     "password": null,
     "delete_before_extract": [],
-    "path_guide": "Đường dẫn đến file game gốc của Elden Ring Nightreign ...\\Elden Ring Nightreign\\Game\\"
+    "path_guide": "Hãy chọn đường dẫn đến file game gốc của Elden Ring Nightreign ...\\Elden Ring Nightreign\\Game\\"
   }
 }
