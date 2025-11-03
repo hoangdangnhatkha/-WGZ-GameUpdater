@@ -41,7 +41,7 @@ import subprocess
 # --- HẾT ---
 scan_loading_window = None
 g_secret_click_count = 0
-CURRENT_VERSION = "1.1"
+CURRENT_VERSION = "1.1.2"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
 def resource_path(relative_path):
@@ -685,7 +685,8 @@ def download_and_extract_logic():
     progress_queue.put(("status", "DISABLE_BUTTONS"))
 
     selected_key = selected_option.get()
-    option_label.configure(text="Đang " + selected_key, style="White.TLabel")
+    mod_display_name = download_options[selected_key].get("name", selected_key)
+    option_label.configure(text="Đang " + mod_display_name, style="White.TLabel")
 
     if not selected_key or selected_key == "updater":
         progress_queue.put(("status", "Lỗi: Vui lòng chọn một gói tải."))
@@ -751,7 +752,8 @@ def download_and_extract_logic():
                     backup_root_dir = os.path.join(destination_folder, "_BACKUPS")
                     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
                     # Lấy tên mod (đã có ở 'selected_key') và làm sạch nó
-                    safe_key_name = re.sub(r'[\\/*?:"<>|]', "", selected_key)
+                    mod_name_for_backup = download_options[selected_key].get("name", "Unknown Mod")
+                    safe_key_name = re.sub(r'[\\/*?:"<>|]', "", mod_name_for_backup)
                     backup_folder_name = f"{safe_key_name} - {timestamp}"
                     specific_backup_dir = os.path.join(backup_root_dir, backup_folder_name)
 
@@ -1268,17 +1270,33 @@ options_frame.pack(fill=tk.X, expand=False, pady=10, padx=(10, 0))
 options_frame.pack_propagate(False) # RẤT QUAN TRỌNG: Giữ chiều cao cố định
 
 # --- THÊM MỚI: KHUNG HƯỚNG DẪN CHỌN ĐƯỜNG DẪN ---
-guide_frame = ttk.LabelFrame(main_tab_frame, text="💡 Hướng dẫn chọn đường dẫn", padding=(10, 5))
+# 1. Đặt chiều cao cố định (ví dụ: 100px)
+guide_frame = ttk.LabelFrame(main_tab_frame, text="💡 Hướng dẫn chọn đường dẫn", padding=(5, 5), height=100)
 guide_frame.pack(fill=tk.X, pady=(0, 5), padx=(10, 0))
+# 2. Ngăn frame tự co dãn theo nội dung
+guide_frame.pack_propagate(False) 
 
-guide_label = ttk.Label(
+# 3. Thêm Scrollbar
+guide_scrollbar = ttk.Scrollbar(guide_frame, orient="vertical")
+guide_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(0, 2), padx=(0, 2)) 
+
+# 4. Thay thế Label bằng Text widget
+guide_text_widget = tk.Text(
     guide_frame, 
-    text="Hãy chọn một mod ở trên để xem hướng dẫn...", 
-    style="secondary.TLabel", 
-    wraplength=700, # Tự động xuống dòng nếu text quá dài
-    justify=tk.LEFT
+    wrap="word", # Tự động xuống dòng
+    relief=tk.FLAT, # Bỏ viền
+    borderwidth=0,
+    highlightthickness=0,
+    yscrollcommand=guide_scrollbar.set
 )
-guide_label.pack(fill=tk.X, expand=True, pady=5)
+guide_text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+# 5. Gắn scrollbar
+guide_scrollbar.config(command=guide_text_widget.yview)
+
+# 6. Chèn text mặc định và khóa widget
+guide_text_widget.insert(tk.END, "Hãy chọn một mod ở trên để xem hướng dẫn...")
+guide_text_widget.config(state=tk.DISABLED)
 
 # 2. Tạo Scrollbar BÊN TRONG options_frame
 scrollbar = ttk.Scrollbar(options_frame, orient="vertical")
@@ -1347,65 +1365,96 @@ radio_buttons = []
 def update_guide_text():
     """Lấy key đã chọn và cập nhật text hướng dẫn."""
     try:
+        guide_text_widget.config(state=tk.NORMAL) # Mở khóa để sửa
+        guide_text_widget.delete("1.0", tk.END) # Xóa text cũ
+
         selected_key = selected_option.get()
         if selected_key in download_options:
-            # Lấy text từ key mới, ví dụ: "path_guide"
-            # Dùng .get() để tránh lỗi nếu key không tồn tại
+            # Lấy text từ key "path_guide"
             guide_text = download_options[selected_key].get("path_guide", "Không có hướng dẫn cho mod này.")
-            guide_label.config(text=guide_text)
+            guide_text_widget.insert(tk.END, guide_text)
         else:
-            guide_label.config(text="Hãy chọn một mod ở trên để xem hướng dẫn...")
+            guide_text_widget.insert(tk.END, "Hãy chọn một mod ở trên để xem hướng dẫn...")
     except Exception as e:
         print(f"Lỗi khi cập nhật hướng dẫn: {e}")
-        guide_label.config(text="Lỗi khi tải hướng dẫn.")
+        guide_text_widget.delete("1.0", tk.END)
+        guide_text_widget.insert(tk.END, "Lỗi khi tải hướng dẫn.")
+    finally:
+        guide_text_widget.config(state=tk.DISABLED)
 
 def update_radio_buttons_text():
-    # (Code hàm này không đổi)
+    """(ĐÃ VIẾT LẠI) Cập nhật danh sách radio button (Tab 1) để dùng cấu trúc ID."""
     global local_config, radio_buttons
     local_config = load_local_config()
     for widget in content_frame.winfo_children(): widget.destroy()
     radio_buttons = []
 
-    style = ttk.Style() # Lấy style object
+    # (Các style này không đổi)
     style.configure("New.TLabel", foreground="red", font=('TkDefaultFont', 9, 'bold'))
     style.configure("Green.TRadiobutton", foreground="green")
 
+    # Key bây giờ là ID (ví dụ: "1"), Data là dictionary
     for (key, data) in download_options.items():
         if key == "updater":
-            continue
-        online_version = data['version']
+            continue # Bỏ qua 'updater' (như cũ)
+
+        # --- SỬA LOGIC ---
+        # 1. Lấy tên hiển thị từ 'name'
+        display_name = data.get("name", "LỖI: THIẾU TÊN")
+
+        # 2. Lấy version online
+        online_version = data.get("version")
+        if not online_version: continue # Bỏ qua nếu item không có version
+
+        # 3. Kiểm tra version đã cài bằng KEY (ID)
         installed_version = local_config.get("installed_versions", {}).get(key, "Chưa cài đặt")
+        # --- HẾT SỬA ---
+
         row_frame = ttk.Frame(content_frame)
         row_frame.pack(fill=tk.X, pady=1)
-        button_text = f"{key} "
+
+        button_text = f"{display_name} " # <-- SỬA: Dùng display_name
         button_style = "TRadiobutton"
         is_new = False
+
         if online_version == installed_version:
             button_text += f"({online_version}) - Đã cài đặt"
             button_style = "Green.TRadiobutton"
         else:
             button_text += f" - Hãy cập nhật phiên bản mới nhất ({online_version})"
             is_new = True
-        rb = ttk.Radiobutton(row_frame, text=button_text, variable=selected_option, value=key, style=button_style, command=update_guide_text)
+
+        # Quan trọng: 'text' là display_name, nhưng 'value' là key (ID)
+        rb = ttk.Radiobutton(
+            row_frame, 
+            text=button_text, 
+            variable=selected_option, 
+            value=key, # <-- 'value' là ID (ví dụ: "1")
+            style=button_style,
+            command=update_guide_text
+        )
+        # --- HẾT SỬA ---
+
         rb.pack(side=tk.LEFT)
         radio_buttons.append(rb)
 
+        # (Code bind sự kiện cuộn chuột không đổi)
         row_frame.bind("<MouseWheel>", on_mouse_wheel)
         rb.bind("<MouseWheel>", on_mouse_wheel)
-        # Cho Linux
         row_frame.bind("<Button-4>", on_mouse_wheel)
         rb.bind("<Button-4>", on_mouse_wheel)
         row_frame.bind("<Button-5>", on_mouse_wheel)
         rb.bind("<Button-5>", on_mouse_wheel)
+
         if is_new:
             new_label = ttk.Label(row_frame, text="NEW!", style="New.TLabel")
             new_label.pack(side=tk.LEFT, padx=(5, 0))
-
             new_label.bind("<MouseWheel>", on_mouse_wheel)
             new_label.bind("<Button-4>", on_mouse_wheel)
             new_label.bind("<Button-5>", on_mouse_wheel)
+
     if radio_buttons:
-        # Tìm key hợp lệ đầu tiên (không phải 'updater')
+        # (Logic chọn item đầu tiên không đổi)
         first_valid_key = next((key for key in download_options.keys() if key != "updater"), None)
         if first_valid_key:
             selected_option.set(first_valid_key)
@@ -1448,7 +1497,7 @@ notebook.add(second_tab_frame, text="Thêm/Xóa Option Tải")
 # --- Variables ---
 current_config_data = {} # Dictionary để giữ config đang sửa
 current_github_sha = None # SHA của file đã tải từ GitHub
-
+g_currently_selected_id = None
 # --- Frames ---
 top_button_frame = ttk.Frame(second_tab_frame)
 top_button_frame.pack(fill=tk.X, pady=(0, 10))
@@ -1464,14 +1513,17 @@ bottom_status_frame.pack(fill=tk.X, pady=(10, 0))
 # --- Treeview Setup ---
 tree_scrollbar = ttk.Scrollbar(tree_frame)
 tree_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-cols = ("Option Name", "Version", "Type")
+cols = ("ID", "Option Name", "Version", "Type")
 options_treeview = ttk.Treeview(tree_frame, columns=cols, show='headings', yscrollcommand=tree_scrollbar.set, height=15)
 options_treeview.pack(expand=True, fill=tk.BOTH)
 tree_scrollbar.config(command=options_treeview.yview)
 for col in cols:
     options_treeview.heading(col, text=col)
     options_treeview.column(col, width=100, anchor=tk.W)
+options_treeview.column("ID", width=40, anchor=tk.CENTER, stretch=tk.NO)
 options_treeview.column("Option Name", width=180)
+options_treeview.column("Version", width=100)
+options_treeview.column("Type", width=70)
 
 # --- Edit Form Setup ---
 form_widgets = {}
@@ -1502,6 +1554,10 @@ create_form_row(edit_form_frame, "Delete List:", widget_type="Text")
 delete_help = ttk.Label(edit_form_frame, text="(Nhập file/folder, mỗi cái một dòng)", style="secondary.TLabel")
 delete_help.pack(fill=tk.X)
 
+create_form_row(edit_form_frame, "Path Guide:", widget_type="Text")
+guide_help = ttk.Label(edit_form_frame, text="(Hướng dẫn chọn đường dẫn cho Tab 1)", style="secondary.TLabel")
+guide_help.pack(fill=tk.X)
+
 form_button_frame = ttk.Frame(edit_form_frame)
 form_button_frame.pack(pady=10)
 add_update_button = ttk.Button(form_button_frame, text="Thêm / Cập nhật", style="Accent.TButton")
@@ -1521,7 +1577,7 @@ def populate_treeview():
         if key == "updater":
             continue
         options_treeview.insert("", tk.END, iid=key, values=(
-            key, data.get("version", ""), data.get("type", "zip")
+            key, data.get("name", "LỖI: THIẾU TÊN"), data.get("version", ""), data.get("type", "zip")
         ))
 
 def on_treeview_select(event):
@@ -1532,10 +1588,14 @@ def on_treeview_select(event):
         return
 
     selected_key = selected_items[0] # Get the item ID (which is the option key)
+
+    global g_currently_selected_id
+    g_currently_selected_id = selected_key
+
     if selected_key in current_config_data:
         data = current_config_data[selected_key]
         form_widgets["Option Name:"].delete(0, tk.END)
-        form_widgets["Option Name:"].insert(0, selected_key)
+        form_widgets["Option Name:"].insert(0, data.get("name", ""))
 
         # --- SỬA LOGIC HIỂN THỊ URL ---
         url_entry = form_widgets["URL:"]
@@ -1564,11 +1624,20 @@ def on_treeview_select(event):
         delete_items = data.get("delete_before_extract", [])
         if delete_items:
             delete_list_widget.insert("1.0", "\n".join(delete_items))
+        
+        guide_widget = form_widgets["Path Guide:"]
+        guide_widget.config(state=tk.NORMAL)
+        guide_widget.delete("1.0", tk.END)
+        guide_text = data.get("path_guide", "")
+        if guide_text:
+            guide_widget.insert("1.0", guide_text)
 
 options_treeview.bind('<<TreeviewSelect>>', on_treeview_select)
 
 # --- Form Button Functions ---
 def clear_form():
+    global g_currently_selected_id
+    g_currently_selected_id = None
     form_widgets["Option Name:"].delete(0, tk.END)
     form_widgets["URL:"].delete(0, tk.END)
     form_widgets["Version:"].delete(0, tk.END)
@@ -1576,53 +1645,85 @@ def clear_form():
     form_widgets["Password:"].delete(0, tk.END)
     form_widgets["Delete List:"].config(state=tk.NORMAL)
     form_widgets["Delete List:"].delete("1.0", tk.END)
+    form_widgets["Path Guide:"].config(state=tk.NORMAL)
+    form_widgets["Path Guide:"].delete("1.0", tk.END)
     options_treeview.selection_remove(options_treeview.selection())
 
 def action_add_update_option():
-    """Adds or updates an option in the current_config_data dictionary."""
-    global current_config_data
-    option_name = form_widgets["Option Name:"].get().strip()
-    if not option_name:
+    """(ĐÃ VIẾT LẠI) Thêm hoặc Cập nhật option dựa trên ID."""
+    global current_config_data, g_currently_selected_id
+
+    # 1. Lấy tất cả dữ liệu từ form (như cũ)
+    option_name_display = form_widgets["Option Name:"].get().strip() # Đây là "name"
+    if not option_name_display:
         messagebox.showwarning("Thiếu tên", "Vui lòng nhập 'Option Name'.")
         return
-    if option_name.lower() == "updater":
+    if option_name_display.lower() == "updater":
         messagebox.showerror("Tên Bị Cấm", "Bạn không thể đặt tên 'updater'")
         return
 
-    # --- SỬA LOGIC XỬ LÝ URL INPUT ---
     url_input = form_widgets["URL:"].get().strip()
-    final_url = url_input # Assume it's a full URL initially
-
-    # Check if input looks like just a Google Drive ID (basic check)
-    # Simple check: no slashes, no colons, likely alphanumeric with maybe _-
+    final_url = url_input
     if url_input and "/" not in url_input and ":" not in url_input and "drive.google.com" not in url_input:
-        # Assume it's an ID, construct the full URL
         final_url = f"https://drive.google.com/uc?id={url_input}"
-        print(f"Detected ID, constructed URL: {final_url}") # Debug print
-    # --- HẾT SỬA ---
 
     version = form_widgets["Version:"].get().strip()
     option_type = form_widgets["Type:"].get()
     password = form_widgets["Password:"].get().strip()
     delete_list_raw = form_widgets["Delete List:"].get("1.0", tk.END).strip()
     delete_list = [line.strip() for line in delete_list_raw.splitlines() if line.strip()]
+    path_guide_text = form_widgets["Path Guide:"].get("1.0", tk.END).strip()
 
-    # Create the data object using final_url
+    # 2. Tạo đối tượng data (Giờ 'name' ở bên trong)
     new_data = {
-        "url": final_url, # Use the potentially constructed URL
+        "name": option_name_display, # <-- TÊN MỚI Ở ĐÂY
+        "url": final_url,
         "version": version,
         "type": option_type,
-        "password": password if password else None, # Store empty as None (JSON null)
-        "delete_before_extract": delete_list
+        "password": password if password else None, 
+        "delete_before_extract": delete_list,
+        "path_guide": path_guide_text if path_guide_text else None
     }
 
-    current_config_data[option_name] = new_data
+    # --- 3. LOGIC MỚI: KIỂM TRA UPDATE HAY LÀ ADD ---
+    target_key = None
 
-    populate_treeview() # Refresh the treeview
-    # Select the added/updated item
-    options_treeview.selection_set(option_name)
-    options_treeview.focus(option_name) # Scroll to it
-    upload_status_label.config(text=f"'{option_name}' đã được thêm/cập nhật cục bộ.", style="White.TLabel")
+    if g_currently_selected_id:
+        # --- CHẾ ĐỘ UPDATE ---
+        # (Đang chọn 1 item trong list)
+        target_key = g_currently_selected_id
+        print(f"Đang cập nhật ID: {target_key}")
+        current_config_data[target_key] = new_data
+    else:
+        # --- CHẾ ĐỘ THÊM MỚI ---
+        # (Không chọn item nào, hoặc bấm "Xóa Hết")
+
+        # Kiểm tra xem tên này đã tồn tại chưa
+        for k, v in current_config_data.items():
+             if v.get("name") == option_name_display:
+                 messagebox.showwarning("Trùng Tên", f"Tên '{option_name_display}' đã tồn tại (với ID {k}).\nNếu bạn muốn SỬA nó, hãy click vào nó trong danh sách.")
+                 return
+
+        # Tìm ID mới (số lớn nhất + 1)
+        new_id = 0
+        for key_str in current_config_data.keys():
+            if key_str.isdigit(): # Chỉ kiểm tra các key là số
+                new_id = max(new_id, int(key_str))
+
+        target_key = str(new_id + 1) # Key mới (dạng string)
+        print(f"Đang thêm mới với ID: {target_key}")
+        current_config_data[target_key] = new_data
+
+    # --- HẾT LOGIC MỚI ---
+
+    populate_treeview() # Refresh
+
+    # Select và focus vào item
+    if target_key:
+        options_treeview.selection_set(target_key)
+        options_treeview.focus(target_key)
+
+    upload_status_label.config(text=f"'{option_name_display}' (ID: {target_key}) đã được thêm/cập nhật.", style="White.TLabel")
 
 def action_delete_option():
     global current_config_data
@@ -1630,13 +1731,17 @@ def action_delete_option():
     if not selected_items:
         messagebox.showwarning("Chưa chọn", "Vui lòng chọn một option trong danh sách để xóa.")
         return
-    selected_key = selected_items[0]
-    if messagebox.askyesno("Xác nhận xóa", f"Bạn có chắc chắn muốn xóa option '{selected_key}'?"):
+    selected_key = selected_items[0] # Đây là ID (ví dụ: "1")
+
+    # --- SỬA: Lấy tên để hiển thị ---
+    option_name_display = current_config_data.get(selected_key, {}).get("name", selected_key)
+
+    if messagebox.askyesno("Xác nhận xóa", f"Bạn có chắc chắn muốn xóa option '{option_name_display}' (ID: {selected_key})?"):
         if selected_key in current_config_data:
             del current_config_data[selected_key]
             populate_treeview()
             clear_form()
-            upload_status_label.config(text=f"'{selected_key}' đã được xóa cục bộ.", style="Red.TLabel") # Dùng style
+            upload_status_label.config(text=f"'{option_name_display}' đã được xóa cục bộ.", style="Red.TLabel")
         else: messagebox.showerror("Lỗi", "Option đã chọn không còn tồn tại?")
 
 add_update_button.config(command=action_add_update_option)
@@ -1957,13 +2062,16 @@ def scan_logic_thread():
         # 4. Tìm Lỗi (Có trong JSON, nhưng không có trên Drive)
         broken_ids = json_file_ids - drive_file_ids # Phép trừ tập hợp
         for broken_id in broken_ids:
-            # Tìm xem key nào đang dùng ID bị hỏng này
-            key_name = "[Không tìm thấy tên key]"
+            # Tìm xem item nào đang dùng ID bị hỏng này
+            item_name = "[Không tìm thấy tên]"
+            item_key = "[?]"
             for key, data in github_data.items():
                 if extract_gdrive_id_from_url(data.get("url")) == broken_id:
-                    key_name = key
+                    item_name = data.get("name", "[TÊN BỊ LỖI]")
+                    item_key = key
                     break
-            errors_list.append(f"Option '{key_name}': File ID '{broken_id}' KHÔNG TỒN TẠI trên Drive.")
+            errors_list.append(f"Option '{item_name}' (ID: {item_key}): File ID '{broken_id}' KHÔNG TỒN TẠI trên Drive.")
+        # --- HẾT SỬA ---
 
         # 5. Tìm Cảnh Báo (Có trên Drive, nhưng không dùng trong JSON)
         orphaned_ids = drive_file_ids - json_file_ids # Phép trừ tập hợp
@@ -2117,20 +2225,21 @@ def on_drive_item_click(event, clicked_frame):
 
 # ---HÀM TẠO NHANH OPTION ---
 def action_quick_add_option(file_name, file_id):
-    """(TỰ ĐỘNG TẢI CONFIG) và Thêm thẳng vào config, bỏ qua form."""
-    global current_config_data, current_github_sha # Cần để sửa
+    """(ĐÃ VIẾT LẠI) Tự động tải config và thêm option mới với ID số."""
+    global current_config_data, current_github_sha
 
-    # --- THÊM MỚI: TỰ ĐỘNG TẢI CONFIG NẾU CHƯA CÓ ---
+    # --- TỰ ĐỘNG TẢI CONFIG NẾU CHƯA CÓ ---
     if current_github_sha is None:
+        messagebox.showinfo("Thông báo", 
+                            "Đây là lần 'Tạo Nhanh' đầu tiên.\n"
+                            "Ứng dụng sẽ tự động tải config từ GitHub trước...")
 
-        # Gọi hàm "Tải Config" (giống hệt nút bấm ở Tab 2)
         action_load_from_github_wrapper() 
 
-        # Kiểm tra xem việc tải có thất bại không
         if current_github_sha is None:
             messagebox.showerror("Lỗi", "Tải config từ GitHub thất bại.\nKhông thể 'Tạo Nhanh'. Vui lòng thử lại.")
-            return # Dừng lại nếu tải lỗi
-    # --- HẾT THÊM MỚI ---
+            return
+    # --- HẾT TẢI TỰ ĐỘNG ---
 
     print(f"Thêm nhanh option cho: {file_name}")
 
@@ -2141,44 +2250,74 @@ def action_quick_add_option(file_name, file_id):
     elif file_name.lower().endswith(".exe"):
         file_type = "exe"
 
-    # 2. Lấy tên file (bỏ đuôi)
+    # 2. Lấy tên file (bỏ đuôi) để dùng làm TÊN HIỂN THỊ
     base_name = os.path.splitext(file_name)[0]
 
-    # 3. TẠO LẠI URL ĐẦY ĐỦ
+    # 3. Tạo URL đầy đủ
     final_url = f"https://drive.google.com/uc?id={file_id}"
 
-    # 4. Kiểm tra xem option này đã tồn tại chưa
-    if base_name in current_config_data:
+    # 4. KIỂM TRA TÊN BỊ TRÙNG
+    existing_id = None
+    for k, v in current_config_data.items():
+        if v.get("name") == base_name:
+            existing_id = k
+            break
+
+    target_key = None
+    new_data = {
+        "name": base_name, # <-- TÊN HIỂN THỊ
+        "url": final_url, 
+        "version": "CHƯA SET VERSION", # Placeholder
+        "type": file_type,
+        "password": None, 
+        "delete_before_extract": [],
+        "path_guide": None # Thêm key này (trống)
+    }
+
+    if existing_id:
+        # --- CHẾ ĐỘ UPDATE ---
         if not messagebox.askyesno("Xác nhận Ghi đè", 
-            f"Option '{base_name}' đã tồn tại.\n"
-            "Bạn có muốn ghi đè URL/Type (nhưng giữ Version cũ) không?"):
-            return # Hủy nếu không muốn ghi đè
+            f"Tên '{base_name}' đã tồn tại (ID: {existing_id}).\n"
+            "Bạn có muốn ghi đè URL/Type (giữ Version cũ) không?"):
+            return
 
-        current_config_data[base_name]["url"] = final_url
-        current_config_data[base_name]["type"] = file_type
+        target_key = existing_id
+        # Giữ lại các giá trị cũ
+        old_data = current_config_data[target_key]
+        new_data["version"] = old_data.get("version", "CHƯA SET VERSION")
+        new_data["password"] = old_data.get("password")
+        new_data["delete_before_extract"] = old_data.get("delete_before_extract", [])
+        new_data["path_guide"] = old_data.get("path_guide")
+
+        # Chỉ cập nhật
+        current_config_data[target_key] = new_data
+
     else:
-        # 5. Nếu chưa có, tạo dữ liệu mới
-        new_data = {
-            "url": final_url, 
-            "version": "CHƯA SET VERSION", # Đặt placeholder
-            "type": file_type,
-            "password": None, 
-            "delete_before_extract": []
-        }
-        current_config_data[base_name] = new_data
+        # --- CHẾ ĐỘ THÊM MỚI ---
+        # Tìm ID mới (số lớn nhất + 1)
+        new_id = 0
+        for key_str in current_config_data.keys():
+            if key_str.isdigit():
+                new_id = max(new_id, int(key_str))
 
-    # 6. Làm mới Treeview (Tab 2) ở chế độ nền
+        target_key = str(new_id + 1) # Key mới
+        current_config_data[target_key] = new_data
+
+    # 6. Làm mới Treeview (Tab 2)
     try:
         populate_treeview()
+        # Tự động chọn
+        options_treeview.selection_set(target_key)
+        options_treeview.focus(target_key)
     except Exception as e:
         print(f"Lỗi khi làm mới treeview (nền): {e}")
 
-    # 7. Thông báo cho admin
+    # 7. Thông báo
     messagebox.showinfo("Đã Thêm Nhanh", 
-        f"Đã thêm/cập nhật '{base_name}' vào config.\n\n"
+        f"Đã thêm/cập nhật '{base_name}' (ID: {target_key}) vào config.\n\n"
         "VUI LÒNG:\n"
         "1. Chuyển qua Tab 2.\n"
-        "2. Click vào option mới (version đang là 'CHƯA SET...').\n"
+        "2. (Đã tự động chọn)\n"
         "3. Nhập 'Version' và bấm 'Thêm / Cập nhật'.\n"
         "4. Bấm 'Lưu Config' để hoàn tất.")
 
