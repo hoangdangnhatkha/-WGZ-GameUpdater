@@ -577,7 +577,7 @@ def upload_file_logic(file_path, status_listbox):
         
         # 2. Chuẩn bị media body và request
         # Đặt chunksize (ví dụ 1MB), rất quan trọng cho resumable upload
-        media = MediaFileUpload(file_path, chunksize=1024*1024*5, resumable=True)
+        media = MediaFileUpload(file_path, chunksize=1024*1024*10, resumable=True)
         request = None
         
         if files:
@@ -699,6 +699,8 @@ def download_and_extract_logic():
     version = selected_option_data["version"]
     file_type = selected_option_data.get("type", "zip")
     password = selected_option_data.get("password", None)
+    print(f"--- DEBUG: Đã chọn mod: {mod_display_name}")
+    print(f"--- DEBUG: Mật khẩu được lấy từ JSON: '{password}' (Loại: {type(password)})")
     delete_list = selected_option_data.get("delete_before_extract", [])
 
     destination_folder = path_entry.get()
@@ -822,13 +824,49 @@ def download_and_extract_logic():
             archive_object = None
             if file_type == "zip":
                 pwd_bytes = bytes(password, 'utf-8') if password else None
-                archive_object = zipfile.ZipFile(temp_archive_path)
-                archive_object.extractall(temp_dir, pwd=pwd_bytes)
-            elif file_type == "rar":
-                archive_object = rarfile.RarFile(temp_archive_path)
-                archive_object.extractall(temp_dir, pwd=password)
+                
+                # --- THAY ĐỔI: BÁO TRẠNG THÁI VÀ DÙNG extractall() ---
+                progress_queue.put(("status", "Đang giải nén ZIP... (Vui lòng chờ)"))
+                # (Quan trọng) Yêu cầu UI cập nhật ngay lập tức
+                try:
+                    root.update_idletasks() 
+                except:
+                    pass # Bỏ qua nếu có lỗi
 
-            if archive_object: archive_object.close()
+                # Dùng 'with' và 'extractall()' để có tốc độ tối đa
+                with zipfile.ZipFile(temp_archive_path) as zf:
+                    print(f"Extracting ALL ZIP to '{temp_dir}'...")
+                    zf.extractall(temp_dir, pwd=pwd_bytes)
+            elif file_type == "rar":
+                # --- GIỮ NGUYÊN CODE CÓ THANH TIẾN TRÌNH ---
+                print("--- DEBUG: Đang xử lý file RAR... ---")
+                
+                # Dùng 'with' để tự động đóng file
+                with rarfile.RarFile(temp_archive_path) as rf:
+                    rf.setpassword(password)
+                    
+                    # Lấy danh sách file
+                    file_list = rf.infolist()
+                    total_files = len(file_list)
+                    if total_files == 0:
+                         print("Cảnh báo: File RAR rỗng.")
+                    else:
+                        print(f"Extracting {total_files} files to '{temp_dir}'...")
+                        
+                        for i, member in enumerate(file_list):
+                            rf.extract(member, path=temp_dir)
+                            
+                            # Tính toán %
+                            percent = int((i + 1) * 100 / total_files)
+                            
+                            # Gửi tiến trình về queue
+                            progress_data = {
+                                "percent": percent,
+                                "speed": f"File {i+1}/{total_files}", 
+                                "eta": ""
+                            }
+                            progress_queue.put(("progress", progress_data))
+
 
             shutil.copytree(temp_dir, destination_folder, dirs_exist_ok=True)
             shutil.rmtree(temp_dir)
@@ -847,12 +885,25 @@ def download_and_extract_logic():
 
         update_radio_buttons_text()
 
+    except (zipfile.BadZipFile, rarfile.BadRarFile) as e:
+        print(f"--- DEBUG: BẮT LỖI: File hỏng (BadZipFile/BadRarFile) ---") # <-- THÊM
+        print(f"Lỗi file hỏng: {e}")
+        progress_queue.put(("status", f"Lỗi: File tải về bị hỏng ({e})."))
+        
+    except (RuntimeError, rarfile.WrongPassword) as e:
+        print(f"--- DEBUG: BẮT LỖI: Sai mật khẩu (RuntimeError/WrongPassword) ---") # <-- THÊM
+        print(f"Lỗi sai mật khẩu: {e}")
+        progress_queue.put(("status", "Lỗi: Sai mật khẩu!"))
+        
+    except rarfile.PasswordRequired as e:
+        print(f"--- DEBUG: BẮT LỖI: Thiếu mật khẩu (PasswordRequired) ---") # <-- THÊM
+        print(f"Lỗi thiếu mật khẩu: {e}")
+        progress_queue.put(("status", "Lỗi: File này yêu cầu mật khẩu."))
+        
     except Exception as e:
-        if "Bad password" in str(e) or "NeedPassword" in str(e):
-            progress_queue.put(("status", "Lỗi: Sai mật khẩu!"))
-        else:
-            progress_queue.put(("status", f"Lỗi không xác định: {e}"))
-        print(f"Lỗi trong try: {e}")
+        print(f"--- DEBUG: BẮT LỖI: Lỗi chung (Exception) ---") # <-- THÊM
+        progress_queue.put(("status", f"Lỗi không xác định: {e}"))
+        print(f"Lỗi trong try (Exception chung): {e}")
 
     finally:
         sys.stderr = original_stderr
@@ -897,6 +948,23 @@ def process_queue():
             if saved_path:
                 path_entry.insert(0, saved_path)
             status_label.configure(text="Hãy chọn đường dẫn và bấm bắt đầu.", style="White.TLabel")
+            # --- THÊM MỚI: POPULATE GAME COMBOBOX ---
+            try:
+                global g_game_combobox
+                game_list = sorted(list(set(
+                    data.get("game", "Khác") 
+                    for key, data in download_options.items() 
+                    if key != "updater"
+                )))
+
+                if game_list:
+                    g_game_combobox['values'] = game_list
+                    g_game_combobox.set(game_list[0]) # Chọn game đầu tiên
+                    on_game_selected() # Tải các mod cho game đầu tiên
+                else:
+                    status_label.configure(text="Không tìm thấy game nào trong config.", style="Red.TLabel")
+            except Exception as e:
+                print(f"Lỗi khi populate game combobox: {e}")
             check_for_updates(message_value)
 
         elif message_type == "status":
@@ -929,14 +997,44 @@ def process_queue():
 
         elif message_type == "progress":
             progress_data = message_value
-            if "percent" in progress_data:
-                percent = progress_data["percent"]
-                progress_bar['value'] = percent
-                status_label.configure(text=f"Đang tải: {percent}%", style="White.TLabel")
+            
+            # --- START OF MODIFIED SECTION ---
+            # Update speed/eta labels first (this logic is good)
             if "speed" in progress_data:
                 speed_label.config(text=progress_data["speed"])
             if "eta" in progress_data:
-                eta_label.config(text=f"ETA: {progress_data['eta']}")
+                eta_text = progress_data['eta']
+                eta_label.config(text=f"ETA: {eta_text}" if eta_text else "")
+
+            # Now, handle the percentage and status text
+            if "percent" in progress_data:
+                percent = progress_data["percent"]
+                progress_bar['value'] = percent
+                
+                # Get the current status text (e.g., "Đang tải file...")
+                current_status_text = status_label.cget("text")
+                
+                base_text = ""
+                # Check if we are downloading or extracting
+                if current_status_text.startswith("Đã tải xong! Đang giải nén..."):
+                    base_text = "Đang giải nén"
+                elif current_status_text.startswith("Đang tải file..."):
+                    base_text = "Đang tải file"
+                # Check if text already has a percentage (e.g., "Đang giải nén: 50%")
+                elif ":" in current_status_text:
+                    base_text = current_status_text.split(":")[0]
+                
+                # Fallback: if it's a simple status, just use it
+                elif "..." in current_status_text:
+                     base_text = current_status_text.replace("...", "")
+
+                # Only update the text if we have a valid base
+                # and it's not an error/success message
+                if base_text and "Lỗi" not in base_text and "thành công" not in base_text:
+                    status_label.configure(text=f"{base_text}: {percent}%", style="White.TLabel")
+                # If we are at 0%, just show the base text
+                elif percent == 0 and base_text:
+                    status_label.configure(text=f"{base_text}...", style="White.TLabel")
         
         elif message_type == "drive_data_updated": # <-- ĐỔI TÊN TIN NHẮN
             drive_refresh_button.config(state=tk.NORMAL)
@@ -1245,6 +1343,20 @@ try:
 except Exception as e: 
     print(f"Lỗi khi tải ảnh (bỏ qua): {e}")
 
+# --- THÊM MỚI: KHUNG CHỌN GAME ---
+game_select_frame = ttk.Frame(main_tab_frame)
+game_select_frame.pack(fill=tk.X, padx=(10, 0), pady=(0, 5))
+
+game_select_label = ttk.Label(game_select_frame, text="Chọn Tựa Game:")
+game_select_label.pack(side=tk.LEFT, padx=(0, 10))
+
+global g_game_combobox # Biến toàn cục cho Combobox
+g_game_combobox = ttk.Combobox(game_select_frame, state="readonly", width=40)
+g_game_combobox.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+# Hàm on_game_selected sẽ được gọi khi thay đổi
+g_game_combobox.bind("<<ComboboxSelected>>", lambda e: on_game_selected())
+
 # --- THÊM MỚI: Tải các icon file chung ---
 def load_drive_icon(filename, size=(32, 32)):
     """Hàm helper để tải và resize icon, trả về None nếu lỗi."""
@@ -1382,6 +1494,20 @@ def update_guide_text():
     finally:
         guide_text_widget.config(state=tk.DISABLED)
 
+def on_game_selected():
+    """Được gọi khi người dùng chọn game từ dropdown."""
+    # Cập nhật danh sách radio button
+    update_radio_buttons_text()
+
+    # Xóa hướng dẫn cũ (nếu có)
+    try:
+        guide_text_widget.config(state=tk.NORMAL)
+        guide_text_widget.delete("1.0", tk.END)
+        guide_text_widget.insert(tk.END, "Hãy chọn một mod ở trên để xem hướng dẫn...")
+        guide_text_widget.config(state=tk.DISABLED)
+    except Exception as e:
+        print(f"Lỗi khi xóa guide text: {e}")
+
 def update_radio_buttons_text():
     """(ĐÃ VIẾT LẠI) Cập nhật danh sách radio button (Tab 1) để dùng cấu trúc ID."""
     global local_config, radio_buttons
@@ -1392,12 +1518,18 @@ def update_radio_buttons_text():
     # (Các style này không đổi)
     style.configure("New.TLabel", foreground="red", font=('TkDefaultFont', 9, 'bold'))
     style.configure("Green.TRadiobutton", foreground="green")
-
+    selected_game = g_game_combobox.get()
+    if not selected_game:
+        # Nếu combobox rỗng (lúc khởi động), không hiển thị gì
+        return
     # Key bây giờ là ID (ví dụ: "1"), Data là dictionary
     for (key, data) in download_options.items():
         if key == "updater":
             continue # Bỏ qua 'updater' (như cũ)
 
+        mod_game = data.get("game", "Khác") # Mặc định là "Khác"
+        if mod_game != selected_game:
+            continue
         # --- SỬA LOGIC ---
         # 1. Lấy tên hiển thị từ 'name'
         display_name = data.get("name", "LỖI: THIẾU TÊN")
@@ -1460,6 +1592,8 @@ def update_radio_buttons_text():
             selected_option.set(first_valid_key)
             update_guide_text()
 
+
+
 path_frame = ttk.Frame(main_tab_frame)
 path_frame.pack(fill=tk.X, pady=(5, 10))
 path_label = ttk.Label(path_frame, text="Đường dẫn folder mod:")
@@ -1513,7 +1647,7 @@ bottom_status_frame.pack(fill=tk.X, pady=(10, 0))
 # --- Treeview Setup ---
 tree_scrollbar = ttk.Scrollbar(tree_frame)
 tree_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-cols = ("ID", "Option Name", "Version", "Type")
+cols = ("ID", "Option Name", "Version", "Type", "Game")
 options_treeview = ttk.Treeview(tree_frame, columns=cols, show='headings', yscrollcommand=tree_scrollbar.set, height=15)
 options_treeview.pack(expand=True, fill=tk.BOTH)
 move_button_frame = ttk.Frame(tree_frame)
@@ -1535,6 +1669,7 @@ options_treeview.column("ID", width=40, anchor=tk.CENTER, stretch=tk.NO)
 options_treeview.column("Option Name", width=180)
 options_treeview.column("Version", width=100)
 options_treeview.column("Type", width=70)
+options_treeview.column("Game", width=120)
 
 # --- Edit Form Setup ---
 form_widgets = {}
@@ -1560,6 +1695,7 @@ create_form_row(edit_form_frame, "Option Name:")
 create_form_row(edit_form_frame, "URL:")
 create_form_row(edit_form_frame, "Version:")
 create_form_row(edit_form_frame, "Type:", widget_type="Combobox", options=["zip", "rar", "exe"])
+create_form_row(edit_form_frame, "Game:")
 create_form_row(edit_form_frame, "Password:")
 create_form_row(edit_form_frame, "Delete List:", widget_type="Text")
 delete_help = ttk.Label(edit_form_frame, text="(Nhập file/folder, mỗi cái một dòng)", style="secondary.TLabel")
@@ -1588,7 +1724,8 @@ def populate_treeview():
         if key == "updater":
             continue
         options_treeview.insert("", tk.END, iid=key, values=(
-            key, data.get("name", "LỖI: THIẾU TÊN"), data.get("version", ""), data.get("type", "zip")
+            (key, data.get("name", "LỖI: THIẾU TÊN"), data.get("version", ""), 
+                data.get("type", "zip"), data.get("game", "Khác"))
         ))
 
 def on_treeview_select(event):
@@ -1622,7 +1759,8 @@ def on_treeview_select(event):
             # Display the full URL if it's not a GDrive link
             url_entry.insert(0, stored_url)
         # --- HẾT SỬA ---
-
+        form_widgets["Game:"].delete(0, tk.END)
+        form_widgets["Game:"].insert(0, data.get("game", "Khác"))
         form_widgets["Version:"].delete(0, tk.END)
         form_widgets["Version:"].insert(0, data.get("version", ""))
         form_widgets["Type:"].set(data.get("type", "zip"))
@@ -1651,6 +1789,7 @@ def clear_form():
     g_currently_selected_id = None
     form_widgets["Option Name:"].delete(0, tk.END)
     form_widgets["URL:"].delete(0, tk.END)
+    form_widgets["Game:"].delete(0, tk.END)
     form_widgets["Version:"].delete(0, tk.END)
     form_widgets["Type:"].set("zip")
     form_widgets["Password:"].delete(0, tk.END)
@@ -1678,6 +1817,7 @@ def action_add_update_option():
     if url_input and "/" not in url_input and ":" not in url_input and "drive.google.com" not in url_input:
         final_url = f"https://drive.google.com/uc?id={url_input}"
 
+    game_name = form_widgets["Game:"].get().strip()
     version = form_widgets["Version:"].get().strip()
     option_type = form_widgets["Type:"].get()
     password = form_widgets["Password:"].get().strip()
@@ -1690,6 +1830,7 @@ def action_add_update_option():
         "name": option_name_display, # <-- TÊN MỚI Ở ĐÂY
         "url": final_url,
         "version": version,
+        "game": game_name if game_name else "Khác",
         "type": option_type,
         "password": password if password else None, 
         "delete_before_extract": delete_list,
