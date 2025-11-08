@@ -42,9 +42,9 @@
     },
     "1": {
         "name": "Tải game Risk Of Rain 2",
-        "url": "https://drive.google.com/uc?id=1dgnJ5AMvI1e15RjQQVpv-e2J3CV-VR-M",
+        "url": "https://drive.google.com/uc?id=1gomZWJeMpYIUziZkMLYIh26beNzF6NqC",
         "version": "v1.3.9.1",
-        "type": "rar",
+        "type": "zip",
         "password": "linkneverdie.com",
         "delete_before_extract": [],
         "path_guide": null
