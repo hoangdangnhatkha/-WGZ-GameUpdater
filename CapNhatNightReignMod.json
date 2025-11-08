@@ -45,15 +45,6 @@
         "url": "https://drive.google.com/uc?id=1dgnJ5AMvI1e15RjQQVpv-e2J3CV-VR-M",
         "version": "v1.3.9.1",
         "type": "rar",
-        "password": "linkneverdie.com",
-        "delete_before_extract": [],
-        "path_guide": null
-    },
-    "2": {
-        "name": "TestRar",
-        "url": "https://drive.google.com/uc?id=1rZHJh65lBfXHymNOj5WrNX_glmi4882L",
-        "version": "v1.0",
-        "type": "rar",
         "password": null,
         "delete_before_extract": [],
         "path_guide": null
