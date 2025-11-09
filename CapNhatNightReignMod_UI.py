@@ -41,7 +41,7 @@ import subprocess
 # --- HẾT ---
 scan_loading_window = None
 g_secret_click_count = 0
-CURRENT_VERSION = "1.1.2"
+CURRENT_VERSION = "1.1.3"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
 def resource_path(relative_path):
