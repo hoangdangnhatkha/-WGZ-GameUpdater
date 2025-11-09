@@ -948,23 +948,6 @@ def process_queue():
             if saved_path:
                 path_entry.insert(0, saved_path)
             status_label.configure(text="Hãy chọn đường dẫn và bấm bắt đầu.", style="White.TLabel")
-            # --- THÊM MỚI: POPULATE GAME COMBOBOX ---
-            try:
-                global g_game_combobox
-                game_list = sorted(list(set(
-                    data.get("game", "Khác") 
-                    for key, data in download_options.items() 
-                    if key != "updater"
-                )))
-
-                if game_list:
-                    g_game_combobox['values'] = game_list
-                    g_game_combobox.set(game_list[0]) # Chọn game đầu tiên
-                    on_game_selected() # Tải các mod cho game đầu tiên
-                else:
-                    status_label.configure(text="Không tìm thấy game nào trong config.", style="Red.TLabel")
-            except Exception as e:
-                print(f"Lỗi khi populate game combobox: {e}")
             check_for_updates(message_value)
 
         elif message_type == "status":
@@ -1343,19 +1326,6 @@ try:
 except Exception as e: 
     print(f"Lỗi khi tải ảnh (bỏ qua): {e}")
 
-# --- THÊM MỚI: KHUNG CHỌN GAME ---
-game_select_frame = ttk.Frame(main_tab_frame)
-game_select_frame.pack(fill=tk.X, padx=(10, 0), pady=(0, 5))
-
-game_select_label = ttk.Label(game_select_frame, text="Chọn Tựa Game:")
-game_select_label.pack(side=tk.LEFT, padx=(0, 10))
-
-global g_game_combobox # Biến toàn cục cho Combobox
-g_game_combobox = ttk.Combobox(game_select_frame, state="readonly", width=40)
-g_game_combobox.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-# Hàm on_game_selected sẽ được gọi khi thay đổi
-g_game_combobox.bind("<<ComboboxSelected>>", lambda e: on_game_selected())
 
 # --- THÊM MỚI: Tải các icon file chung ---
 def load_drive_icon(filename, size=(32, 32)):
@@ -1494,22 +1464,9 @@ def update_guide_text():
     finally:
         guide_text_widget.config(state=tk.DISABLED)
 
-def on_game_selected():
-    """Được gọi khi người dùng chọn game từ dropdown."""
-    # Cập nhật danh sách radio button
-    update_radio_buttons_text()
-
-    # Xóa hướng dẫn cũ (nếu có)
-    try:
-        guide_text_widget.config(state=tk.NORMAL)
-        guide_text_widget.delete("1.0", tk.END)
-        guide_text_widget.insert(tk.END, "Hãy chọn một mod ở trên để xem hướng dẫn...")
-        guide_text_widget.config(state=tk.DISABLED)
-    except Exception as e:
-        print(f"Lỗi khi xóa guide text: {e}")
 
 def update_radio_buttons_text():
-    """(ĐÃ VIẾT LẠI) Cập nhật danh sách radio button (Tab 1) để dùng cấu trúc ID."""
+    """(ĐÃ VIẾT LẠI) Tự động nhóm mod và tạo giao diện accordion."""
     global local_config, radio_buttons
     local_config = load_local_config()
     for widget in content_frame.winfo_children(): widget.destroy()
@@ -1518,79 +1475,119 @@ def update_radio_buttons_text():
     # (Các style này không đổi)
     style.configure("New.TLabel", foreground="red", font=('TkDefaultFont', 9, 'bold'))
     style.configure("Green.TRadiobutton", foreground="green")
-    selected_game = g_game_combobox.get()
-    if not selected_game:
-        # Nếu combobox rỗng (lúc khởi động), không hiển thị gì
-        return
-    # Key bây giờ là ID (ví dụ: "1"), Data là dictionary
-    for (key, data) in download_options.items():
-        if key == "updater":
-            continue # Bỏ qua 'updater' (như cũ)
 
-        mod_game = data.get("game", "Khác") # Mặc định là "Khác"
-        if mod_game != selected_game:
-            continue
-        # --- SỬA LOGIC ---
-        # 1. Lấy tên hiển thị từ 'name'
-        display_name = data.get("name", "LỖI: THIẾU TÊN")
+    # --- BƯỚC MỚI: NHÓM MOD THEO GAME ---
+    game_groups = {}
+    for key, data in download_options.items():
+        if key == "updater": continue
+        game_name = data.get("game", "Khác") # Mặc định là "Khác"
+        if game_name not in game_groups:
+            game_groups[game_name] = []
+        # Thêm (key, data) vào nhóm
+        game_groups[game_name].append( (key, data) )
+    # --- HẾT BƯỚC NHÓM ---
 
-        # 2. Lấy version online
-        online_version = data.get("version")
-        if not online_version: continue # Bỏ qua nếu item không có version
+    # --- Hàm helper để đóng/mở (toggle) ---
+    def create_toggle_function(mod_frame, button, separator_widget):
+        def toggle():
+            if mod_frame.winfo_viewable(): # Nếu đang thấy
+                mod_frame.pack_forget()    # Ẩn đi
+                button.config(text=f"{button.game_name} ▸") # Mũi tên đóng
+            else:
+                # Hiện ra ngay trước dòng kẻ
+                mod_frame.pack(fill=tk.X, expand=True, before=separator_widget, padx=(15, 0)) 
+                button.config(text=f"{button.game_name} ▾") # Mũi tên mở
+        return toggle
 
-        # 3. Kiểm tra version đã cài bằng KEY (ID)
-        installed_version = local_config.get("installed_versions", {}).get(key, "Chưa cài đặt")
-        # --- HẾT SỬA ---
+    # Sắp xếp tên game (ví dụ: A-Z)
+    sorted_game_names = sorted(game_groups.keys())
 
-        row_frame = ttk.Frame(content_frame)
-        row_frame.pack(fill=tk.X, pady=1)
+    # --- BƯỚC MỚI: DỰNG GIAO DIỆN ACCORDION ---
+    first_key_to_select = None
 
-        button_text = f"{display_name} " # <-- SỬA: Dùng display_name
-        button_style = "TRadiobutton"
-        is_new = False
+    for game_name in sorted_game_names:
 
-        if online_version == installed_version:
-            button_text += f"({online_version}) - Đã cài đặt"
-            button_style = "Green.TRadiobutton"
-        else:
-            button_text += f" - Hãy cập nhật phiên bản mới nhất ({online_version})"
-            is_new = True
-
-        # Quan trọng: 'text' là display_name, nhưng 'value' là key (ID)
-        rb = ttk.Radiobutton(
-            row_frame, 
-            text=button_text, 
-            variable=selected_option, 
-            value=key, # <-- 'value' là ID (ví dụ: "1")
-            style=button_style,
-            command=update_guide_text
+        # 1. Tạo Header (Dùng Checkbutton làm nút bấm)
+        # Dùng style "Toolbutton" cho đẹp
+        game_header_button = ttk.Checkbutton(
+            content_frame, 
+            text=f"{game_name} ▸", # <-- SỬA 1: Dùng mũi tên ĐÓNG
+            style="Toolbutton"
         )
-        # --- HẾT SỬA ---
+        game_header_button.pack(fill=tk.X, pady=(10, 2))
+        game_header_button.game_name = game_name # Lưu tên game để dùng trong toggle
 
-        rb.pack(side=tk.LEFT)
-        radio_buttons.append(rb)
+        # 2. Tạo Frame chứa mod cho game này
+        game_mod_frame = ttk.Frame(content_frame)
 
-        # (Code bind sự kiện cuộn chuột không đổi)
-        row_frame.bind("<MouseWheel>", on_mouse_wheel)
-        rb.bind("<MouseWheel>", on_mouse_wheel)
-        row_frame.bind("<Button-4>", on_mouse_wheel)
-        rb.bind("<Button-4>", on_mouse_wheel)
-        row_frame.bind("<Button-5>", on_mouse_wheel)
-        rb.bind("<Button-5>", on_mouse_wheel)
+        # 3. Tạo 1 separator (dòng kẻ)
+        separator = ttk.Separator(content_frame, orient='horizontal')
+        separator.pack(fill='x', pady=5)
 
-        if is_new:
-            new_label = ttk.Label(row_frame, text="NEW!", style="New.TLabel")
-            new_label.pack(side=tk.LEFT, padx=(5, 0))
-            new_label.bind("<MouseWheel>", on_mouse_wheel)
-            new_label.bind("<Button-4>", on_mouse_wheel)
-            new_label.bind("<Button-5>", on_mouse_wheel)
+        # 4. Gắn lệnh (command) cho nút header
+        game_header_button.config(command=create_toggle_function(game_mod_frame, game_header_button, separator))
 
-    if radio_buttons:
-        # (Logic chọn item đầu tiên không đổi)
-        first_valid_key = next((key for key in download_options.keys() if key != "updater"), None)
-        if first_valid_key:
-            selected_option.set(first_valid_key)
-            update_guide_text()
+        # 5. Thêm các mod (Radiobutton) vào frame con
+        mod_list = game_groups[game_name]
+        for (key, data) in mod_list:
+
+            # (Code tạo Radiobutton cũ từ đây, chỉ đổi master)
+            display_name = data.get("name", "LỖI: THIẾU TÊN")
+            online_version = data.get("version")
+            if not online_version: continue 
+
+            installed_version = local_config.get("installed_versions", {}).get(key, "Chưa cài đặt")
+
+            row_frame = ttk.Frame(game_mod_frame) # <-- SỬA: master là game_mod_frame
+            row_frame.pack(fill=tk.X, pady=1)
+
+            button_text = f"{display_name} "
+            button_style = "TRadiobutton"
+            is_new = False
+
+            if online_version == installed_version:
+                button_text += f"({online_version}) - Đã cài đặt"
+                button_style = "Green.TRadiobutton"
+            else:
+                button_text += f" - Hãy cập nhật phiên bản mới nhất ({online_version})"
+                is_new = True
+
+            rb = ttk.Radiobutton(
+                row_frame, 
+                text=button_text, 
+                variable=selected_option, 
+                value=key,
+                style=button_style,
+                command=update_guide_text
+            )
+            rb.pack(side=tk.LEFT)
+            radio_buttons.append(rb)
+
+            # Lưu lại key đầu tiên để chọn mặc định
+            if first_key_to_select is None:
+                first_key_to_select = key
+
+            # (Code bind cuộn chuột y hệt như cũ)
+            row_frame.bind("<MouseWheel>", on_mouse_wheel)
+            rb.bind("<MouseWheel>", on_mouse_wheel)
+            row_frame.bind("<Button-4>", on_mouse_wheel)
+            rb.bind("<Button-4>", on_mouse_wheel)
+            row_frame.bind("<Button-5>", on_mouse_wheel)
+            rb.bind("<Button-5>", on_mouse_wheel)
+
+            if is_new:
+                new_label = ttk.Label(row_frame, text="NEW!", style="New.TLabel")
+                new_label.pack(side=tk.LEFT, padx=(5, 0))
+                new_label.bind("<MouseWheel>", on_mouse_wheel)
+                new_label.bind("<Button-4>", on_mouse_wheel)
+                new_label.bind("<Button-5>", on_mouse_wheel)
+
+    # --- HẾT BƯỚC DỰNG UI ---
+
+    # Chọn mod đầu tiên (nếu có)
+    if first_key_to_select:
+        selected_option.set(first_key_to_select)
+        update_guide_text()
 
 
 
