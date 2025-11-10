@@ -48,20 +48,20 @@
     "name": "Tải game Risk Of Rain 2",
     "url": "https://drive.google.com/uc?id=1gomZWJeMpYIUziZkMLYIh26beNzF6NqC",
     "version": "v1.3.9.1",
-    "game": "Risk Of Rain 2",
+    "game": "Risk of Rain 2",
     "type": "zip",
     "password": "linkneverdie.com",
     "delete_before_extract": [],
     "path_guide": "Giải nén bất cứ đâu."
   },
   "2": {
-    "name": "Mod Game Ror2",
-    "url": "https://drive.google.com/uc?id=18xzRem3wVEsInUE1X5fMipcpTwyqA4iy",
-    "version": "ver20250911",
-    "game": "Risk Of Rain 2",
+    "name": "Mod Risk Of Rain 2",
+    "url": "https://drive.google.com/uc?id=1833uPXulGNNXM3j2Z-FpyTOlpAFPtlzp",
+    "version": "ver20251110",
+    "game": "Risk of Rain 2",
     "type": "zip",
     "password": null,
     "delete_before_extract": ["BepInEx"],
-    "path_guide": null
+    "path_guide": "D:/Ror2/ror21.3.9"
   }
 }
