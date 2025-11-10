@@ -54,11 +54,11 @@
         "delete_before_extract": [],
         "path_guide": "Giải nén bất cứ đâu."
     },
-    "3": {
-        "name": "Mod Game Ror2",
+    "2": {
+        "name": "Risk Of Rain 2",
         "url": "https://drive.google.com/uc?id=1833uPXulGNNXM3j2Z-FpyTOlpAFPtlzp",
-        "version": "ver20250911",
-        "game": "Risk of Rain 2",
+        "version": "ver20251110",
+        "game": "Khác",
         "type": "zip",
         "password": null,
         "delete_before_extract": [
