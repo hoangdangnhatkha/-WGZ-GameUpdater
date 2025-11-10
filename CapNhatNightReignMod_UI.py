@@ -1411,7 +1411,7 @@ def process_queue():
             messagebox.showerror("Lỗi Upload Theme", message_value, parent=g_theme_manager_window)
             # Tải lại config (vì có thể local và remote đã lệch)
             action_load_from_github_wrapper()
-            
+
     except queue.Empty:
         pass
 
@@ -1561,7 +1561,7 @@ def load_drive_icon(filename, size=(32, 32)):
 
 
 # --- THÊM MỚI: HÀM TẢI ẢNH TỪ URL ---
-def load_image_from_url(url, size=(192, 108)):
+def load_image_from_url(url, size=(192, 89)):
     """Tải ảnh từ URL, resize, và trả về PhotoImage."""
     try:
         print(f"Đang tải ảnh: {url}")
@@ -1726,7 +1726,7 @@ def populate_page_1_grid(game_groups):
         if not icon_img:
             image_url = g_game_themes.get(game_name)
             if image_url:
-                icon_img = load_image_from_url(image_url, size=(192, 108)) # <-- SỬA
+                icon_img = load_image_from_url(image_url, size=(192, 89)) # <-- SỬA
             if not icon_img:
                 icon_img = root.default_game_icon_small # <-- SỬA
             root.cached_game_icons_small[game_name] = icon_img
@@ -1940,6 +1940,8 @@ current_config_data = {} # Dictionary để giữ config đang sửa
 current_github_sha = None # SHA của file đã tải từ GitHub
 g_currently_selected_id = None
 g_game_theme_sha = None # BIẾN MỚI: SHA cho file game_themes.json
+g_master_game_list = []
+g_search_timer = None
 g_theme_manager_window = None
 # --- Frames ---
 top_button_frame = ttk.Frame(second_tab_frame)
@@ -2012,9 +2014,11 @@ label_game.pack(side=tk.LEFT)
 
 # Tạo Combobox (không "readonly" để cho phép gõ tên mới)
 global g_admin_game_combobox
-g_admin_game_combobox = ttk.Combobox(row_game, values=[], state="normal") 
+g_admin_game_combobox = ttk.Combobox(row_game, values=[], state="normal")
 g_admin_game_combobox.pack(side=tk.LEFT, expand=True, fill=tk.X)
 g_admin_game_combobox.bind("<<ComboboxSelected>>", lambda e: on_game_combobox_select(e))
+g_admin_game_combobox.bind("<KeyRelease>", lambda e: on_game_combobox_search(e))
+g_admin_game_combobox.bind("<FocusOut>", lambda e: on_game_combobox_validate(e))
 # Lưu nó vào form_widgets để các hàm khác có thể dùng
 form_widgets["Game:"] = g_admin_game_combobox
 create_form_row(edit_form_frame, "Password:")
@@ -2139,6 +2143,14 @@ def action_add_update_option():
         final_url = f"https://drive.google.com/uc?id={url_input}"
 
     game_name = form_widgets["Game:"].get().strip()
+    if not game_name:
+        messagebox.showerror("Thiếu Game", "Bạn phải chọn một Game từ dropdown.")
+        return
+    if game_name == "Thêm Game...":
+        messagebox.showerror("Thiếu Game", 
+                            "Bạn đã chọn 'Thêm Game...' nhưng chưa thêm game nào.\n\n"
+                            "Vui lòng chọn một game đã tồn tại, hoặc thêm game mới.")
+        return
     version = form_widgets["Version:"].get().strip()
     option_type = form_widgets["Type:"].get()
     password = form_widgets["Password:"].get().strip()
@@ -2271,6 +2283,61 @@ def action_move_option(direction):
     options_treeview.focus(selected_key)
 
     upload_status_label.config(text="Đã thay đổi thứ tự. (Nhớ 'Lưu Config')")
+
+# --- THÊM MỚI: HÀM LOGIC SEARCH (DEBOUNCED) ---
+def do_game_search():
+    """Lọc danh sách dropdown (được gọi sau khi hết giờ hẹn)."""
+    global g_master_game_list, g_admin_game_combobox, g_search_timer
+    g_search_timer = None # Xóa timer
+
+    current_text = g_admin_game_combobox.get().lower()
+
+    if not current_text:
+        filtered_list = g_master_game_list + ["Thêm Game..."]
+    else:
+        filtered_list = [game for game in g_master_game_list if current_text in game.lower()]
+        filtered_list.append("Thêm Game...")
+
+    g_admin_game_combobox['values'] = filtered_list
+    g_admin_game_combobox.event_generate('<Down>')
+
+
+# --- THÊM MỚI: LOGIC SEARCH VÀ VALIDATE CHO COMBOBOX ---
+def on_game_combobox_search(event):
+    """Hẹn giờ lọc danh sách (debounce) sau khi người dùng gõ."""
+    global g_search_timer
+
+    # Nếu đang có hẹn giờ cũ, hủy nó
+    if g_search_timer:
+        root.after_cancel(g_search_timer)
+
+    g_search_timer = root.after(1000, do_game_search)
+
+def on_game_combobox_validate(event):
+    """Kiểm tra giá trị khi người dùng click ra ngoài."""
+    global g_master_game_list, g_admin_game_combobox
+
+    current_text = g_admin_game_combobox.get()
+    if not current_text: return # Nếu trống thì thôi
+
+    # Nếu text không hợp lệ VÀ không phải "Thêm Game..."
+    valid_options = g_master_game_list + ["Thêm Game..."]
+
+    if current_text not in valid_options:
+        # Tự động chọn "best match" đầu tiên
+        for game in g_master_game_list:
+            if current_text.lower() in game.lower():
+                g_admin_game_combobox.set(game)
+                return # Tìm thấy, thoát
+
+        # Nếu không tìm thấy match nào, xóa nó
+        messagebox.showerror("Tên không hợp lệ", 
+                             f"'{current_text}' không phải là một game hợp lệ.\n"
+                             "Vui lòng chọn từ danh sách hoặc 'Thêm Game...'.",
+                             parent=root)
+        g_admin_game_combobox.set("")
+
+
 
 def on_game_combobox_select(event):
     """Được gọi khi chọn item trong dropdown Game."""
@@ -2435,10 +2502,11 @@ def action_load_from_github_wrapper():
             g_game_themes = json.loads(theme_content)
             g_game_theme_sha = theme_sha # <-- LƯU SHA THEME
 
-            # Cập nhật g_admin_game_combobox
-            game_list = sorted(list(g_game_themes.keys()))
-            game_list.append("Thêm Game...") # <-- THÊM OPTION MỚI
-            g_admin_game_combobox['values'] = game_list
+            global g_master_game_list
+            g_master_game_list = sorted(list(g_game_themes.keys())) # Lưu gốc
+
+            game_list_with_add = g_master_game_list + ["Thêm Game..."] 
+            g_admin_game_combobox['values'] = game_list_with_add
         except Exception as e:
              messagebox.showerror("Lỗi", f"Lỗi đọc file game_themes.json: {e}")
              g_game_themes = {}
