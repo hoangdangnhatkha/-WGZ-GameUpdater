@@ -41,6 +41,8 @@ import subprocess
 # --- HẾT ---
 scan_loading_window = None
 g_secret_click_count = 0
+g_current_game_name = None
+g_all_mods_flat = {}
 CURRENT_VERSION = "1.1.3"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
@@ -681,19 +683,15 @@ class QueueIO:
 def download_and_extract_logic():
     # (Code hàm này không đổi so với phiên bản trước)
     global local_config
+    global g_current_game_name
 
     progress_queue.put(("status", "DISABLE_BUTTONS"))
 
     selected_key = selected_option.get()
-    mod_display_name = download_options[selected_key].get("name", selected_key)
+    mod_display_name = g_all_mods_flat[selected_key].get("name", selected_key)
     option_label.configure(text="Đang " + mod_display_name, style="White.TLabel")
 
-    if not selected_key or selected_key == "updater":
-        progress_queue.put(("status", "Lỗi: Vui lòng chọn một gói tải."))
-        progress_queue.put(("status", "ENABLE_BUTTONS"))
-        return
-
-    selected_option_data = download_options[selected_key]
+    selected_option_data = g_all_mods_flat[selected_key]
     file_url = selected_option_data["url"]
     print(f"Downloading from: {file_url}") # Debug print
     version = selected_option_data["version"]
@@ -704,11 +702,6 @@ def download_and_extract_logic():
     delete_list = selected_option_data.get("delete_before_extract", [])
 
     destination_folder = path_entry.get()
-
-    if not destination_folder or not os.path.isdir(destination_folder):
-        progress_queue.put(("status", "Lỗi: Đường dẫn không hợp lệ."))
-        progress_queue.put(("status", "ENABLE_BUTTONS"))
-        return
 
     local_config['destination_folder'] = destination_folder
     save_local_config(local_config)
@@ -754,7 +747,7 @@ def download_and_extract_logic():
                     backup_root_dir = os.path.join(destination_folder, "_BACKUPS")
                     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
                     # Lấy tên mod (đã có ở 'selected_key') và làm sạch nó
-                    mod_name_for_backup = download_options[selected_key].get("name", "Unknown Mod")
+                    mod_name_for_backup = g_all_mods_flat[selected_key].get("name", "Unknown Mod")
                     safe_key_name = re.sub(r'[\\/*?:"<>|]', "", mod_name_for_backup)
                     backup_folder_name = f"{safe_key_name} - {timestamp}"
                     specific_backup_dir = os.path.join(backup_root_dir, backup_folder_name)
@@ -875,34 +868,44 @@ def download_and_extract_logic():
                  try: os.remove(temp_archive_path)
                  except OSError as e: print(f"Cảnh báo: Không thể xóa file tạm {temp_archive_path} sau khi thành công: {e}")
 
-        option_label.configure(text="Đã Hoàn Thành " + selected_key, style="Green.TLabel")
+        option_label.configure(text="Đã Hoàn Thành " + mod_display_name, style="Green.TLabel") # Dùng tên
         progress_queue.put(("status", "Cài đặt/Chạy thành công!"))
 
-        new_version = download_options[selected_key]['version']
+        progress_queue.put(("download_complete", {"success": True, "title": "Thành công", "message": f"Đã cài đặt '{mod_display_name}' thành công!"}))
+
+        new_version = g_all_mods_flat[selected_key]['version']
         if 'installed_versions' not in local_config: local_config['installed_versions'] = {}
         local_config['installed_versions'][selected_key] = new_version
         save_local_config(local_config)
 
-        update_radio_buttons_text()
+        update_radio_buttons_text_for_game(g_current_game_name)
 
     except (zipfile.BadZipFile, rarfile.BadRarFile) as e:
-        print(f"--- DEBUG: BẮT LỖI: File hỏng (BadZipFile/BadRarFile) ---") # <-- THÊM
+        print(f"--- DEBUG: BẮT LỖI: File hỏng (BadZipFile/BadRarFile) ---") 
         print(f"Lỗi file hỏng: {e}")
-        progress_queue.put(("status", f"Lỗi: File tải về bị hỏng ({e})."))
+        msg = f"Lỗi: File tải về bị hỏng ({e})."
+        progress_queue.put(("status", msg))
+        progress_queue.put(("download_complete", {"success": False, "title": "Lỗi File", "message": msg}))
         
-    except (RuntimeError, rarfile.WrongPassword) as e:
-        print(f"--- DEBUG: BẮT LỖI: Sai mật khẩu (RuntimeError/WrongPassword) ---") # <-- THÊM
+    except (RuntimeError, rarfile.RarWrongPassword) as e:
+        print(f"--- DEBUG: BẮT LỖI: Sai mật khẩu (RuntimeError/WrongPassword) ---") 
         print(f"Lỗi sai mật khẩu: {e}")
-        progress_queue.put(("status", "Lỗi: Sai mật khẩu!"))
+        msg = "Lỗi: Sai mật khẩu!"
+        progress_queue.put(("status", msg))
+        progress_queue.put(("download_complete", {"success": False, "title": "Lỗi Mật khẩu", "message": msg}))
         
     except rarfile.PasswordRequired as e:
-        print(f"--- DEBUG: BẮT LỖI: Thiếu mật khẩu (PasswordRequired) ---") # <-- THÊM
+        print(f"--- DEBUG: BẮT LỖI: Thiếu mật khẩu (PasswordRequired) ---") 
         print(f"Lỗi thiếu mật khẩu: {e}")
-        progress_queue.put(("status", "Lỗi: File này yêu cầu mật khẩu."))
+        msg = "Lỗi: File này yêu cầu mật khẩu."
+        progress_queue.put(("status", msg))
+        progress_queue.put(("download_complete", {"success": False, "title": "Lỗi Mật khẩu", "message": msg}))
         
     except Exception as e:
-        print(f"--- DEBUG: BẮT LỖI: Lỗi chung (Exception) ---") # <-- THÊM
-        progress_queue.put(("status", f"Lỗi không xác định: {e}"))
+        print(f"--- DEBUG: BẮT LỖI: Lỗi chung (Exception) ---") 
+        msg = f"Lỗi không xác định: {e}"
+        progress_queue.put(("status", msg))
+        progress_queue.put(("download_complete", {"success": False, "title": "Lỗi", "message": msg}))
         print(f"Lỗi trong try (Exception chung): {e}")
 
     finally:
@@ -912,7 +915,26 @@ def download_and_extract_logic():
 
 # --- Các hàm cho Nút bấm ---
 def start_download_thread():
-    # (Code hàm này không đổi)
+    """(ĐÃ SỬA) Kiểm tra lỗi TRƯỚC KHI bắt đầu thread."""
+
+    # --- THÊM MỚI: KIỂM TRA LỖI (VALIDATION) ---
+    selected_key = selected_option.get()
+    destination_folder = path_entry.get()
+
+    # Kiểm tra 1: Đã chọn mod chưa?
+    if not selected_key or selected_key == "updater":
+        messagebox.showerror("Lỗi", "Vui lòng chọn một mod trong danh sách.")
+        return # Dừng lại, không làm gì cả
+
+    # Kiểm tra 2: Đường dẫn có hợp lệ không?
+    if not destination_folder or not os.path.isdir(destination_folder):
+        messagebox.showerror("Lỗi", "Đường dẫn folder mod không hợp lệ.\nVui lòng chọn một thư mục tồn tại.")
+        return # Dừng lại, không làm gì cả
+
+    # --- HẾT KIỂM TRA LỖI ---
+
+    # (Code cũ không đổi)
+    # Nếu tất cả kiểm tra đều qua:
     progress_bar['value'] = 0
     status_label.configure(text="Hãy chọn đường dẫn và bấm bắt đầu.", style="White.TLabel")
     speed_label.config(text="")
@@ -937,26 +959,51 @@ def process_queue():
         message_type, message_value = progress_queue.get_nowait()
 
         if message_type == "config_loaded":
-            download_options = message_value
+            download_options_flat = message_value
+            global g_all_mods_flat
+            g_all_mods_flat = download_options_flat
             progress_bar.stop()
             progress_bar.config(mode="determinate")
             progress_bar['value'] = 0
-            start_button.config(state=tk.NORMAL)
-            browse_button.config(state=tk.NORMAL)
-            update_radio_buttons_text()
+
+            # --- SỬA LOGIC KHỞI ĐỘNG ---
+            # 1. Nhóm các mod theo game (Giống code accordion cũ)
+            global download_options # Lưu lại dict đã nhóm
+            download_options = {}
+            for key, data in download_options_flat.items():
+                if key == "updater": continue
+                game_name = data.get("game", "Khác")
+                if game_name not in download_options:
+                    download_options[game_name] = []
+                download_options[game_name].append( (key, data) )
+
+            # 2. Điền vào Lưới Game ở Trang 1
+            populate_page_1_grid(download_options) 
+
+            # 3. Hiển thị Trang 1
+            show_page(page_1_game_grid)
             saved_path = local_config.get("destination_folder", "")
             if saved_path:
                 path_entry.insert(0, saved_path)
             status_label.configure(text="Hãy chọn đường dẫn và bấm bắt đầu.", style="White.TLabel")
+            start_button.config(state=tk.NORMAL)
+            browse_button.config(state=tk.NORMAL)
             check_for_updates(message_value)
 
         elif message_type == "status":
             if message_value == "DISABLE_BUTTONS":
                 start_button.config(state=tk.DISABLED)
                 browse_button.config(state=tk.DISABLED)
+                show_page(page_3_progress) # <-- THÊM MỚI: Chuyển sang Trang 3
             elif message_value == "ENABLE_BUTTONS":
                 start_button.config(state=tk.NORMAL)
                 browse_button.config(state=tk.NORMAL)
+
+                # --- SỬA: Chuyển về Trang 2 ---
+                if g_current_game_name:
+                    show_page_2_for_game(g_current_game_name)
+                else:
+                    show_page(page_1_game_grid)
                 current_status_text = status_label.cget("text")
                 if "thành công" not in current_status_text and "Lỗi" not in current_status_text and "Sai mật khẩu" not in current_status_text:
                     status_label.configure(text="Hãy chọn đường dẫn và bấm bắt đầu.", style="White.TLabel")
@@ -1241,6 +1288,15 @@ def process_queue():
             # Không đóng cửa sổ bí mật để user sửa lỗi
             messagebox.showerror("Lỗi Upload Bí mật", f"Upload thất bại:\n{message_value}", parent=secret_window)
         # --- HẾT THÊM MỚI ---
+        # --- THÊM MỚI: XỬ LÝ POP-UP SAU KHI TẢI XONG ---
+        elif message_type == "download_complete":
+            data = message_value
+            if data["success"]:
+                # Hiển thị pop-up thành công
+                messagebox.showinfo(data["title"], data["message"])
+            else:
+                # Hiển thị pop-up lỗi
+                messagebox.showerror(data["title"], data["message"])
 
     except queue.Empty:
         pass
@@ -1313,6 +1369,39 @@ notebook.pack(expand=True, fill="both")
 main_tab_frame = ttk.Frame(notebook, padding=(10, 10))
 notebook.add(main_tab_frame, text=" Tải/Cập Nhật Game ")
 
+# --- THÊM MỚI: TẠO 3 KHUNG TRANG (PAGE) ---
+page_1_game_grid = ttk.Frame(main_tab_frame, padding=(10, 10))
+page_2_mod_list = ttk.Frame(main_tab_frame, padding=(10, 10))
+page_3_progress = ttk.Frame(main_tab_frame, padding=(10, 10))
+
+# Đặt 3 trang chồng lên nhau
+page_1_game_grid.grid(row=0, column=0, sticky="nsew")
+page_2_mod_list.grid(row=0, column=0, sticky="nsew")
+page_3_progress.grid(row=0, column=0, sticky="nsew")
+
+page_2_top_nav_frame = ttk.Frame(page_2_mod_list)
+page_2_top_nav_frame.pack(fill=tk.X, pady=(0, 10))
+
+# 1. Nút "Quay lại" (Bên trái)
+page_2_back_button = ttk.Button(page_2_top_nav_frame, text="❮ Quay lại (Chọn Game)", 
+                                command=lambda: show_page(page_1_game_grid))
+page_2_back_button.pack(side=tk.LEFT)
+
+# 2. Nút "Bắt đầu Cài đặt" (Bên phải)
+# (Đã di chuyển từ dưới lên đây)
+start_button = ttk.Button(page_2_top_nav_frame, text="Bắt đầu Cài đặt", 
+                          command=start_download_thread, style="Accent.TButton")
+start_button.pack(side=tk.RIGHT)
+
+# Cấu hình grid của main_tab_frame
+main_tab_frame.grid_rowconfigure(0, weight=1)
+main_tab_frame.grid_columnconfigure(0, weight=1)
+
+
+def show_page(page_to_show):
+    """Hiển thị trang được yêu cầu và ẩn các trang khác."""
+    print(f"Chuyển sang trang: {page_to_show.winfo_name()}")
+    page_to_show.tkraise()
 # --- Nội dung Tab 1 ---
 # (Code nội dung Tab 1 không đổi)
 try:
@@ -1320,7 +1409,7 @@ try:
     my_image = Image.open(image_path)
     my_image = my_image.resize((150, 150), Image.Resampling.LANCZOS)
     tk_image = ImageTk.PhotoImage(my_image)
-    image_label = ttk.Label(main_tab_frame, image=tk_image, anchor=tk.CENTER)
+    image_label = ttk.Label(page_1_game_grid, image=tk_image, anchor=tk.CENTER)
     image_label.pack(pady=(10, 15))
     root.tk_image = tk_image
 except Exception as e: 
@@ -1347,13 +1436,13 @@ root.drive_icon_unknown = load_drive_icon("unknown_icon.png")
 
 # 1. Tạo options_frame (LabelFrame) làm frame host CỐ ĐỊNH
 # Frame này sẽ có chiều cao CỐ ĐỊNH và chứa cả canvas lẫn scrollbar
-options_frame = ttk.LabelFrame(main_tab_frame, text="Bro muốn làm gì?", padding=(5, 5), height=250)
+options_frame = ttk.LabelFrame(page_2_mod_list, text="Bro muốn làm gì?", padding=(5, 5), height=250)
 options_frame.pack(fill=tk.X, expand=False, pady=10, padx=(10, 0))
 options_frame.pack_propagate(False) # RẤT QUAN TRỌNG: Giữ chiều cao cố định
 
 # --- THÊM MỚI: KHUNG HƯỚNG DẪN CHỌN ĐƯỜNG DẪN ---
 # 1. Đặt chiều cao cố định (ví dụ: 100px)
-guide_frame = ttk.LabelFrame(main_tab_frame, text="💡 Hướng dẫn chọn đường dẫn", padding=(5, 5), height=100)
+guide_frame = ttk.LabelFrame(page_2_mod_list, text="💡 Hướng dẫn chọn đường dẫn", padding=(5, 5), height=100)
 guide_frame.pack(fill=tk.X, pady=(0, 5), padx=(10, 0))
 # 2. Ngăn frame tự co dãn theo nội dung
 guide_frame.pack_propagate(False) 
@@ -1465,7 +1554,94 @@ def update_guide_text():
         guide_text_widget.config(state=tk.DISABLED)
 
 
-def update_radio_buttons_text():
+# --- THÊM MỚI: CÁC HÀM ĐIỀU HƯỚNG MỚI ---
+def populate_page_1_grid(game_groups):
+    """(ĐÃ VIẾT LẠI) Xóa lưới game cũ và tạo lưới game mới với HÌNH ẢNH."""
+
+    # Xóa các widget cũ (trừ logo và credit)
+    for widget in page_1_game_grid.winfo_children():
+        if widget != image_label and widget != path_label_credit:
+            widget.destroy()
+
+    # Tạo một frame mới cho lưới
+    grid_container = ttk.Frame(page_1_game_grid)
+    grid_container.pack(fill=tk.BOTH, expand=True)
+
+    # --- THÊM MỚI: Tải và Cache Icon ---
+    if not hasattr(root, 'cached_game_icons'):
+        root.cached_game_icons = {} # Tạo cache
+
+    # Tải icon mặc định (nếu chưa có)
+    if not hasattr(root, 'default_game_icon'):
+        root.default_game_icon = load_drive_icon("default_game_icon.png", size=(128, 128))
+    # --- HẾT THÊM MỚI ---
+
+    MAX_COLS = 4 # Số game trên 1 hàng
+    col = 0
+    row = 0
+
+    sorted_game_names = sorted(game_groups.keys())
+    for game_name in sorted_game_names:
+
+        # --- THAY THẾ: Tạo "Card" thay vì "Button" ---
+
+        # 1. Lấy Icon
+        icon_img = root.cached_game_icons.get(game_name)
+        if not icon_img:
+            # Nếu chưa có trong cache, thử tải
+            icon_img = load_drive_icon(f"{game_name}.png", size=(128, 128))
+            if icon_img is None:
+                # Nếu không tìm thấy file, dùng icon mặc định
+                icon_img = root.default_game_icon
+            # Lưu vào cache
+            root.cached_game_icons[game_name] = icon_img
+
+        # 2. Tạo Card (Frame)
+        card_frame = ttk.Frame(grid_container, style="Card.TFrame", cursor="hand2")
+        card_frame.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+        card_frame.columnconfigure(0, weight=1) # Cho phép label tên căn giữa
+
+        # 3. Tạo Label Hình ảnh
+        img_label = ttk.Label(card_frame, image=icon_img, cursor="hand2")
+        img_label.grid(row=0, column=0, pady=(10, 5), padx=10)
+
+        # 4. Tạo Label Tên
+        name_label = ttk.Label(card_frame, text=game_name, anchor=tk.CENTER, cursor="hand2")
+        name_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky="ew")
+
+        # 5. Tạo lệnh Click
+        cmd = lambda event, g=game_name: show_page_2_for_game(g)
+
+        # 6. Gắn (Bind) sự kiện click cho cả 3 widget
+        card_frame.bind("<Button-1>", cmd)
+        img_label.bind("<Button-1>", cmd)
+        name_label.bind("<Button-1>", cmd)
+        # --- HẾT THAY THẾ ---
+
+        col += 1
+        if col >= MAX_COLS:
+            col = 0
+            row += 1
+
+    # Cấu hình grid container
+    for i in range(col): grid_container.columnconfigure(i, weight=1)
+    for i in range(row + 1): grid_container.rowconfigure(i, weight=1)
+
+def show_page_2_for_game(game_name):
+    """Lưu game đã chọn, cập nhật mod list, và chuyển sang Trang 2."""
+    global g_current_game_name
+    g_current_game_name = game_name
+
+    # Đặt lại tiêu đề khung
+    options_frame.config(text=f"Các mod cho: {game_name}")
+
+    # Gọi hàm (sắp được sửa) để điền mod
+    update_radio_buttons_text_for_game(game_name) 
+
+    # Chuyển trang
+    show_page(page_2_mod_list)
+
+def update_radio_buttons_text_for_game(game_name_to_show):
     """(ĐÃ VIẾT LẠI) Tự động nhóm mod và tạo giao diện accordion."""
     global local_config, radio_buttons
     local_config = load_local_config()
@@ -1476,16 +1652,6 @@ def update_radio_buttons_text():
     style.configure("New.TLabel", foreground="red", font=('TkDefaultFont', 9, 'bold'))
     style.configure("Green.TRadiobutton", foreground="green")
 
-    # --- BƯỚC MỚI: NHÓM MOD THEO GAME ---
-    game_groups = {}
-    for key, data in download_options.items():
-        if key == "updater": continue
-        game_name = data.get("game", "Khác") # Mặc định là "Khác"
-        if game_name not in game_groups:
-            game_groups[game_name] = []
-        # Thêm (key, data) vào nhóm
-        game_groups[game_name].append( (key, data) )
-    # --- HẾT BƯỚC NHÓM ---
 
     # --- Hàm helper để đóng/mở (toggle) ---
     def create_toggle_function(mod_frame, button, separator_widget):
@@ -1500,89 +1666,63 @@ def update_radio_buttons_text():
         return toggle
 
     # Sắp xếp tên game (ví dụ: A-Z)
-    sorted_game_names = sorted(game_groups.keys())
-
-    # --- BƯỚC MỚI: DỰNG GIAO DIỆN ACCORDION ---
     first_key_to_select = None
 
-    for game_name in sorted_game_names:
+    mod_list = download_options.get(game_name_to_show, [])
 
-        # 1. Tạo Header (Dùng Checkbutton làm nút bấm)
-        # Dùng style "Toolbutton" cho đẹp
-        game_header_button = ttk.Checkbutton(
-            content_frame, 
-            text=f"{game_name} ▸", # <-- SỬA 1: Dùng mũi tên ĐÓNG
-            style="Toolbutton"
+    for (key, data) in mod_list:
+
+        # (Code tạo Radiobutton cũ từ đây, chỉ đổi master)
+        display_name = data.get("name", "LỖI: THIẾU TÊN")
+        online_version = data.get("version")
+        if not online_version: continue 
+
+        installed_version = local_config.get("installed_versions", {}).get(key, "Chưa cài đặt")
+
+        row_frame = ttk.Frame(content_frame) # <-- SỬA: master là game_mod_frame
+        row_frame.pack(fill=tk.X, pady=1)
+
+        button_text = f"{display_name} "
+        button_style = "TRadiobutton"
+        is_new = False
+
+        if online_version == installed_version:
+            button_text += f"({online_version}) - Đã cài đặt"
+            button_style = "Green.TRadiobutton"
+        else:
+            button_text += f" - Hãy cập nhật phiên bản mới nhất ({online_version})"
+            is_new = True
+
+        rb = ttk.Radiobutton(
+            row_frame, 
+            text=button_text, 
+            variable=selected_option, 
+            value=key,
+            style=button_style,
+            command=update_guide_text
         )
-        game_header_button.pack(fill=tk.X, pady=(10, 2))
-        game_header_button.game_name = game_name # Lưu tên game để dùng trong toggle
+        rb.pack(side=tk.LEFT)
+        radio_buttons.append(rb)
 
-        # 2. Tạo Frame chứa mod cho game này
-        game_mod_frame = ttk.Frame(content_frame)
+        # Lưu lại key đầu tiên để chọn mặc định
+        if first_key_to_select is None:
+            first_key_to_select = key
 
-        # 3. Tạo 1 separator (dòng kẻ)
-        separator = ttk.Separator(content_frame, orient='horizontal')
-        separator.pack(fill='x', pady=5)
+        # (Code bind cuộn chuột y hệt như cũ)
+        row_frame.bind("<MouseWheel>", on_mouse_wheel)
+        rb.bind("<MouseWheel>", on_mouse_wheel)
+        row_frame.bind("<Button-4>", on_mouse_wheel)
+        rb.bind("<Button-4>", on_mouse_wheel)
+        row_frame.bind("<Button-5>", on_mouse_wheel)
+        rb.bind("<Button-5>", on_mouse_wheel)
 
-        # 4. Gắn lệnh (command) cho nút header
-        game_header_button.config(command=create_toggle_function(game_mod_frame, game_header_button, separator))
+        if is_new:
+            new_label = ttk.Label(row_frame, text="NEW!", style="New.TLabel")
+            new_label.pack(side=tk.LEFT, padx=(5, 0))
+            new_label.bind("<MouseWheel>", on_mouse_wheel)
+            new_label.bind("<Button-4>", on_mouse_wheel)
+            new_label.bind("<Button-5>", on_mouse_wheel)
 
-        # 5. Thêm các mod (Radiobutton) vào frame con
-        mod_list = game_groups[game_name]
-        for (key, data) in mod_list:
-
-            # (Code tạo Radiobutton cũ từ đây, chỉ đổi master)
-            display_name = data.get("name", "LỖI: THIẾU TÊN")
-            online_version = data.get("version")
-            if not online_version: continue 
-
-            installed_version = local_config.get("installed_versions", {}).get(key, "Chưa cài đặt")
-
-            row_frame = ttk.Frame(game_mod_frame) # <-- SỬA: master là game_mod_frame
-            row_frame.pack(fill=tk.X, pady=1)
-
-            button_text = f"{display_name} "
-            button_style = "TRadiobutton"
-            is_new = False
-
-            if online_version == installed_version:
-                button_text += f"({online_version}) - Đã cài đặt"
-                button_style = "Green.TRadiobutton"
-            else:
-                button_text += f" - Hãy cập nhật phiên bản mới nhất ({online_version})"
-                is_new = True
-
-            rb = ttk.Radiobutton(
-                row_frame, 
-                text=button_text, 
-                variable=selected_option, 
-                value=key,
-                style=button_style,
-                command=update_guide_text
-            )
-            rb.pack(side=tk.LEFT)
-            radio_buttons.append(rb)
-
-            # Lưu lại key đầu tiên để chọn mặc định
-            if first_key_to_select is None:
-                first_key_to_select = key
-
-            # (Code bind cuộn chuột y hệt như cũ)
-            row_frame.bind("<MouseWheel>", on_mouse_wheel)
-            rb.bind("<MouseWheel>", on_mouse_wheel)
-            row_frame.bind("<Button-4>", on_mouse_wheel)
-            rb.bind("<Button-4>", on_mouse_wheel)
-            row_frame.bind("<Button-5>", on_mouse_wheel)
-            rb.bind("<Button-5>", on_mouse_wheel)
-
-            if is_new:
-                new_label = ttk.Label(row_frame, text="NEW!", style="New.TLabel")
-                new_label.pack(side=tk.LEFT, padx=(5, 0))
-                new_label.bind("<MouseWheel>", on_mouse_wheel)
-                new_label.bind("<Button-4>", on_mouse_wheel)
-                new_label.bind("<Button-5>", on_mouse_wheel)
-
-    # --- HẾT BƯỚC DỰNG UI ---
 
     # Chọn mod đầu tiên (nếu có)
     if first_key_to_select:
@@ -1591,27 +1731,25 @@ def update_radio_buttons_text():
 
 
 
-path_frame = ttk.Frame(main_tab_frame)
+path_frame = ttk.Frame(page_2_mod_list)
 path_frame.pack(fill=tk.X, pady=(5, 10))
 path_label = ttk.Label(path_frame, text="Đường dẫn folder mod:")
 path_label.pack(side=tk.LEFT, padx=(0, 10))
 path_entry = ttk.Entry(path_frame)
 path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
-button_frame = ttk.Frame(main_tab_frame)
+button_frame = ttk.Frame(page_2_mod_list)
 button_frame.pack(pady=15)
 browse_button = ttk.Button(button_frame, text="Tìm đường dẫn...", command=browse_for_folder)
 browse_button.pack(side=tk.LEFT, padx=10)
-start_button = ttk.Button(button_frame, text="Bắt đầu Cài đặt", command=start_download_thread, style="Accent.TButton")
-start_button.pack(side=tk.LEFT, padx=10)
 
-path_label_credit = ttk.Label(main_tab_frame, text="by Mr-Mime 2025", style="secondary.TLabel")
+path_label_credit = ttk.Label(page_1_game_grid, text="by Mr-Mime 2025", style="secondary.TLabel")
 path_label_credit.pack(side=tk.BOTTOM, pady=(5, 5))
-option_label = ttk.Label(main_tab_frame, text = "GG", anchor=tk.W, style="White.TLabel")
+option_label = ttk.Label(page_3_progress, text = "GG", anchor=tk.W, style="White.TLabel")
 option_label.pack(side=tk.BOTTOM, pady=(5, 5))
-progress_bar = ttk.Progressbar(main_tab_frame, orient="horizontal", length=100, mode="indeterminate")
+progress_bar = ttk.Progressbar(page_3_progress, orient="horizontal", length=100, mode="indeterminate")
 progress_bar.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 5))
-status_frame = ttk.Frame(main_tab_frame)
+status_frame = ttk.Frame(page_3_progress)
 status_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 5))
 status_label = ttk.Label(status_frame, text="Hãy chọn đường dẫn và bấm bắt đầu.", anchor=tk.W, style="White.TLabel")
 status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -1619,6 +1757,15 @@ eta_label = ttk.Label(status_frame, text="", style="secondary.TLabel", anchor=tk
 eta_label.pack(side=tk.RIGHT, padx=(10,0))
 speed_label = ttk.Label(status_frame, text="", style="secondary.TLabel", anchor=tk.E, width=12)
 speed_label.pack(side=tk.RIGHT)
+
+# --- THÊM MỚI: CĂN GIỮA CHO TRANG 3 ---
+# Thêm các frame rỗng để đẩy nội dung vào giữa
+ttk.Frame(page_3_progress).pack(side=tk.TOP, expand=True)
+option_label.pack(side=tk.TOP, pady=(5, 5))
+progress_bar.pack(side=tk.TOP, fill=tk.X, pady=(10, 5), padx=50)
+status_frame.pack(side=tk.TOP, fill=tk.X, pady=(10, 5), padx=50)
+ttk.Frame(page_3_progress).pack(side=tk.TOP, expand=True)
+
 # --- Hết Nội dung Tab 1 ---
 
 # --- SỬA: Tạo UI cho Tab 2 ("Upload Config") ---
