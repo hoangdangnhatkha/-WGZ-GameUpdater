@@ -419,6 +419,27 @@ def load_json_from_github_api(repo): # Đổi tên để tránh trùng lặp
          messagebox.showerror("Lỗi GitHub", f"Lỗi không xác định khi tải JSON: {e}")
          return None, None
 
+# --- THÊM MỚI: HÀM TẢI THEME JSON ---
+def load_theme_json_from_github_api(repo):
+    """Tải nội dung JSON và SHA của file game_themes.json."""
+    if not repo: return None, None
+    print(f"Đang tải game_themes.json từ repo...")
+    try:
+        # Sửa file path
+        contents = repo.get_contents("game_themes.json", ref=GITHUB_BRANCH) 
+        content_str = base64.b64decode(contents.content).decode('utf-8')
+        print(f"Tải theme thành công. SHA: {contents.sha}")
+        return content_str, contents.sha
+    except GithubException as e:
+        if e.status == 404:
+            messagebox.showerror("Lỗi GitHub", f"Không tìm thấy file 'game_themes.json'.")
+        else:
+            messagebox.showerror("Lỗi GitHub", f"Không thể tải file theme JSON: {e}")
+        return None, None
+    except Exception as e:
+         messagebox.showerror("Lỗi GitHub", f"Lỗi không xác định khi tải theme JSON: {e}")
+         return None, None
+
 def upload_json_to_github(repo, config_dict_to_upload, current_sha): # Takes dictionary now
     """Uploads the updated config dictionary to GitHub."""
     if not repo: return False, None # Return success status and new SHA
@@ -478,7 +499,54 @@ def upload_json_to_github(repo, config_dict_to_upload, current_sha): # Takes dic
          return False, None
 # --- Hết hàm GitHub ---
 
-# --- Hết hàm GitHub ---
+# --- THÊM MỚI: HÀM UPLOAD THEME JSON ---
+def upload_theme_json_to_github(repo, theme_dict_to_upload, current_sha):
+    """Uploads the updated THEME dictionary to GitHub."""
+    if not repo: return False, None
+
+    # Convert dict to formatted JSON string
+    json_string_to_upload = json.dumps(theme_dict_to_upload, indent=4, ensure_ascii=False)
+
+    print(f"Chuẩn bị upload lên game_themes.json với SHA: {current_sha}")
+    try:
+        commit_message = f"Update game_themes.json via Updater Tool"
+
+        # Tải nội dung hiện tại để so sánh
+        current_content_str, _ = load_theme_json_from_github_api(repo)
+        needs_upload = True
+        if current_content_str:
+            try:
+                current_obj = json.loads(current_content_str)
+                if current_obj == theme_dict_to_upload:
+                    print("Theme config không thay đổi. Bỏ qua upload.")
+                    needs_upload = False
+                    return True, current_sha
+            except json.JSONDecodeError: pass
+
+        if needs_upload:
+            update_result = repo.update_file(
+                path="game_themes.json", # <-- SỬA FILE PATH
+                message=commit_message,
+                content=json_string_to_upload,
+                sha=current_sha,
+                branch=GITHUB_BRANCH,
+            )
+
+            # Lấy SHA mới của file
+            updated_contents = repo.get_contents("game_themes.json", ref=GITHUB_BRANCH)
+            new_file_sha = updated_contents.sha
+            print(f"New theme file SHA: {new_file_sha}")
+            return True, new_file_sha
+
+    except GithubException as e:
+        if e.status == 409:
+             messagebox.showerror("Lỗi GitHub Upload (409)", "File theme trên GitHub đã bị thay đổi.\nHãy 'Tải Config (Làm mới)' lại Tab 2.")
+        else:
+             messagebox.showerror("Lỗi GitHub Upload", f"Không thể cập nhật file theme:\n{e}")
+        return False, None
+    except Exception as e:
+         messagebox.showerror("Lỗi GitHub Upload", f"Lỗi không xác định khi upload theme: {e}")
+         return False, None
 
 # --- THÊM CÁC HÀM XỬ LÝ GOOGLE DRIVE ---
 
@@ -1201,7 +1269,17 @@ def process_queue():
 
                         context_menu.add_separator() # Thêm một dấu gạch nữa
                     # --- HẾT THÊM MỚI ---
+                    
+                    current_file_info = {"name": file_name, "id": file_id}
+                    def create_update_lambda(info):
+                        # Hàm lambda này sẽ gọi hàm mở popup
+                        return lambda: open_single_file_updater_popup(info)
 
+                    context_menu.add_command(
+                        label="Cập nhật file này...",
+                        command=create_update_lambda(current_file_info)
+                    )
+                    context_menu.add_separator()
                     # Thêm lệnh Xóa
                     context_menu.add_command(label="Xóa File...", command=create_delete_lambda(file_id, file_name))
 
@@ -1307,7 +1385,33 @@ def process_queue():
             image_tk = message_value
             if image_tk:
                 g_game_image_label.config(image=image_tk)
+                g_game_image_label.pack(fill=tk.BOTH, expand=True)
+        # --- THÊM MỚI: XỬ LÝ KẾT QUẢ UPLOAD THEME ---
+        elif message_type == "theme_upload_success":
+            global g_game_theme_sha
+            new_sha, new_game_name = message_value
+            g_game_theme_sha = new_sha # Cập nhật SHA mới
 
+            # Cập nhật cả 2 combobox
+            game_list = sorted(list(g_game_themes.keys()))
+            game_list_with_add = game_list + ["Thêm Game..."]
+            g_admin_game_combobox['values'] = game_list_with_add
+
+            # Cập nhật listbox trong modal
+            populate_theme_listbox()
+
+            # Xóa form trong modal
+            g_theme_name_entry.delete(0, tk.END)
+            g_theme_url_entry.delete(0, tk.END)
+
+            if new_game_name:
+                g_admin_game_combobox.set(new_game_name) # Tự động chọn game mới
+
+        elif message_type == "theme_upload_failed":
+            messagebox.showerror("Lỗi Upload Theme", message_value, parent=g_theme_manager_window)
+            # Tải lại config (vì có thể local và remote đã lệch)
+            action_load_from_github_wrapper()
+            
     except queue.Empty:
         pass
 
@@ -1391,9 +1495,20 @@ page_1_game_grid.grid(row=0, column=0, sticky="nsew")
 page_2_mod_list.grid(row=0, column=0, sticky="nsew")
 page_3_progress.grid(row=0, column=0, sticky="nsew")
 
+# 1. Tạo khung cố định (placeholder) với kích thước LỚN
+image_placeholder_frame = ttk.Frame(
+    page_2_mod_list, 
+    width=460, 
+    height=215
+)
+image_placeholder_frame.pack(pady=(0, 10))
+
+# 2. Ngăn khung co lại (RẤT QUAN TRỌNG)
+image_placeholder_frame.pack_propagate(False) 
+
+# 3. Tạo Label ảnh BÊN TRONG khung placeholder (KHÔNG .pack() ở đây)
 global g_game_image_label
-g_game_image_label = ttk.Label(page_2_mod_list, anchor=tk.CENTER)
-g_game_image_label.pack(pady=(0, 10))
+g_game_image_label = ttk.Label(image_placeholder_frame, anchor=tk.CENTER)
 
 page_2_top_nav_frame = ttk.Frame(page_2_mod_list)
 page_2_top_nav_frame.pack(fill=tk.X, pady=(0, 10))
@@ -1654,6 +1769,7 @@ def show_page_2_for_game(game_name):
     options_frame.config(text=f"Các mod cho: {game_name}")
 
     # Xóa ảnh cũ (nếu có)
+    g_game_image_label.pack_forget()
     g_game_image_label.config(image='')
 
     # --- THÊM MỚI: LOGIC TẢI ẢNH (TRONG THREAD) ---
@@ -1668,7 +1784,7 @@ def show_page_2_for_game(game_name):
             # 2. Thử tải từ URL
             image_url = g_game_themes.get(game_name)
             if image_url:
-                icon_img = load_image_from_url(image_url, size=(384, 216)) # <-- SỬA (Size LỚN)
+                icon_img = load_image_from_url(image_url, size=(460, 215)) # <-- SỬA (Size LỚN)
 
             if not icon_img:
                 # 3. Fallback: Dùng icon mặc định LỚN
@@ -1823,6 +1939,8 @@ notebook.add(second_tab_frame, text="Thêm/Xóa Option Tải")
 current_config_data = {} # Dictionary để giữ config đang sửa
 current_github_sha = None # SHA của file đã tải từ GitHub
 g_currently_selected_id = None
+g_game_theme_sha = None # BIẾN MỚI: SHA cho file game_themes.json
+g_theme_manager_window = None
 # --- Frames ---
 top_button_frame = ttk.Frame(second_tab_frame)
 top_button_frame.pack(fill=tk.X, pady=(0, 10))
@@ -1896,7 +2014,7 @@ label_game.pack(side=tk.LEFT)
 global g_admin_game_combobox
 g_admin_game_combobox = ttk.Combobox(row_game, values=[], state="normal") 
 g_admin_game_combobox.pack(side=tk.LEFT, expand=True, fill=tk.X)
-
+g_admin_game_combobox.bind("<<ComboboxSelected>>", lambda e: on_game_combobox_select(e))
 # Lưu nó vào form_widgets để các hàm khác có thể dùng
 form_widgets["Game:"] = g_admin_game_combobox
 create_form_row(edit_form_frame, "Password:")
@@ -2154,13 +2272,149 @@ def action_move_option(direction):
 
     upload_status_label.config(text="Đã thay đổi thứ tự. (Nhớ 'Lưu Config')")
 
+def on_game_combobox_select(event):
+    """Được gọi khi chọn item trong dropdown Game."""
+    selected_game = g_admin_game_combobox.get()
+    if selected_game == "Thêm Game...":
+        # Mở modal quản lý
+        open_game_theme_manager()
+        # Xóa lựa chọn "Thêm Game..."
+        g_admin_game_combobox.set("")
+
+def open_game_theme_manager():
+    """Mở cửa sổ modal để Thêm/Xóa game theme."""
+    global g_theme_manager_window, g_theme_listbox, g_theme_name_entry, g_theme_url_entry
+
+    if g_theme_manager_window is not None:
+        try: g_theme_manager_window.destroy()
+        except: pass
+
+    g_theme_manager_window = tk.Toplevel(root)
+    g_theme_manager_window.title("Quản lý Game Theme")
+    g_theme_manager_window.geometry("600x400")
+    g_theme_manager_window.transient(root)
+    g_theme_manager_window.grab_set()
+
+    main_frame = ttk.Frame(g_theme_manager_window, padding=10)
+    main_frame.pack(fill=tk.BOTH, expand=True)
+
+    # Cột trái: Danh sách
+    list_frame = ttk.LabelFrame(main_frame, text="Game Themes Hiện tại")
+    list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+
+    list_scroll = ttk.Scrollbar(list_frame, orient="vertical")
+    list_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+    g_theme_listbox = tk.Listbox(list_frame, yscrollcommand=list_scroll.set)
+    g_theme_listbox.pack(fill=tk.BOTH, expand=True)
+    list_scroll.config(command=g_theme_listbox.yview)
+
+    # Điền vào listbox
+    populate_theme_listbox()
+
+    # Cột phải: Form
+    form_frame = ttk.Frame(main_frame, width=250)
+    form_frame.pack(side=tk.LEFT, fill=tk.Y)
+
+    # Form Thêm
+    add_frame = ttk.LabelFrame(form_frame, text="Thêm Game Mới")
+    add_frame.pack(fill=tk.X)
+
+    ttk.Label(add_frame, text="Tên Game:").pack(anchor=tk.W, padx=5, pady=(5,0))
+    g_theme_name_entry = ttk.Entry(add_frame)
+    g_theme_name_entry.pack(fill=tk.X, padx=5, pady=5)
+
+    ttk.Label(add_frame, text="URL Hình ảnh:").pack(anchor=tk.W, padx=5, pady=(5,0))
+    g_theme_url_entry = ttk.Entry(add_frame)
+    g_theme_url_entry.pack(fill=tk.X, padx=5, pady=5)
+
+    add_button = ttk.Button(add_frame, text="Thêm Mới", 
+                            style="Accent.TButton",
+                            command=action_add_game_theme)
+    add_button.pack(pady=10, padx=5)
+
+    # Form Xóa
+    delete_frame = ttk.LabelFrame(form_frame, text="Xóa Game")
+    delete_frame.pack(fill=tk.X, pady=20)
+
+    delete_button = ttk.Button(delete_frame, text="Xóa Game Đã Chọn",
+                               style="Danger.TButton",
+                               command=action_delete_game_theme)
+    delete_button.pack(pady=10, padx=5)
+
+def populate_theme_listbox():
+    """Làm mới Listbox trong modal."""
+    if not g_theme_listbox: return
+
+    g_theme_listbox.delete(0, tk.END)
+    sorted_games = sorted(g_game_themes.keys())
+    for game_name in sorted_games:
+        g_theme_listbox.insert(tk.END, game_name)
+
+def action_add_game_theme():
+    """LLogic cho nút 'Thêm Mới' trong modal."""
+    global g_game_themes
+
+    name = g_theme_name_entry.get().strip()
+    url = g_theme_url_entry.get().strip()
+
+    if not name or not url:
+        messagebox.showerror("Thiếu thông tin", "Vui lòng nhập cả Tên Game và URL.", parent=g_theme_manager_window)
+        return
+
+    if name in g_game_themes:
+        messagebox.showerror("Trùng tên", "Tên game này đã tồn tại.", parent=g_theme_manager_window)
+        return
+
+    # Thêm vào dict
+    g_game_themes[name] = url
+
+    # Bắt đầu upload
+    threading.Thread(target=upload_theme_json_thread, 
+                     args=(name,), 
+                     daemon=True).start()
+
+def action_delete_game_theme():
+    """Logic cho nút 'Xóa' trong modal."""
+    global g_game_themes
+    try:
+        selected_game = g_theme_listbox.get(g_theme_listbox.curselection())
+    except tk.TclError:
+        messagebox.showwarning("Chưa chọn", "Vui lòng chọn một game trong danh sách để xóa.", parent=g_theme_manager_window)
+        return
+
+    if messagebox.askyesno("Xác nhận", f"Bạn có chắc chắn muốn xóa game theme '{selected_game}'?\n(Việc này không xóa các mod option.)", parent=g_theme_manager_window):
+        if selected_game in g_game_themes:
+            del g_game_themes[selected_game]
+            # Bắt đầu upload (không cần tên)
+            threading.Thread(target=upload_theme_json_thread, 
+                             args=(None,), 
+                             daemon=True).start()
+
+def upload_theme_json_thread(newly_added_game_name=None):
+    """(Chạy ngầm) Upload file game_themes.json."""
+    global g_game_theme_sha
+
+    repo = get_github_repo()
+    if not repo:
+        progress_queue.put(("theme_upload_failed", "Không thể kết nối repo."))
+        return
+
+    # Gửi dict g_game_themes hiện tại
+    success, new_sha = upload_theme_json_to_github(repo, g_game_themes, g_game_theme_sha)
+
+    if success and new_sha:
+        progress_queue.put(("theme_upload_success", (new_sha, newly_added_game_name)))
+    else:
+        progress_queue.put(("theme_upload_failed", "Upload thất bại. (Xem log GitHub)"))
+
+
 add_update_button.config(command=action_add_update_option)
 clear_button.config(command=clear_form)
 
 # --- Top Button Functions ---
 def action_load_from_github_wrapper():
-    """(ĐÃ SỬA) Tải cả config Mod và config Theme."""
-    global current_config_data, current_github_sha, g_game_themes
+    """(ĐÃ SỬA) Tải cả config Mod và config Theme VÀ CẢ 2 SHA."""
+    global current_config_data, current_github_sha, g_game_themes, g_game_theme_sha
     upload_status_label.config(text="Đang tải từ GitHub...", style="White.TLabel")
     root.update_idletasks()
 
@@ -2173,35 +2427,34 @@ def action_load_from_github_wrapper():
     json_content, sha = load_json_from_github_api(repo)
 
     # 2. Tải Config Theme (MỚI)
-    try:
-        print("Đang tải game_themes.json (cho admin)...")
-        theme_contents = repo.get_contents("game_themes.json", ref=GITHUB_BRANCH)
-        theme_content_str = base64.b64decode(theme_contents.content).decode('utf-8')
-        g_game_themes = json.loads(theme_content_str)
-        print("Tải config theme thành công.")
-    except Exception as e:
-        print(f"Lỗi khi tải game_themes.json: {e}")
-        g_game_themes = {} # Dùng rỗng nếu lỗi
+    theme_content, theme_sha = load_theme_json_from_github_api(repo)
 
-    # 3. Cập nhật g_admin_game_combobox
-    if g_game_themes:
-        game_list = sorted(list(g_game_themes.keys()))
-        g_admin_game_combobox['values'] = game_list
+    # 3. Xử lý Config Theme
+    if theme_content and theme_sha:
+        try:
+            g_game_themes = json.loads(theme_content)
+            g_game_theme_sha = theme_sha # <-- LƯU SHA THEME
+
+            # Cập nhật g_admin_game_combobox
+            game_list = sorted(list(g_game_themes.keys()))
+            game_list.append("Thêm Game...") # <-- THÊM OPTION MỚI
+            g_admin_game_combobox['values'] = game_list
+        except Exception as e:
+             messagebox.showerror("Lỗi", f"Lỗi đọc file game_themes.json: {e}")
+             g_game_themes = {}
+             g_admin_game_combobox['values'] = ["Thêm Game..."]
     else:
-        g_admin_game_combobox['values'] = []
+        g_game_themes = {}
+        g_admin_game_combobox['values'] = ["Thêm Game..."]
 
     # 4. Xử lý Config Mod (như cũ)
     if json_content is not None and sha is not None:
         try:
             current_config_data = json.loads(json_content)
-            current_github_sha = sha
+            current_github_sha = sha # <-- LƯU SHA MOD
             populate_treeview()
             clear_form()
             upload_status_label.config(text="Đã tải config từ database", style="Green.TLabel")
-        except json.JSONDecodeError:
-             messagebox.showerror("Lỗi JSON", "File JSON tải về từ GitHub không hợp lệ.")
-             upload_status_label.config(text="Lỗi đọc JSON từ GitHub.", style="Red.TLabel")
-             current_config_data = {}; current_github_sha = None; populate_treeview()
         except Exception as e:
              messagebox.showerror("Lỗi", f"Lỗi không xác định khi xử lý JSON: {e}")
              upload_status_label.config(text="Lỗi xử lý JSON.", style="Red.TLabel")
@@ -2773,6 +3026,164 @@ def handle_delete_click(report_window, file_info):
                          daemon=True).start()
     else:
         progress_queue.put(("drive_log", "Đã hủy thao tác xóa."))
+
+g_single_update_window = None # Biến global để theo dõi popup
+
+def open_single_file_updater_popup(file_info):
+    """Mở popup kéo-thả để cập nhật 1 file cụ thể."""
+    global g_single_update_window, drive_service
+
+    if g_single_update_window is not None:
+        try: g_single_update_window.destroy()
+        except: pass
+
+    if not drive_service:
+        messagebox.showerror("Lỗi", "Chưa đăng nhập Google Drive.")
+        return
+
+    target_name = file_info['name']
+    # Lấy đuôi file (ví dụ: .zip)
+    target_ext = os.path.splitext(target_name)[1].lower() 
+
+    # Tạo cửa sổ Toplevel
+    g_single_update_window = tk.Toplevel(root)
+    g_single_update_window.title("Cập nhật File")
+    g_single_update_window.geometry("400x200")
+    g_single_update_window.transient(root)
+    g_single_update_window.grab_set()
+
+    main_frame = ttk.Frame(g_single_update_window, padding=10)
+    main_frame.pack(fill=tk.BOTH, expand=True)
+
+    # Hiển thị thông tin
+    info_label = ttk.Label(main_frame, text=f"Đang cập nhật file:\n{target_name}", justify=tk.CENTER)
+    info_label.pack(pady=5)
+
+    ext_label = ttk.Label(main_frame, text=f"(Chỉ chấp nhận file có đuôi: {target_ext})", style="secondary.TLabel")
+    ext_label.pack(pady=5)
+
+    # Khung kéo thả
+    drop_frame = ttk.LabelFrame(main_frame, text="Kéo file mới vào đây")
+    drop_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+
+    drop_listbox = tk.Listbox(drop_frame, height=2)
+    drop_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+    drop_listbox.drop_target_register(DND_FILES)
+
+    # Tạo hàm drop handler (dùng lambda để truyền tham số)
+    drop_handler_func = lambda e: handle_single_file_drop(e, file_info, target_ext, drop_listbox, g_single_update_window)
+    drop_listbox.dnd_bind('<<Drop>>', drop_handler_func)
+
+def handle_single_file_drop(event, file_info, target_ext, drop_listbox, popup_window):
+    """Xử lý khi file được thả vào popup cập nhật."""
+    drop_listbox.delete(0, tk.END)
+
+    raw_paths = root.tk.splitlist(event.data)
+    if not raw_paths:
+        drop_listbox.insert(tk.END, "Lỗi: Không thể đọc file.")
+        return
+
+    local_file_path = raw_paths[0]
+    if not (os.path.exists(local_file_path) and os.path.isfile(local_file_path)):
+        drop_listbox.insert(tk.END, "Lỗi: Đây không phải là file.")
+        return
+
+    # === BƯỚC VALIDATION (KIỂM TRA ĐỊNH DẠNG) ===
+    dropped_ext = os.path.splitext(local_file_path)[1].lower()
+    if dropped_ext != target_ext:
+        drop_listbox.insert(tk.END, f"Lỗi: File phải có đuôi {target_ext}. (File bạn thả là {dropped_ext})")
+        messagebox.showerror("Sai định dạng file",
+                             f"Bạn đang cố cập nhật file '{file_info['name']}' (đuôi {target_ext}).\n\n"
+                             f"File bạn vừa thả vào có đuôi {dropped_ext}.\n\n"
+                             "Vui lòng thả file có cùng định dạng.",
+                             parent=popup_window)
+        return
+
+    # === VALIDATION THÀNH CÔNG ===
+    drop_listbox.insert(tk.END, f"Đang chuẩn bị upload: {os.path.basename(local_file_path)}")
+
+    # Vô hiệu hóa popup
+    popup_window.grab_release()
+    popup_window.destroy()
+
+    # Bắt đầu thread upload
+    threading.Thread(target=single_file_upload_thread, 
+                     args=(local_file_path, file_info), 
+                     daemon=True).start()
+
+def single_file_upload_thread(local_path, file_info):
+    """(ĐÃ VIẾT LẠI) Upload 1 file và GỬI TIẾN TRÌNH."""
+    target_id = file_info['id']
+    target_name = file_info['name']
+
+    # 1. Gửi log VÀ reset thanh tiến trình
+    progress_queue.put(("drive_log", f"Bắt đầu cập nhật '{target_name}'..."))
+    progress_queue.put(("drive_upload_progress", {
+        "percent": 0, "status_text": f"Đang cập nhật {target_name}...", 
+        "speed_text": "", "eta_text": ""
+    }))
+
+    try:
+        global drive_service
+        file_size = os.path.getsize(local_path)
+
+        # --- 2. Logic mới (Copy từ upload_file_logic) ---
+        # Chuẩn bị media body (dùng chunk 5MB)
+        media = MediaFileUpload(local_path, chunksize=1024*1024*5, resumable=True)
+
+        # Chuẩn bị request (chỉ .update())
+        request = drive_service.files().update(
+            fileId=target_id,
+            media_body=media,
+            fields='id'
+        )
+
+        # 3. Thực thi upload bằng vòng lặp next_chunk()
+        response = None
+        start_time = time.time()
+
+        while response is None:
+            status, response = request.next_chunk()
+
+            if status:
+                bytes_uploaded = status.resumable_progress
+                percent = int(status.progress() * 100)
+
+                elapsed_time = time.time() - start_time
+                speed_bps = (bytes_uploaded / elapsed_time) if elapsed_time > 0 else 0
+
+                remaining_bytes = file_size - bytes_uploaded
+                eta_seconds = (remaining_bytes / speed_bps) if speed_bps > 0 else 0
+
+                # Gửi tiến trình về queue (dùng tin nhắn "drive_upload_progress")
+                progress_queue.put(("drive_upload_progress", {
+                    "percent": percent,
+                    "status_text": f"Đang cập nhật: {percent}%",
+                    "speed_text": f"{format_bytes(speed_bps)}/s",
+                    "eta_text": f"ETA: {format_time(eta_seconds)}"
+                }))
+
+        # 4. Xử lý khi hoàn thành
+        if response:
+            print(f"Update thành công File ID: {target_id}")
+            progress_queue.put(("drive_log", f"Đã cập nhật '{target_name}' thành công!"))
+            progress_queue.put(("refresh_drive_list", None))
+        # --- Hết logic mới ---
+
+    except HttpError as error:
+        print(f"Lỗi HttpError trong single_file_upload_thread: {error}")
+        progress_queue.put(("drive_log", f"LỖI (Http): {error} khi cập nhật '{target_name}'."))
+        progress_queue.put(("drive_upload_progress", {"status_text": "Lỗi!", "percent": 0}))
+    except Exception as e:
+        print(f"Lỗi Exception trong single_file_upload_thread: {e}")
+        progress_queue.put(("drive_log", f"LỖI: {e} khi cập nhật '{target_name}'."))
+        progress_queue.put(("drive_upload_progress", {"status_text": "Lỗi!", "percent": 0}))
+    finally:
+        # 5. Gửi tin nhắn reset (bất kể thành công hay thất bại)
+        progress_queue.put(("drive_upload_progress", {
+            "percent": 0, "status_text": "Sẵn sàng.", "speed_text": "", "eta_text": ""
+        }))
 # Frame cho ô kéo thả
 drop_target_frame = ttk.LabelFrame(third_tab_frame, text="Kéo file vào đây để upload", padding=(10, 10))
 drop_target_frame.pack(fill=tk.BOTH, expand=True, pady=5)
