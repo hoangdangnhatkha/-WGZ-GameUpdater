@@ -1,69 +1,67 @@
 {
-    "updater": {
-        "latest_version": "1.1.3",
-        "release_notes": "- Tối ưu Thêm/Xóa Options Tải\n- Thêm hướng dẫn đường dẫn cho từng option\n- Di chuyển vị trí của từng option ở Tab 2 \nThêm phân loại game cho App",
-        "download_url": "https://drive.google.com/uc?export=download&id=1xLitheCe9ygKSajQl9LbwxYskikYSG1J"
-    },
-    "Cập Nhật Mod": {
-        "name": "Cập Nhật Mod",
-        "url": "https://drive.google.com/uc?id=1f9rT20EHRoF4dfc19IcC3ykhwNmUPis_",
-        "version": "v1.4.0",
-        "game": "Elden Ring Nightreign",
-        "type": "zip",
-        "password": null,
-        "delete_before_extract": [],
-        "path_guide": "Chọn thư mục mod ...\\ELDEN VINS NIGHTREIGN. (Nơi có file ELDEN VINS NIGHTREIGN.me3)"
-    },
-    "Tải/Cập Nhật Seamless Coop": {
-        "name": "Tải/Cập Nhật Seamless Coop",
-        "url": "https://drive.google.com/uc?id=1182Ju68pjG9LfPTgLaeME6lHPk6aeIEe",
-        "version": "v1.0.6",
-        "game": "Elden Ring Nightreign",
-        "type": "zip",
-        "password": null,
-        "delete_before_extract": [],
-        "path_guide": "Chọn thư mục mod ...\\ELDEN VINS NIGHTREIGN. (Nơi có file ELDEN VINS NIGHTREIGN.me3)"
-    },
-    "Việt Hóa Mod": {
-        "name": "Việt Hóa Mod",
-        "url": "https://drive.google.com/uc?id=1Hw-JR5E_SrtPHpeK6RknRxoJKMbvdexe",
-        "version": "v1.2",
-        "game": "Elden Ring Nightreign",
-        "type": "exe",
-        "password": null,
-        "delete_before_extract": [],
-        "path_guide": "Tải về bất cứ đâu. App cài việt hóa sẽ hiện lên thì hãy chọn đường dẫn đến file game gốc của Elden Ring Nightreign"
-    },
-    "Update Việt Hóa Mod": {
-        "name": "Update Việt Hóa Mod",
-        "url": "https://drive.google.com/uc?id=16hP8Q7Bx2tx_G0eQl0F-uEhTTQ2DJ3Or",
-        "version": "v1.3.2",
-        "game": "Elden Ring Nightreign",
-        "type": "zip",
-        "password": null,
-        "delete_before_extract": [],
-        "path_guide": "Hãy chọn đường dẫn đến file game gốc của Elden Ring Nightreign ...\\Elden Ring Nightreign\\Game\\"
-    },
-    "1": {
-        "name": "Tải game Risk Of Rain 2",
-        "url": "https://drive.google.com/uc?id=1gomZWJeMpYIUziZkMLYIh26beNzF6NqC",
-        "version": "v1.3.9.1",
-        "game": "Risk Of Rain 2",
-        "type": "zip",
-        "password": "linkneverdie.com",
-        "delete_before_extract": [],
-        "path_guide": "Giải nén bất cứ đâu."
-    },
-    "2": {
-        "name": "Mod Game Ror2",
-        "url": "https://drive.google.com/uc?id=18xzRem3wVEsInUE1X5fMipcpTwyqA4iy",
-        "version": "ver20250911",
-        "game": "Risk Of Rain 2",
-        "type": "zip",
-        "password": null,
-        "delete_before_extract": [
-            "BepInEx"
-        ],
-        "path_guide": null
-    }
+  "updater": {
+    "latest_version": "1.2.0",
+    "release_notes": "- Tối ưu Thêm/Xóa Options Tải\n- Thêm hướng dẫn đường dẫn cho từng option\n- Di chuyển vị trí của từng option ở Tab 2 \nThêm phân loại game cho App",
+    "download_url": "https://drive.google.com/uc?export=download&id=1xLitheCe9ygKSajQl9LbwxYskikYSG1J"
+  },
+  "Cập Nhật Mod": {
+    "name": "Cập Nhật Mod",
+    "url": "https://drive.google.com/uc?id=1f9rT20EHRoF4dfc19IcC3ykhwNmUPis_",
+    "version": "v1.4.0",
+    "game": "Elden Ring Nightreign",
+    "type": "zip",
+    "password": null,
+    "delete_before_extract": [],
+    "path_guide": "Chọn thư mục mod ...\\ELDEN VINS NIGHTREIGN. (Nơi có file ELDEN VINS NIGHTREIGN.me3)"
+  },
+  "Tải/Cập Nhật Seamless Coop": {
+    "name": "Tải/Cập Nhật Seamless Coop",
+    "url": "https://drive.google.com/uc?id=1182Ju68pjG9LfPTgLaeME6lHPk6aeIEe",
+    "version": "v1.0.6",
+    "game": "Elden Ring Nightreign",
+    "type": "zip",
+    "password": null,
+    "delete_before_extract": [],
+    "path_guide": "Chọn thư mục mod ...\\ELDEN VINS NIGHTREIGN. (Nơi có file ELDEN VINS NIGHTREIGN.me3)"
+  },
+  "Việt Hóa Mod": {
+    "name": "Việt Hóa Mod",
+    "url": "https://drive.google.com/uc?id=1Hw-JR5E_SrtPHpeK6RknRxoJKMbvdexe",
+    "version": "v1.2",
+    "game": "Elden Ring Nightreign",
+    "type": "exe",
+    "password": null,
+    "delete_before_extract": [],
+    "path_guide": "Tải về bất cứ đâu. App cài việt hóa sẽ hiện lên thì hãy chọn đường dẫn đến file game gốc của Elden Ring Nightreign"
+  },
+  "Update Việt Hóa Mod": {
+    "name": "Update Việt Hóa Mod",
+    "url": "https://drive.google.com/uc?id=16hP8Q7Bx2tx_G0eQl0F-uEhTTQ2DJ3Or",
+    "version": "v1.3.2",
+    "game": "Elden Ring Nightreign",
+    "type": "zip",
+    "password": null,
+    "delete_before_extract": [],
+    "path_guide": "Hãy chọn đường dẫn đến file game gốc của Elden Ring Nightreign ...\\Elden Ring Nightreign\\Game\\"
+  },
+  "1": {
+    "name": "Tải game Risk Of Rain 2",
+    "url": "https://drive.google.com/uc?id=1gomZWJeMpYIUziZkMLYIh26beNzF6NqC",
+    "version": "v1.3.9.1",
+    "game": "Risk Of Rain 2",
+    "type": "zip",
+    "password": "linkneverdie.com",
+    "delete_before_extract": [],
+    "path_guide": "Giải nén bất cứ đâu."
+  },
+  "2": {
+    "name": "Mod Game Ror2",
+    "url": "https://drive.google.com/uc?id=18xzRem3wVEsInUE1X5fMipcpTwyqA4iy",
+    "version": "ver20250911",
+    "game": "Risk Of Rain 2",
+    "type": "zip",
+    "password": null,
+    "delete_before_extract": ["BepInEx"],
+    "path_guide": null
+  }
 }

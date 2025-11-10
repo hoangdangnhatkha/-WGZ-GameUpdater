@@ -10,6 +10,7 @@ import tkinter.ttk as ttk
 import threading
 import queue
 import re
+import io
 import requests
 import json
 import rarfile
@@ -43,7 +44,8 @@ scan_loading_window = None
 g_secret_click_count = 0
 g_current_game_name = None
 g_all_mods_flat = {}
-CURRENT_VERSION = "1.1.3"
+g_game_themes = {}
+CURRENT_VERSION = "1.2.0"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
 def resource_path(relative_path):
@@ -959,9 +961,13 @@ def process_queue():
         message_type, message_value = progress_queue.get_nowait()
 
         if message_type == "config_loaded":
-            download_options_flat = message_value
+            combined_data = message_value
+            download_options_flat = combined_data.get("mods", fallback_options)
+            
             global g_all_mods_flat
             g_all_mods_flat = download_options_flat
+            global g_game_themes
+            g_game_themes = combined_data.get("themes", {})
             progress_bar.stop()
             progress_bar.config(mode="determinate")
             progress_bar['value'] = 0
@@ -1297,6 +1303,10 @@ def process_queue():
             else:
                 # Hiển thị pop-up lỗi
                 messagebox.showerror(data["title"], data["message"])
+        elif message_type == "game_image_loaded":
+            image_tk = message_value
+            if image_tk:
+                g_game_image_label.config(image=image_tk)
 
     except queue.Empty:
         pass
@@ -1343,6 +1353,8 @@ root.minsize(800, 550)
 root.resizable(False,False)
 
 g_backup_enabled = tk.BooleanVar(value=local_config.get("backup_enabled", False))
+root.cached_game_icons_small = {} # Cache cho Trang 1
+root.cached_game_icons_large = {}
 # --- Định nghĩa Style ---
 
 style = ttk.Style()
@@ -1378,6 +1390,10 @@ page_3_progress = ttk.Frame(main_tab_frame, padding=(10, 10))
 page_1_game_grid.grid(row=0, column=0, sticky="nsew")
 page_2_mod_list.grid(row=0, column=0, sticky="nsew")
 page_3_progress.grid(row=0, column=0, sticky="nsew")
+
+global g_game_image_label
+g_game_image_label = ttk.Label(page_2_mod_list, anchor=tk.CENTER)
+g_game_image_label.pack(pady=(0, 10))
 
 page_2_top_nav_frame = ttk.Frame(page_2_mod_list)
 page_2_top_nav_frame.pack(fill=tk.X, pady=(0, 10))
@@ -1427,13 +1443,30 @@ def load_drive_icon(filename, size=(32, 32)):
         print(f"Lỗi tải {filename} (bỏ qua): {e}")
         return None
 
+
+
+# --- THÊM MỚI: HÀM TẢI ẢNH TỪ URL ---
+def load_image_from_url(url, size=(192, 108)):
+    """Tải ảnh từ URL, resize, và trả về PhotoImage."""
+    try:
+        print(f"Đang tải ảnh: {url}")
+        response = requests.get(url, timeout=5) # 5 giây timeout
+        response.raise_for_status() # Báo lỗi nếu 404, 500
+
+        image_data = response.content
+        img = Image.open(io.BytesIO(image_data)) # Đọc ảnh từ bộ nhớ
+        img = img.resize(size, Image.Resampling.LANCZOS)
+        return ImageTk.PhotoImage(img)
+    except Exception as e:
+        print(f"Lỗi khi tải ảnh từ URL '{url}': {e}")
+        return None
+
 # Lưu vào root để không bị garbage-collected
 root.drive_icon_zip = load_drive_icon("zip_icon.png")
 root.drive_icon_exe = load_drive_icon("exe_icon.png")
 root.drive_icon_rar = load_drive_icon("rar_icon.png")
 root.drive_icon_unknown = load_drive_icon("unknown_icon.png")
 # --- HẾT THÊM MỚI ---
-
 # 1. Tạo options_frame (LabelFrame) làm frame host CỐ ĐỊNH
 # Frame này sẽ có chiều cao CỐ ĐỊNH và chứa cả canvas lẫn scrollbar
 options_frame = ttk.LabelFrame(page_2_mod_list, text="Bro muốn làm gì?", padding=(5, 5), height=250)
@@ -1556,89 +1589,104 @@ def update_guide_text():
 
 # --- THÊM MỚI: CÁC HÀM ĐIỀU HƯỚNG MỚI ---
 def populate_page_1_grid(game_groups):
-    """(ĐÃ VIẾT LẠI) Xóa lưới game cũ và tạo lưới game mới với HÌNH ẢNH."""
+    """(ĐÃ VIẾT LẠI) Chỉ tạo lưới TÊN GAME (không có ảnh)."""
 
-    # Xóa các widget cũ (trừ logo và credit)
     for widget in page_1_game_grid.winfo_children():
         if widget != image_label and widget != path_label_credit:
             widget.destroy()
 
-    # Tạo một frame mới cho lưới
     grid_container = ttk.Frame(page_1_game_grid)
-    grid_container.pack(fill=tk.BOTH, expand=True)
+    grid_container.pack(side=tk.TOP, pady=20)
 
-    # --- THÊM MỚI: Tải và Cache Icon ---
-    if not hasattr(root, 'cached_game_icons'):
-        root.cached_game_icons = {} # Tạo cache
-
-    # Tải icon mặc định (nếu chưa có)
-    if not hasattr(root, 'default_game_icon'):
-        root.default_game_icon = load_drive_icon("default_game_icon.png", size=(128, 128))
-    # --- HẾT THÊM MỚI ---
-
-    MAX_COLS = 4 # Số game trên 1 hàng
+    MAX_COLS = 3
     col = 0
     row = 0
 
     sorted_game_names = sorted(game_groups.keys())
     for game_name in sorted_game_names:
 
-        # --- THAY THẾ: Tạo "Card" thay vì "Button" ---
+        # --- THAY THẾ: Lấy Icon (Logic y hệt Trang 2) ---
+        icon_img = root.cached_game_icons_small.get(game_name)
 
-        # 1. Lấy Icon
-        icon_img = root.cached_game_icons.get(game_name)
         if not icon_img:
-            # Nếu chưa có trong cache, thử tải
-            icon_img = load_drive_icon(f"{game_name}.png", size=(128, 128))
-            if icon_img is None:
-                # Nếu không tìm thấy file, dùng icon mặc định
-                icon_img = root.default_game_icon
-            # Lưu vào cache
-            root.cached_game_icons[game_name] = icon_img
+            image_url = g_game_themes.get(game_name)
+            if image_url:
+                icon_img = load_image_from_url(image_url, size=(192, 108)) # <-- SỬA
+            if not icon_img:
+                icon_img = root.default_game_icon_small # <-- SỬA
+            root.cached_game_icons_small[game_name] = icon_img
 
         # 2. Tạo Card (Frame)
         card_frame = ttk.Frame(grid_container, style="Card.TFrame", cursor="hand2")
-        card_frame.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
-        card_frame.columnconfigure(0, weight=1) # Cho phép label tên căn giữa
+        card_frame.grid(row=row, column=col, padx=10, pady=10)
+        card_frame.columnconfigure(0, weight=1)
 
-        # 3. Tạo Label Hình ảnh
+        # 3. Tạo Label Hình ảnh (THÊM LẠI)
         img_label = ttk.Label(card_frame, image=icon_img, cursor="hand2")
-        img_label.grid(row=0, column=0, pady=(10, 5), padx=10)
+        img_label.grid(row=0, column=0, pady=(10, 5), padx=10) # Hàng 0
 
         # 4. Tạo Label Tên
-        name_label = ttk.Label(card_frame, text=game_name, anchor=tk.CENTER, cursor="hand2")
-        name_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky="ew")
+        name_label = ttk.Label(card_frame, text=game_name, anchor=tk.CENTER, cursor="hand2", font=("Segoe UI", 11, "bold"))
+        name_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky="ew") # Hàng 1
 
-        # 5. Tạo lệnh Click
+        # 5. Tạo lệnh Click (Đã sửa lỗi 'event')
         cmd = lambda event, g=game_name: show_page_2_for_game(g)
 
-        # 6. Gắn (Bind) sự kiện click cho cả 3 widget
+        # 6. Gắn (Bind) sự kiện click
         card_frame.bind("<Button-1>", cmd)
-        img_label.bind("<Button-1>", cmd)
+        img_label.bind("<Button-1>", cmd) # <-- Thêm lại
         name_label.bind("<Button-1>", cmd)
-        # --- HẾT THAY THẾ ---
 
         col += 1
         if col >= MAX_COLS:
             col = 0
             row += 1
+        for i in range(MAX_COLS): grid_container.columnconfigure(i, weight=0)
+        # Cấu hình grid container
 
-    # Cấu hình grid container
-    for i in range(col): grid_container.columnconfigure(i, weight=1)
-    for i in range(row + 1): grid_container.rowconfigure(i, weight=1)
 
 def show_page_2_for_game(game_name):
-    """Lưu game đã chọn, cập nhật mod list, và chuyển sang Trang 2."""
-    global g_current_game_name
+    """(ĐÃ VIẾT LẠI) Tải ảnh, điền mod, và chuyển sang Trang 2."""
+    global g_current_game_name, g_game_image_label, g_game_themes
     g_current_game_name = game_name
 
     # Đặt lại tiêu đề khung
     options_frame.config(text=f"Các mod cho: {game_name}")
 
-    # Gọi hàm (sắp được sửa) để điền mod
+    # Xóa ảnh cũ (nếu có)
+    g_game_image_label.config(image='')
+
+    # --- THÊM MỚI: LOGIC TẢI ẢNH (TRONG THREAD) ---
+    def load_game_image_thread():
+        """(Chạy ngầm) Tải ảnh cho game đã chọn."""
+        global g_game_image_label
+
+        # 1. Lấy Icon từ Cache
+        icon_img = root.cached_game_icons_large.get(game_name)
+
+        if not icon_img:
+            # 2. Thử tải từ URL
+            image_url = g_game_themes.get(game_name)
+            if image_url:
+                icon_img = load_image_from_url(image_url, size=(384, 216)) # <-- SỬA (Size LỚN)
+
+            if not icon_img:
+                # 3. Fallback: Dùng icon mặc định LỚN
+                icon_img = root.default_game_icon_large # <-- SỬA
+
+            root.cached_game_icons_large[game_name] = icon_img # Lưu vào cache
+
+        # 5. Gửi về queue để cập nhật UI
+        progress_queue.put(("game_image_loaded", icon_img))
+
+    # Bắt đầu tải ảnh ngầm
+    threading.Thread(target=load_game_image_thread, daemon=True).start()
+    # --- HẾT LOGIC TẢI ẢNH ---
+
+    # Điền danh sách mod (ngay lập tức)
     update_radio_buttons_text_for_game(game_name) 
 
-    # Chuyển trang
+    # Chuyển trang (ngay lập tức)
     show_page(page_2_mod_list)
 
 def update_radio_buttons_text_for_game(game_name_to_show):
@@ -1760,10 +1808,9 @@ speed_label.pack(side=tk.RIGHT)
 
 # --- THÊM MỚI: CĂN GIỮA CHO TRANG 3 ---
 # Thêm các frame rỗng để đẩy nội dung vào giữa
-ttk.Frame(page_3_progress).pack(side=tk.TOP, expand=True)
 option_label.pack(side=tk.TOP, pady=(5, 5))
-progress_bar.pack(side=tk.TOP, fill=tk.X, pady=(10, 5), padx=50)
-status_frame.pack(side=tk.TOP, fill=tk.X, pady=(10, 5), padx=50)
+progress_bar.pack(side=tk.TOP, pady=(10, 5), padx=50) # <-- ĐÃ XÓA fill=tk.X
+status_frame.pack(side=tk.TOP, pady=(10, 5), padx=50)   # <-- ĐÃ XÓA fill=tk.X
 ttk.Frame(page_3_progress).pack(side=tk.TOP, expand=True)
 
 # --- Hết Nội dung Tab 1 ---
@@ -1839,7 +1886,19 @@ create_form_row(edit_form_frame, "Option Name:")
 create_form_row(edit_form_frame, "URL:")
 create_form_row(edit_form_frame, "Version:")
 create_form_row(edit_form_frame, "Type:", widget_type="Combobox", options=["zip", "rar", "exe"])
-create_form_row(edit_form_frame, "Game:")
+# --- THÊM MỚI: TẠO GAME COMBOBOX (Dropdown) ---
+row_game = ttk.Frame(edit_form_frame)
+row_game.pack(fill=tk.X, pady=2)
+label_game = ttk.Label(row_game, text="Game:", width=15, anchor=tk.W)
+label_game.pack(side=tk.LEFT)
+
+# Tạo Combobox (không "readonly" để cho phép gõ tên mới)
+global g_admin_game_combobox
+g_admin_game_combobox = ttk.Combobox(row_game, values=[], state="normal") 
+g_admin_game_combobox.pack(side=tk.LEFT, expand=True, fill=tk.X)
+
+# Lưu nó vào form_widgets để các hàm khác có thể dùng
+form_widgets["Game:"] = g_admin_game_combobox
 create_form_row(edit_form_frame, "Password:")
 create_form_row(edit_form_frame, "Delete List:", widget_type="Text")
 delete_help = ttk.Label(edit_form_frame, text="(Nhập file/folder, mỗi cái một dòng)", style="secondary.TLabel")
@@ -1903,7 +1962,7 @@ def on_treeview_select(event):
             # Display the full URL if it's not a GDrive link
             url_entry.insert(0, stored_url)
         # --- HẾT SỬA ---
-        form_widgets["Game:"].delete(0, tk.END)
+        form_widgets["Game:"].set("")
         form_widgets["Game:"].insert(0, data.get("game", "Khác"))
         form_widgets["Version:"].delete(0, tk.END)
         form_widgets["Version:"].insert(0, data.get("version", ""))
@@ -2100,22 +2159,45 @@ clear_button.config(command=clear_form)
 
 # --- Top Button Functions ---
 def action_load_from_github_wrapper():
-    global current_config_data, current_github_sha
-    upload_status_label.config(text="Đang tải từ GitHub...", style="White.TLabel") # Dùng style
+    """(ĐÃ SỬA) Tải cả config Mod và config Theme."""
+    global current_config_data, current_github_sha, g_game_themes
+    upload_status_label.config(text="Đang tải từ GitHub...", style="White.TLabel")
     root.update_idletasks()
+
     repo = get_github_repo()
     if not repo:
-        upload_status_label.config(text="Lỗi kết nối repo.", style="Red.TLabel") # Dùng style
+        upload_status_label.config(text="Lỗi kết nối repo.", style="Red.TLabel")
         return
 
+    # 1. Tải Config Mod (như cũ)
     json_content, sha = load_json_from_github_api(repo)
+
+    # 2. Tải Config Theme (MỚI)
+    try:
+        print("Đang tải game_themes.json (cho admin)...")
+        theme_contents = repo.get_contents("game_themes.json", ref=GITHUB_BRANCH)
+        theme_content_str = base64.b64decode(theme_contents.content).decode('utf-8')
+        g_game_themes = json.loads(theme_content_str)
+        print("Tải config theme thành công.")
+    except Exception as e:
+        print(f"Lỗi khi tải game_themes.json: {e}")
+        g_game_themes = {} # Dùng rỗng nếu lỗi
+
+    # 3. Cập nhật g_admin_game_combobox
+    if g_game_themes:
+        game_list = sorted(list(g_game_themes.keys()))
+        g_admin_game_combobox['values'] = game_list
+    else:
+        g_admin_game_combobox['values'] = []
+
+    # 4. Xử lý Config Mod (như cũ)
     if json_content is not None and sha is not None:
         try:
             current_config_data = json.loads(json_content)
             current_github_sha = sha
             populate_treeview()
             clear_form()
-            upload_status_label.config(text="Đã tải config từ database", style="Green.TLabel") # Dùng style
+            upload_status_label.config(text="Đã tải config từ database", style="Green.TLabel")
         except json.JSONDecodeError:
              messagebox.showerror("Lỗi JSON", "File JSON tải về từ GitHub không hợp lệ.")
              upload_status_label.config(text="Lỗi đọc JSON từ GitHub.", style="Red.TLabel")
@@ -3119,13 +3201,38 @@ update_app_button.pack(pady=(5, 5), padx=5, anchor=tk.W)
 # --- Hàm cho luồng tải config ban đầu ---
 
 def load_config_thread():
-    """Tải config và gửi vào queue."""
+    """(ĐÃ SỬA) Tải cả config mod VÀ config theme."""
     global fallback_options
-    config = load_config_from_github()
-    if config:
-        progress_queue.put(("config_loaded", config))
-    else:
-        progress_queue.put(("config_loaded", fallback_options))
+
+    # 1. Tải config Mod (như cũ)
+    mod_config = load_config_from_github()
+    if not mod_config:
+        mod_config = fallback_options
+
+    # 2. Tải config Theme (MỚI)
+    theme_config = {}
+    try:
+        # (Chúng ta dùng lại link raw của file config, chỉ thay tên file)
+        theme_url = "https://raw.githubusercontent.com/hoangdangnhatkha/-WGZ-GameUpdater/refs/heads/main/game_themes.json"
+        cache_buster = f"?_={int(time.time())}"
+        full_theme_url = theme_url + cache_buster
+
+        print(f"Đang tải config theme: {full_theme_url}")
+        response = requests.get(full_theme_url, timeout=10)
+        response.raise_for_status()
+        theme_config = response.json()
+        print("Tải config theme thành công.")
+
+    except Exception as e:
+        print(f"Lỗi khi tải game_themes.json (sẽ dùng icon mặc định): {e}")
+        theme_config = {} # Dùng dict rỗng nếu lỗi
+
+    # 3. Gộp 2 kết quả và gửi về 1 message
+    combined_data = {
+        "mods": mod_config,
+        "themes": theme_config
+    }
+    progress_queue.put(("config_loaded", combined_data))
 
 # --- Chạy ứng dụng ---
 root.protocol("WM_DELETE_WINDOW", on_closing)
