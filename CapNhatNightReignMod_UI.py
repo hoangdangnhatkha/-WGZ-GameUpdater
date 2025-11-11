@@ -1910,11 +1910,11 @@ browse_button.pack(side=tk.LEFT, padx=10)
 path_label_credit = ttk.Label(page_1_game_grid, text="by Mr-Mime 2025", style="secondary.TLabel")
 path_label_credit.pack(side=tk.BOTTOM, pady=(5, 5))
 option_label = ttk.Label(page_3_progress, text = "GG", anchor=tk.W, style="White.TLabel")
-option_label.pack(side=tk.BOTTOM, pady=(5, 5))
+
 progress_bar = ttk.Progressbar(page_3_progress, orient="horizontal", length=100, mode="indeterminate")
-progress_bar.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 5))
+
 status_frame = ttk.Frame(page_3_progress)
-status_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 5))
+
 status_label = ttk.Label(status_frame, text="Hãy chọn đường dẫn và bấm bắt đầu.", anchor=tk.W, style="White.TLabel")
 status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 eta_label = ttk.Label(status_frame, text="", style="secondary.TLabel", anchor=tk.E, width=8)
@@ -1924,9 +1924,10 @@ speed_label.pack(side=tk.RIGHT)
 
 # --- THÊM MỚI: CĂN GIỮA CHO TRANG 3 ---
 # Thêm các frame rỗng để đẩy nội dung vào giữa
+ttk.Frame(page_3_progress).pack(side=tk.TOP, expand=True)
 option_label.pack(side=tk.TOP, pady=(5, 5))
-progress_bar.pack(side=tk.TOP, pady=(10, 5), padx=50) # <-- ĐÃ XÓA fill=tk.X
-status_frame.pack(side=tk.TOP, pady=(10, 5), padx=50)   # <-- ĐÃ XÓA fill=tk.X
+progress_bar.pack(side=tk.TOP, fill=tk.X, pady=(10, 5)) # <-- ĐÃ XÓA fill=tk.X
+status_frame.pack(side=tk.TOP, fill=tk.X, pady=(10, 5))  # <-- ĐÃ XÓA fill=tk.X
 ttk.Frame(page_3_progress).pack(side=tk.TOP, expand=True)
 
 # --- Hết Nội dung Tab 1 ---
