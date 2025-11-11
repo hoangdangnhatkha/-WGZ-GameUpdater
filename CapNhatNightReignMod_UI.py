@@ -43,6 +43,8 @@ import subprocess
 scan_loading_window = None
 g_secret_click_count = 0
 g_current_game_name = None
+g_game_search_entry = None
+g_game_grid_container = None
 g_all_mods_flat = {}
 g_game_themes = {}
 CURRENT_VERSION = "1.2.0"
@@ -1533,6 +1535,17 @@ def show_page(page_to_show):
     """Hiển thị trang được yêu cầu và ẩn các trang khác."""
     print(f"Chuyển sang trang: {page_to_show.winfo_name()}")
     page_to_show.tkraise()
+
+
+# --- THÊM MỚI: HÀM CONFIGURE CHO CANVAS TRANG 1 ---
+def on_page_1_content_configure(event):
+    """Cập nhật scroll region của canvas Trang 1."""
+    page_1_canvas.configure(scrollregion=page_1_canvas.bbox("all"))
+
+def on_page_1_canvas_configure(event):
+    """(SỬA) Căn giữa lưới game (g_game_grid_container) theo chiều ngang."""
+    canvas_width = event.width
+    page_1_canvas.coords(page_1_canvas_window_id, 50 , 0)
 # --- Nội dung Tab 1 ---
 # (Code nội dung Tab 1 không đổi)
 try:
@@ -1702,62 +1715,160 @@ def update_guide_text():
         guide_text_widget.config(state=tk.DISABLED)
 
 
+def on_game_search(event):
+    """Lọc lưới game ở Trang 1 dựa trên nội dung ô tìm kiếm."""
+    if not g_game_search_entry: # Nếu UI chưa sẵn sàng
+        return
+
+    search_term = g_game_search_entry.get().lower()
+
+    # Gọi lại hàm populate, truyền vào dict đã nhóm và từ khóa
+    populate_page_1_grid(download_options, search_term)
+
+# --- THÊM MỚI: HÀM XÓA TÌM KIẾM (BỊ THIẾU) ---
+def action_clear_game_search():
+    """Xóa ô tìm kiếm và hiển thị lại tất cả game."""
+    if not g_game_search_entry:
+        return
+    g_game_search_entry.delete(0, tk.END) # Xóa text
+
+    # Gọi lại hàm populate với search_term rỗng
+    # (Lưu ý: 'download_options' là biến toàn cục)
+    populate_page_1_grid(download_options, search_term="")
+
 # --- THÊM MỚI: CÁC HÀM ĐIỀU HƯỚNG MỚI ---
-def populate_page_1_grid(game_groups):
-    """(ĐÃ VIẾT LẠI) Chỉ tạo lưới TÊN GAME (không có ảnh)."""
+def populate_page_1_grid(game_groups, search_term=""):
+    """(ĐÃ VIẾT LẠI) Tạo lưới game (VỚI CANVAS SCROLL)."""
+    global g_game_grid_container, g_game_search_entry, page_1_canvas, page_1_canvas_window_id
 
-    for widget in page_1_game_grid.winfo_children():
-        if widget != image_label and widget != path_label_credit:
-            widget.destroy()
+    # 1. Tạo Thanh tìm kiếm (CHỈ 1 LẦN)
+    if g_game_search_entry is None:
+        search_frame = ttk.Frame(page_1_game_grid)
+        search_frame.pack(fill=tk.X, pady=(0, 15), padx=50)
 
-    grid_container = ttk.Frame(page_1_game_grid)
-    grid_container.pack(side=tk.TOP, pady=20)
+        search_label = ttk.Label(search_frame, text="Tìm game:")
+        search_label.pack(side=tk.LEFT, padx=(0, 10))
 
+        g_game_search_entry = ttk.Entry(search_frame)
+        g_game_search_entry.pack(fill=tk.X, expand=True, side=tk.LEFT)
+
+        clear_search_button = ttk.Button(search_frame, text="X", 
+                                         command=action_clear_game_search, width=2)
+        clear_search_button.pack(side=tk.LEFT, padx=(5,0))
+
+        g_game_search_entry.bind("<Return>", on_game_search)
+
+    # --- 2. TẠO CANVAS SCROLL (CHỈ 1 LẦN) ---
+    if g_game_grid_container is None:
+        # Tạo frame chứa canvas + scrollbar
+        # Nó sẽ lấp đầy không gian còn lại (giữa search và credit)
+        canvas_host_frame = ttk.Frame(page_1_game_grid)
+        canvas_host_frame.pack(fill=tk.BOTH, expand=True, pady=5, padx=5)
+
+        # Tạo Scrollbar
+        page_1_scrollbar = ttk.Scrollbar(canvas_host_frame, orient="vertical")
+        page_1_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Tạo Canvas
+        page_1_canvas = tk.Canvas(canvas_host_frame, borderwidth=0, highlightthickness=0, yscrollcommand=page_1_scrollbar.set)
+        page_1_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        page_1_scrollbar.config(command=page_1_canvas.yview)
+
+        # Tạo g_game_grid_container BÊN TRONG canvas
+        g_game_grid_container = ttk.Frame(page_1_canvas)
+
+        # Đặt container vào canvas
+        page_1_canvas_window_id = page_1_canvas.create_window((0, 0), window=g_game_grid_container, anchor="n")
+
+        # Gắn (Bind) các sự kiện
+        g_game_grid_container.bind("<Configure>", on_page_1_content_configure)
+        page_1_canvas.bind("<Configure>", on_page_1_canvas_configure)
+
+        # Bind cuộn chuột cho canvas và frame bên trong
+        page_1_canvas.bind("<MouseWheel>", on_mouse_wheel)
+        g_game_grid_container.bind("<MouseWheel>", on_mouse_wheel)
+        # Cho Linux
+        page_1_canvas.bind("<Button-4>", on_mouse_wheel)
+        page_1_canvas.bind("<Button-5>", on_mouse_wheel)
+        g_game_grid_container.bind("<Button-4>", on_mouse_wheel)
+        g_game_grid_container.bind("<Button-5>", on_mouse_wheel)
+    # --- HẾT TẠO CANVAS ---
+
+    # 3. Xóa các card game CŨ
+    for widget in g_game_grid_container.winfo_children():
+        widget.destroy()
+
+    # 4. Tải Icon (Cache)
+    if not hasattr(root, 'cached_game_icons_small'):
+        root.cached_game_icons_small = {}
+
+    # 5. LỌC danh sách game
+    sorted_game_names = sorted(game_groups.keys())
+
+    if search_term:
+        search_term = search_term.lower()
+        filtered_names = [name for name in sorted_game_names if search_term in name.lower()]
+    else:
+        filtered_names = sorted_game_names
+
+    # 6. Vẽ lưới game (Code này giữ nguyên, chỉ đổi 'sorted_game_names' -> 'filtered_names')
     MAX_COLS = 3
     col = 0
     row = 0
 
-    sorted_game_names = sorted(game_groups.keys())
-    for game_name in sorted_game_names:
+    for game_name in filtered_names: # <-- Dùng danh sách đã lọc
 
-        # --- THAY THẾ: Lấy Icon (Logic y hệt Trang 2) ---
+        # (Code lấy icon không đổi)
         icon_img = root.cached_game_icons_small.get(game_name)
-
         if not icon_img:
             image_url = g_game_themes.get(game_name)
             if image_url:
-                icon_img = load_image_from_url(image_url, size=(192, 89)) # <-- SỬA
+                icon_img = load_image_from_url(image_url, size=(192, 89))
             if not icon_img:
-                icon_img = root.default_game_icon_small # <-- SỬA
+                icon_img = root.default_game_icon_small
             root.cached_game_icons_small[game_name] = icon_img
 
-        # 2. Tạo Card (Frame)
-        card_frame = ttk.Frame(grid_container, style="Card.TFrame", cursor="hand2")
-        card_frame.grid(row=row, column=col, padx=10, pady=10)
+        # (Code tạo Card Frame không đổi)
+        card_frame = ttk.Frame(g_game_grid_container, style="Card.TFrame", cursor="hand2")
+        card_frame.grid(row=row, column=col, padx=10, pady=10, sticky="ew")
         card_frame.columnconfigure(0, weight=1)
 
-        # 3. Tạo Label Hình ảnh (THÊM LẠI)
+        # (Code tạo Label ảnh không đổi)
         img_label = ttk.Label(card_frame, image=icon_img, cursor="hand2")
-        img_label.grid(row=0, column=0, pady=(10, 5), padx=10) # Hàng 0
+        img_label.grid(row=0, column=0, pady=(10, 5), padx=10)
 
-        # 4. Tạo Label Tên
-        name_label = ttk.Label(card_frame, text=game_name, anchor=tk.CENTER, cursor="hand2", font=("Segoe UI", 11, "bold"))
-        name_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky="ew") # Hàng 1
+        # (Code tạo Label tên không đổi)
+        name_label = ttk.Label(card_frame, text=game_name, anchor=tk.CENTER, cursor="hand2", font=("Segoe UI", 10, "bold"))
+        name_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky="ew")
 
-        # 5. Tạo lệnh Click (Đã sửa lỗi 'event')
+        # (Code tạo lệnh Click không đổi)
         cmd = lambda event, g=game_name: show_page_2_for_game(g)
 
-        # 6. Gắn (Bind) sự kiện click
+        # (Code Bind sự kiện không đổi)
         card_frame.bind("<Button-1>", cmd)
-        img_label.bind("<Button-1>", cmd) # <-- Thêm lại
+        img_label.bind("<Button-1>", cmd)
         name_label.bind("<Button-1>", cmd)
+
+        # --- THÊM MỚI: Bind cuộn chuột cho card (QUAN TRỌNG) ---
+        card_frame.bind("<MouseWheel>", on_mouse_wheel)
+        img_label.bind("<MouseWheel>", on_mouse_wheel)
+        name_label.bind("<MouseWheel>", on_mouse_wheel)
+        card_frame.bind("<Button-4>", on_mouse_wheel)
+        img_label.bind("<Button-4>", on_mouse_wheel)
+        name_label.bind("<Button-4>", on_mouse_wheel)
+        card_frame.bind("<Button-5>", on_mouse_wheel)
+        img_label.bind("<Button-5>", on_mouse_wheel)
+        name_label.bind("<Button-5>", on_mouse_wheel)
+        # --- HẾT THÊM MỚI ---
 
         col += 1
         if col >= MAX_COLS:
             col = 0
             row += 1
-        for i in range(MAX_COLS): grid_container.columnconfigure(i, weight=0)
-        # Cấu hình grid container
+
+    # Cấu hình grid container
+    for i in range(MAX_COLS): g_game_grid_container.columnconfigure(i, weight=0)
+    # (Xóa rowconfigure)
 
 
 def show_page_2_for_game(game_name):
