@@ -23,6 +23,7 @@ import github
 from github import Github, InputGitAuthor, GithubException
 import base64
 import time
+import math
 from datetime import datetime
 
 from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -47,7 +48,7 @@ g_game_search_entry = None
 g_game_grid_container = None
 g_all_mods_flat = {}
 g_game_themes = {}
-CURRENT_VERSION = "1.2.0"
+CURRENT_VERSION = "1.2.1"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
 def resource_path(relative_path):
@@ -1492,10 +1493,14 @@ page_1_game_grid = ttk.Frame(main_tab_frame, padding=(10, 10))
 page_2_mod_list = ttk.Frame(main_tab_frame, padding=(10, 10))
 page_3_progress = ttk.Frame(main_tab_frame, padding=(10, 10))
 
-# Đặt 3 trang chồng lên nhau
-page_1_game_grid.grid(row=0, column=0, sticky="nsew")
-page_2_mod_list.grid(row=0, column=0, sticky="nsew")
-page_3_progress.grid(row=0, column=0, sticky="nsew")
+page_1_game_grid.place(relx=0, rely=0, relwidth=1, relheight=1)
+page_2_mod_list.place(relx=1, rely=0, relwidth=1, relheight=1) # Bắt đầu ở bên phải
+page_3_progress.place(relx=1, rely=0, relwidth=1, relheight=1) # Bắt đầu ở bên phải
+
+# Biến global để theo dõi trang/animation
+global g_current_page, g_is_animating
+g_current_page = page_1_game_grid # Bắt đầu ở Trang 1
+g_is_animating = False
 
 # 1. Tạo khung cố định (placeholder) với kích thước LỚN
 image_placeholder_frame = ttk.Frame(
@@ -1532,10 +1537,95 @@ main_tab_frame.grid_columnconfigure(0, weight=1)
 
 
 def show_page(page_to_show):
-    """Hiển thị trang được yêu cầu và ẩn các trang khác."""
-    print(f"Chuyển sang trang: {page_to_show.winfo_name()}")
-    page_to_show.tkraise()
+    """(ĐÃ VIẾT LẠI) Chuyển trang với hiệu ứng trượt."""
+    global g_current_page
+    
+    # Nếu đang ở trang đó, hoặc đang chạy animation, thì không làm gì
+    if g_current_page == page_to_show or g_is_animating:
+        return 
+    
+    print(f"Bắt đầu chuyển trang: {g_current_page.winfo_name()} -> {page_to_show.winfo_name()}")
 
+    # --- Quyết định hướng trượt (logic) ---
+    direction = "left" # Mặc định là trượt sang trái
+    
+    if page_to_show == page_1_game_grid:
+        # Bất cứ khi nào quay về Trang 1, ta trượt sang phải (đi lùi)
+        direction = "right"
+    elif page_to_show == page_2_mod_list and g_current_page == page_3_progress:
+        # Đi từ Trang 3 (Progress) về Trang 2 (Mod List) -> trượt sang phải
+        direction = "right"
+    
+    # Gọi hàm animation
+    animate_slide(g_current_page, page_to_show, direction)
+
+# --- THÊM MỚI: HÀM ANIMATION TRƯỢT ---
+def animate_slide(page_from, page_to, direction="left"):
+    """
+    Hàm animation chính. Di chuyển page_from ra và page_to vào.
+    'direction' quyết định hướng trượt.
+    """
+    global g_is_animating, g_current_page
+    if g_is_animating:
+        return # Nếu đang chạy, không làm gì cả
+    g_is_animating = True
+
+    # ---- Cài đặt vị trí ----
+    # Vị trí bắt đầu của trang mới (page_to)
+    start_relx_to = 1.0 if direction == "left" else -1.0
+    # Vị trí kết thúc của trang cũ (page_from)
+    target_relx_from = -1.0 if direction == "left" else 1.0
+    
+    # Đặt trang mới vào vị trí bắt đầu và đưa nó lên trên
+    page_to.place(relx=start_relx_to, rely=0, relwidth=1, relheight=1)
+    page_to.tkraise()
+
+    # ---- Cài đặt Animation Loop ----
+    steps = 30 # Tổng số bước cho animation
+    delay_ms = 16 # Thời gian mỗi bước (ms). 8ms ~ 120 FPS
+                   # Bạn có thể tăng lên 16ms (~60 FPS) nếu thấy giật
+
+    def step_loop(current_step):
+        """Hàm con được gọi lặp lại cho mỗi bước animation."""
+        global g_is_animating, g_current_page
+
+        # 1. Tính toán tiến trình (progress)
+        progress = current_step / steps
+        # Dùng công thức "Ease-Out" để animation mượt hơn ở cuối
+        ease_progress = (1 - math.cos(progress * math.pi)) / 2
+
+        # 2. Tính vị trí X mới
+        if direction == "left":
+            # Trang cũ (từ 0) -> (tới -1)
+            new_relx_from = 0.0 - ease_progress
+            # Trang mới (từ 1) -> (tới 0)
+            new_relx_to = 1.0 - ease_progress
+        else: # "right"
+            # Trang cũ (từ 0) -> (tới 1)
+            new_relx_from = 0.0 + ease_progress
+            # Trang mới (từ -1) -> (tới 0)
+            new_relx_to = -1.0 + ease_progress
+
+        # 3. Cập nhật vị trí 2 trang
+        page_from.place(relx=new_relx_from, rely=0, relwidth=1, relheight=1)
+        page_to.place(relx=new_relx_to, rely=0, relwidth=1, relheight=1)
+
+        # 4. Lặp lại hoặc Kết thúc
+        if current_step < steps:
+            # Nếu chưa xong, gọi lại hàm này sau 'delay_ms'
+            root.after(delay_ms, step_loop, current_step + 1)
+        else:
+            # Hoàn tất!
+            # Đặt dứt điểm 2 trang vào vị trí cuối cùng
+            page_from.place(relx=target_relx_from, rely=0, relwidth=1, relheight=1)
+            page_to.place(relx=0, rely=0, relwidth=1, relheight=1) 
+            
+            # Cập nhật trạng thái
+            g_is_animating = False
+            g_current_page = page_to # Cập nhật trang hiện tại là trang mới
+    
+    # Bắt đầu vòng lặp animation từ bước 1
+    step_loop(1)
 
 # --- THÊM MỚI: HÀM CONFIGURE CHO CANVAS TRANG 1 ---
 def on_page_1_content_configure(event):
@@ -1545,7 +1635,7 @@ def on_page_1_content_configure(event):
 def on_page_1_canvas_configure(event):
     """(SỬA) Căn giữa lưới game (g_game_grid_container) theo chiều ngang."""
     canvas_width = event.width
-    page_1_canvas.coords(page_1_canvas_window_id, 50 , 0)
+    page_1_canvas.coords(page_1_canvas_window_id, canvas_width / 2 , 0)
 # --- Nội dung Tab 1 ---
 # (Code nội dung Tab 1 không đổi)
 try:
@@ -1633,7 +1723,7 @@ guide_text_widget.config(state=tk.DISABLED)
 # 2. Tạo Scrollbar BÊN TRONG options_frame
 scrollbar = ttk.Scrollbar(options_frame, orient="vertical")
 # Pack scrollbar BÊN PHẢI. Thêm padding nhỏ để không dính viền
-scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(0, 2), padx=(0, 2)) 
+# scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(0, 2), padx=(0, 2)) 
 
 # 3. Tạo Canvas BÊN TRONG options_frame
 canvas = tk.Canvas(options_frame, borderwidth=0, highlightthickness=0, yscrollcommand=scrollbar.set)
@@ -1767,7 +1857,7 @@ def populate_page_1_grid(game_groups, search_term=""):
 
         # Tạo Scrollbar
         page_1_scrollbar = ttk.Scrollbar(canvas_host_frame, orient="vertical")
-        page_1_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        # page_1_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
         # Tạo Canvas
         page_1_canvas = tk.Canvas(canvas_host_frame, borderwidth=0, highlightthickness=0, yscrollcommand=page_1_scrollbar.set)
