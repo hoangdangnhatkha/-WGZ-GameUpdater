@@ -50,6 +50,7 @@ g_all_mods_flat = {}
 g_game_themes = {}
 CURRENT_VERSION = "1.2.1"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
+GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
 def resource_path(relative_path):
     """ Lấy đường dẫn tuyệt đối, hoạt động cho cả .py và .exe """
@@ -1024,6 +1025,26 @@ def browse_for_folder():
         path_entry.delete(0, tk.END)
         path_entry.insert(0, folder_selected)
 
+# --- THÊM MỚI: HÀM CHẠY ANIMATION CHO GIF ---
+def animate_gif(delay):
+    """Hàm lặp lại để cập nhật frame của GIF."""
+    try:
+        # Lấy frame tiếp theo
+        frame = root.gif_frames[root.gif_frame_index]
+        g_gif_label.configure(image=frame) # Cập nhật label
+
+        # Tăng index, quay vòng nếu cần
+        root.gif_frame_index += 1
+        if root.gif_frame_index >= len(root.gif_frames):
+            root.gif_frame_index = 0
+
+        # Hẹn giờ để gọi lại hàm này sau 'delay' ms
+        root.after(delay, animate_gif, delay)
+
+    except Exception as e:
+        # Dừng animation nếu có lỗi (ví dụ: cửa sổ đã đóng)
+        print(f"Dừng animation GIF: {e}")
+
 # --- Hàm xử lý queue ---
 def process_queue():
     # (Code hàm này không đổi)
@@ -1389,6 +1410,18 @@ def process_queue():
             if image_tk:
                 g_game_image_label.config(image=image_tk)
                 g_game_image_label.pack(fill=tk.BOTH, expand=True)
+
+        # --- THÊM MỚI: XỬ LÝ KHI GIF TẢI XONG ---
+        elif message_type == "gif_loaded":
+            gif_data = message_value
+            root.gif_frames = gif_data.get("frames", [])
+            delay = gif_data.get("delay", 100)
+
+            if root.gif_frames:
+                root.gif_frame_index = 0
+                # Bắt đầu vòng lặp animation
+                animate_gif(delay)
+
         # --- THÊM MỚI: XỬ LÝ KẾT QUẢ UPLOAD THEME ---
         elif message_type == "theme_upload_success":
             global g_game_theme_sha
@@ -1516,6 +1549,12 @@ image_placeholder_frame.pack_propagate(False)
 # 3. Tạo Label ảnh BÊN TRONG khung placeholder (KHÔNG .pack() ở đây)
 global g_game_image_label
 g_game_image_label = ttk.Label(image_placeholder_frame, anchor=tk.CENTER)
+
+# --- THÊM MỚI: TẠO LABEL CHO GIF ---
+global g_gif_label
+g_gif_label = ttk.Label(page_3_progress)
+root.gif_frames = [] # Nơi lưu các frame
+root.gif_frame_index = 0
 
 page_2_top_nav_frame = ttk.Frame(page_2_mod_list)
 page_2_top_nav_frame.pack(fill=tk.X, pady=(0, 10))
@@ -2127,6 +2166,7 @@ speed_label.pack(side=tk.RIGHT)
 # Thêm các frame rỗng để đẩy nội dung vào giữa
 ttk.Frame(page_3_progress).pack(side=tk.TOP, expand=True)
 option_label.pack(side=tk.TOP, pady=(5, 5))
+g_gif_label.pack(side=tk.TOP, pady=(5, 5))
 progress_bar.pack(side=tk.TOP, fill=tk.X, pady=(10, 5)) # <-- ĐÃ XÓA fill=tk.X
 status_frame.pack(side=tk.TOP, fill=tk.X, pady=(10, 5))  # <-- ĐÃ XÓA fill=tk.X
 ttk.Frame(page_3_progress).pack(side=tk.TOP, expand=True)
@@ -3915,6 +3955,35 @@ def load_config_thread():
     }
     progress_queue.put(("config_loaded", combined_data))
 
+# --- THÊM MỚI: HÀM TẢI GIF ĐỘNG ---
+def load_gif_frames_thread():
+    """(Chạy ngầm) Tải GIF từ URL và tách các frame."""
+    try:
+        print(f"Đang tải GIF từ: {GIF_URL}")
+        response = requests.get(GIF_URL, timeout=10)
+        response.raise_for_status()
+
+        gif_data = io.BytesIO(response.content)
+        with Image.open(gif_data) as img:
+            frames = []
+            delay = img.info.get('duration', 100) # Lấy delay, mặc định 100ms
+
+            for i in range(img.n_frames):
+                img.seek(i)
+                # Tạo một bản copy của frame và chuyển sang RGBA
+                frame_rgba = img.copy().convert('RGBA')
+                tk_frame = ImageTk.PhotoImage(frame_rgba)
+                frames.append(tk_frame)
+
+        if frames:
+            print(f"Tải GIF thành công, {len(frames)} frames, delay {delay}ms.")
+            # Gửi danh sách frame và delay về queue
+            progress_queue.put(("gif_loaded", {"frames": frames, "delay": delay}))
+        else:
+            print("Lỗi: GIF không có frame nào.")
+
+    except Exception as e:
+        print(f"Lỗi nghiêm trọng khi tải hoặc xử lý GIF: {e}")
 # --- Chạy ứng dụng ---
 root.protocol("WM_DELETE_WINDOW", on_closing)
 status_label.configure(text="Đang tải config phiên bản...", style="White.TLabel")
@@ -3923,4 +3992,5 @@ start_button.config(state=tk.DISABLED)
 browse_button.config(state=tk.DISABLED)
 root.after(100, process_queue)
 threading.Thread(target=load_config_thread, daemon=True).start()
+threading.Thread(target=load_gif_frames_thread, daemon=True).start()
 root.mainloop()
