@@ -9,11 +9,14 @@ from tkinter import filedialog, messagebox, simpledialog # Added simpledialog
 import tkinter.ttk as ttk
 import threading
 import queue
+import pyautogui
+import pygetwindow as gw
 import re
 import io
 import requests
 import json
 import rarfile
+import winreg
 from PIL import Image, ImageTk
 import pywinstyles
 import sv_ttk
@@ -336,15 +339,52 @@ def load_local_config():
             if "installed_versions" not in config:
                 config["installed_versions"] = {}
             if "backup_enabled" not in config:
-                config["backup_enabled"] = False # Mặc định là TẮT
+                config["backup_enabled"] = False
             if "secret_exe_id" not in config:
-                config["secret_exe_id"] = "" # Mặc định
+                config["secret_exe_id"] = ""
             if "secret_zip_id" not in config:
-                config["secret_zip_id"] = "" # Mặc định
+                config["secret_zip_id"] = ""
+            if "steam_path" not in config:
+                config["steam_path"] = ""
+            if "riot_path" not in config: # <-- THÊM MỚI
+                config["riot_path"] = ""
+                
+            # --- START SỬA ĐỔI LOGIC STEAM ACCOUNTS ---
+            if "steam_accounts" not in config:
+                config["steam_accounts"] = {} # Mặc định là TỪ ĐIỂN rỗng
+                
+            # Cấu trúc 1 (Cũ nhất): Dạng List ["user1", "user2"]
+            elif isinstance(config["steam_accounts"], list):
+                print("Thông báo: Đang chuyển đổi cấu trúc steam_accounts (List -> Mới)...")
+                new_accounts_dict = {}
+                for username in config["steam_accounts"]:
+                    new_accounts_dict[username] = {"password": "", "type": "steam"}
+                config["steam_accounts"] = new_accounts_dict
+                save_local_config(config) # Lưu lại ngay
+
+            # Cấu trúc 2 (Trung gian): Dạng Dict {"user1": "pass1"}
+            elif isinstance(config["steam_accounts"], dict):
+                # Kiểm tra xem có phải cấu trúc trung gian không
+                first_value = next(iter(config["steam_accounts"].values()), None)
+                if first_value is not None and isinstance(first_value, str):
+                    print("Thông báo: Đang chuyển đổi cấu trúc steam_accounts (Dict -> Mới)...")
+                    migrated_dict = {}
+                    for username, password in config["steam_accounts"].items():
+                        migrated_dict[username] = {"password": password, "type": "steam"}
+                    config["steam_accounts"] = migrated_dict
+                    save_local_config(config) # Lưu lại ngay
+            
+            # (Nếu là dict và value là dict, nó đã là cấu trúc mới, không làm gì cả)
+            # --- END SỬA ĐỔI ---
+
             return config
     except (FileNotFoundError, json.JSONDecodeError):
         # Trả về config mặc định nếu file không tồn tại hoặc lỗi
-        return {"destination_folder": "", "installed_versions": {}, "backup_enabled": False, "secret_exe_id": "", "secret_zip_id": ""}
+        return {
+            "destination_folder": "", "installed_versions": {}, "backup_enabled": False, 
+            "secret_exe_id": "", "secret_zip_id": "", "steam_path": "", "riot_path": "",
+            "steam_accounts": {} # Mặc định là TỪ ĐIỂN
+        }
 
 def save_local_config(config_data):
     try:
@@ -355,6 +395,95 @@ def save_local_config(config_data):
         print(f"Cảnh báo: Không thể lưu config local: {e}")
 
 local_config = load_local_config()
+
+
+def launch_riot_login_thread(riot_client_path, username, password):
+    """
+    (CHẠY TRONG THREAD)
+    TẮT, XÓA TOKEN, Khởi động lại, TÌM & FOCUS, và tự động điền.
+    """
+    try:
+        # --- BƯỚC 1: TẮT CLIENT (Như cũ) ---
+        print("Đang cố gắng tắt Riot Client (nếu đang chạy)...")
+        subprocess.run(
+            ["taskkill", "/F", "/IM", "RiotClientServices.exe"],
+            capture_output=True, text=True
+        )
+        subprocess.run(
+            ["taskkill", "/F", "/IM", "RiotClientUx.exe"],
+            capture_output=True, text=True
+        )
+        
+        # --- BƯỚC 2: XÓA DỮ LIỆU ĐĂNG NHẬP (MỚI) ---
+        print("Đang xóa file settings (để buộc đăng xuất)...")
+        try:
+            # Lấy đường dẫn %LOCALAPPDATA% (ví dụ: C:\Users\YourUser\AppData\Local)
+            local_app_data = os.getenv('LOCALAPPDATA')
+            if local_app_data:
+                # Đây là file Riot dùng để lưu trữ trạng thái đăng nhập
+                settings_file_path = os.path.join(
+                    local_app_data, 
+                    'Riot Games', 
+                    'Riot Client', 
+                    'Data', 
+                    'RiotClientPrivateSettings.yaml'
+                )
+                
+                if os.path.exists(settings_file_path):
+                    os.remove(settings_file_path)
+                    print(f"Đã xóa thành công: {settings_file_path}")
+                else:
+                    print("Không tìm thấy file settings (có thể đã đăng xuất).")
+            else:
+                print("Lỗi: Không thể tìm thấy thư mục LOCALAPPDATA.")
+                
+        except Exception as e:
+            print(f"LỖI khi xóa file settings: {e}")
+            print("Cảnh báo: Không thể buộc đăng xuất. Script có thể thất bại.")
+        
+        # Chờ 2 giây sau khi tắt và xóa file
+        print("Chờ 2 giây...")
+        time.sleep(2)
+        
+        # --- BƯỚC 3: KHỞI ĐỘNG LẠI (Như cũ) ---
+        print(f"Đang khởi động Riot Client tại: {riot_client_path}")
+        subprocess.Popen([riot_client_path])
+        wait_time = 8
+        print(f"Đang chờ Riot Client khởi động (chờ {wait_time} giây)...")
+        time.sleep(wait_time) 
+
+        # --- BƯỚC 4: TÌM VÀ FOCUS CỬA SỔ (Như cũ) ---
+        print("Đang tìm và focus vào cửa sổ Riot Client...")
+        riot_window = None
+        try:
+            windows = gw.getWindowsWithTitle('Riot Client')
+            if windows:
+                riot_window = windows[0]
+            else:
+                print("LỖI: Không tìm thấy cửa sổ 'Riot Client' sau 8 giây.")
+                return 
+        except Exception as e:
+            print(f"LỖI khi tìm cửa sổ: {e}.")
+            return
+
+        if riot_window.isMinimized:
+            riot_window.restore()
+        riot_window.activate()
+        time.sleep(0.5) 
+        
+        # --- BƯỚC 5: TỰ ĐỘNG HÓA (Như cũ) ---
+        print(f"Bắt đầu tự động điền cho: {username}")
+        
+        pyautogui.typewrite(username, interval=0.05)
+        pyautogui.press('tab')
+        time.sleep(0.5)
+        pyautogui.typewrite(password, interval=0.05)
+        pyautogui.press('enter')
+        
+        print("Đã hoàn tất tự động điền.")
+
+    except Exception as e:
+        print(f"Lỗi không xác định trong launch_riot_login_thread: {e}")
 
 
 # --- THÊM CÁC HÀM GITHUB ---
@@ -1087,6 +1216,14 @@ def process_queue():
             start_button.config(state=tk.NORMAL)
             browse_button.config(state=tk.NORMAL)
             check_for_updates(message_value)
+            # --- THÊM MỚI: ĐIỀN DATA CHO TAB 4 VÀ 5 ---
+            g_steam_path_entry.insert(0, local_config.get("steam_path", ""))
+
+            if 'g_riot_path_entry' in globals():
+                g_riot_path_entry.insert(0, local_config.get("riot_path", ""))
+            populate_steam_listbox()
+
+            threading.Thread(target=auto_detect_paths_thread, daemon=True).start()
 
         elif message_type == "status":
             if message_value == "DISABLE_BUTTONS":
@@ -1396,6 +1533,17 @@ def process_queue():
             # Không đóng cửa sổ bí mật để user sửa lỗi
             messagebox.showerror("Lỗi Upload Bí mật", f"Upload thất bại:\n{message_value}", parent=secret_window)
         # --- HẾT THÊM MỚI ---
+        elif message_type == "steam_path_found":
+            path = message_value
+            if 'g_steam_path_entry' in globals():
+                g_steam_path_entry.delete(0, tk.END)
+                g_steam_path_entry.insert(0, path)
+                
+        elif message_type == "riot_path_found":
+            path = message_value
+            if 'g_riot_path_entry' in globals():
+                g_riot_path_entry.delete(0, tk.END)
+                g_riot_path_entry.insert(0, path)
         # --- THÊM MỚI: XỬ LÝ POP-UP SAU KHI TẢI XONG ---
         elif message_type == "download_complete":
             data = message_value
@@ -3909,6 +4057,59 @@ clean_temp_button.pack(pady=(5, 5), padx=5, anchor=tk.W)
 CreateToolTip(clean_temp_button, "Xóa các file .zip/.rar tạm (my_temp_download...)\n"
                                  "còn sót lại trong thư mục Temp của Windows.")
 
+
+# --- THÊM MỚI: CÀI ĐẶT ĐƯỜNG DẪN STEAM ---
+steam_path_frame = ttk.Frame(setting_frame)
+steam_path_frame.pack(fill=tk.X, padx=5, pady=(5,5))
+
+steam_path_label = ttk.Label(steam_path_frame, text="Đường dẫn Steam.exe:")
+steam_path_label.pack(side=tk.LEFT, anchor=tk.W)
+
+global g_steam_path_entry
+g_steam_path_entry = ttk.Entry(steam_path_frame)
+g_steam_path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10,2))
+
+def browse_steam_exe():
+    file_selected = filedialog.askopenfilename(
+        title="Tìm file Steam.exe",
+        filetypes=[("Steam Executable", "steam.exe")]
+    )
+    if file_selected:
+        g_steam_path_entry.delete(0, tk.END)
+        g_steam_path_entry.insert(0, file_selected)
+        action_save_path_settings()
+
+steam_browse_button = ttk.Button(steam_path_frame, text="...", 
+                                 command=browse_steam_exe, width=3)
+steam_browse_button.pack(side=tk.LEFT)
+# --- HẾT THÊM MỚI ---
+
+# --- THÊM MỚI: CÀI ĐẶT ĐƯỜNG DẪN RIOT ---
+riot_path_frame = ttk.Frame(setting_frame)
+riot_path_frame.pack(fill=tk.X, padx=5, pady=(5,5))
+
+riot_path_label = ttk.Label(riot_path_frame, text="Đường dẫn Riot Client:")
+riot_path_label.pack(side=tk.LEFT, anchor=tk.W)
+
+global g_riot_path_entry
+g_riot_path_entry = ttk.Entry(riot_path_frame)
+g_riot_path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10,2))
+
+def browse_riot_exe():
+    file_selected = filedialog.askopenfilename(
+        title="Tìm file RiotClientServices.exe",
+        filetypes=[("Riot Client", "RiotClientServices.exe")]
+    )
+    if file_selected:
+        g_riot_path_entry.delete(0, tk.END)
+        g_riot_path_entry.insert(0, file_selected)
+        action_save_path_settings() # Lưu ngay
+
+riot_browse_button = ttk.Button(riot_path_frame, text="...", 
+                                 command=browse_riot_exe, width=3)
+riot_browse_button.pack(side=tk.LEFT)
+# --- HẾT THÊM MỚI ---
+
 # 2. Nút Kiểm tra Cập nhật (NÚT MỚI)
 # Khai báo nút ở phạm vi global để process_queue có thể truy cập
 global update_app_button 
@@ -3920,6 +4121,312 @@ update_app_button = ttk.Button(
 )
 update_app_button.pack(pady=(5, 5), padx=5, anchor=tk.W)
 # --- Hàm cho luồng tải config ban đầu ---
+
+# --- BẮT ĐẦU CODE CHO TAB 5 ("Steam Account") ---
+steam_tab_frame = ttk.Frame(notebook, padding=(10, 10))
+notebook.add(steam_tab_frame, text=" Quản lý Account ")
+
+# Chia tab thành 2 phần: Danh sách (trái) và Form (phải)
+steam_left_frame = ttk.Frame(steam_tab_frame)
+steam_left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+
+steam_right_frame = ttk.Frame(steam_tab_frame, width=250)
+steam_right_frame.pack(side=tk.LEFT, fill=tk.Y)
+
+# --- Phần Danh sách (Bên trái) ---
+list_frame = ttk.LabelFrame(steam_left_frame, text="Danh sách Account Steam")
+list_frame.pack(fill=tk.BOTH, expand=True)
+
+list_scroll = ttk.Scrollbar(list_frame, orient="vertical")
+list_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+global g_steam_account_listbox
+g_steam_account_listbox = tk.Listbox(list_frame, yscrollcommand=list_scroll.set, height=15)
+g_steam_account_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+list_scroll.config(command=g_steam_account_listbox.yview)
+
+# --- Phần Form (Bên phải) ---
+form_frame = ttk.LabelFrame(steam_right_frame, text="Thêm/Xóa")
+form_frame.pack(fill=tk.X)
+
+ttk.Label(form_frame, text="Username:").pack(anchor=tk.W, padx=10, pady=(5,0))
+global g_steam_username_entry
+g_steam_username_entry = ttk.Entry(form_frame)
+g_steam_username_entry.pack(fill=tk.X, padx=10, pady=5)
+# --- THÊM MỚI (BẮT ĐẦU) ---
+ttk.Label(form_frame, text="Password:").pack(anchor=tk.W, padx=10, pady=(5,0))
+global g_steam_password_entry
+g_steam_password_entry = ttk.Entry(form_frame, show="*") # show="*" để ẩn mật khẩu
+g_steam_password_entry.pack(fill=tk.X, padx=10, pady=5)
+ttk.Label(form_frame, text="Loại Account:").pack(anchor=tk.W, padx=10, pady=(5,0))
+global g_steam_account_type_combo
+g_steam_account_type_combo = ttk.Combobox(form_frame, 
+                                          values=["Steam", "Riot"], 
+                                          state="readonly")
+g_steam_account_type_combo.pack(fill=tk.X, padx=10, pady=5)
+g_steam_account_type_combo.set("Steam")
+add_steam_button = ttk.Button(form_frame, text="Thêm Account", 
+                              command=lambda: action_add_steam_account(),
+                              style="Accent.TButton")
+add_steam_button.pack(fill=tk.X, padx=10, pady=5)
+
+delete_steam_button = ttk.Button(form_frame, text="Xóa Account Đã Chọn", 
+                                 command=lambda: action_delete_steam_account(),
+                                 style="Danger.TButton")
+delete_steam_button.pack(fill=tk.X, padx=10, pady=(10, 10))
+
+# --- Logic cho Tab 5 ---
+
+def populate_steam_listbox():
+    """Làm mới danh sách username từ config (dictionary lồng nhau)."""
+    global local_config, g_steam_account_listbox
+    g_steam_account_listbox.delete(0, tk.END)
+
+    # Lấy TỪ ĐIỂN từ config
+    account_dict = local_config.get("steam_accounts", {})
+    
+    # Sắp xếp và chèn các KEY (username) vào listbox
+    for username in sorted(account_dict.keys()):
+        # Lấy loại tài khoản để hiển thị
+        acc_type = account_dict[username].get("type", "steam").capitalize()
+        g_steam_account_listbox.insert(tk.END, f"{username}  [{acc_type}]")
+
+def action_save_path_settings():
+    """Lưu đường dẫn Steam và Riot."""
+    global local_config
+    local_config["steam_path"] = g_steam_path_entry.get()
+    local_config["riot_path"] = g_riot_path_entry.get() # Thêm dòng này
+    # (Danh sách account đã được lưu bởi hàm add/delete)
+    save_local_config(local_config)
+    print("Đã lưu cài đặt đường dẫn Steam và Riot.")
+
+def action_add_steam_account():
+    global local_config
+    username = g_steam_username_entry.get().strip()
+    password = g_steam_password_entry.get().strip() # Lấy mật khẩu
+    account_type = g_steam_account_type_combo.get().lower() # Lấy loại (steam/riot)
+    
+    if not username:
+        messagebox.showwarning("Lỗi", "Username không được để trống.", parent=steam_tab_frame)
+        return
+        
+    if not account_type:
+        messagebox.showwarning("Lỗi", "Bạn phải chọn loại account (Steam/Riot).", parent=steam_tab_frame)
+        return
+
+    # Lấy TỪ ĐIỂN
+    account_dict = local_config.get("steam_accounts", {})
+
+    # Tạo dict con
+    new_data = {
+        "password": password,
+        "type": account_type
+    }
+    
+    # Thêm hoặc cập nhật (key-value)
+    account_dict[username] = new_data
+    
+    local_config["steam_accounts"] = account_dict
+    save_local_config(local_config)
+
+    populate_steam_listbox() # Làm mới danh sách
+    g_steam_username_entry.delete(0, tk.END)
+    g_steam_password_entry.delete(0, tk.END) # Xóa ô mật khẩu
+    g_steam_account_type_combo.set("Steam") # Reset dropdown
+
+def action_delete_steam_account():
+    global local_config
+    try:
+        # Lấy text đầy đủ (ví dụ: "user1 [Steam]")
+        selected_text = g_steam_account_listbox.get(g_steam_account_listbox.curselection())
+        # Tách lấy username
+        selected_username = selected_text.split("  [")[0]
+        
+    except tk.TclError:
+        messagebox.showwarning("Lỗi", "Vui lòng chọn một account để xóa.", parent=steam_tab_frame)
+        return
+
+    if messagebox.askyesno("Xác nhận", f"Bạn có chắc chắn muốn xóa '{selected_username}'?", parent=steam_tab_frame):
+        # Lấy TỪ ĐIỂN
+        account_dict = local_config.get("steam_accounts", {})
+        
+        if selected_username in account_dict:
+            del account_dict[selected_username] # Xóa entry bằng key
+            
+            local_config["steam_accounts"] = account_dict
+            save_local_config(local_config)
+            populate_steam_listbox() # Làm mới
+
+def on_account_double_click(event):
+    """
+    Hàm chính: Chạy Steam hoặc Riot dựa trên loại account.
+    Đây là hàm thay thế cho on_steam_account_double_click.
+    """
+    global local_config
+    try:
+        # 1. Lấy text đầy đủ (ví dụ: "user1 [Steam]")
+        selected_text = g_steam_account_listbox.get(g_steam_account_listbox.curselection())
+        # Tách lấy username (phần trước dấu "  [")
+        selected_username = selected_text.split("  [")[0]
+        
+    except tk.TclError:
+        return # Click đúp vào chỗ trống
+
+    # 2. Lấy thông tin chi tiết của account
+    account_dict = local_config.get("steam_accounts", {})
+    account_info = account_dict.get(selected_username) # Đây là dict con
+    
+    if not account_info:
+        messagebox.showerror("Lỗi", f"Không tìm thấy thông tin chi tiết cho '{selected_username}'.\n"
+                             "Hãy thử xóa và thêm lại account này.",
+                             parent=steam_tab_frame)
+        return
+        
+    password = account_info.get("password", "")
+    account_type = account_info.get("type", "steam") # Mặc định là steam nếu thiếu
+
+    # 3. Xử lý dựa trên loại
+    if account_type == "steam":
+        # --- LOGIC CHO STEAM ---
+        steam_path = local_config.get("steam_path", "")
+        
+        if not steam_path or not os.path.exists(steam_path):
+            messagebox.showerror("Lỗi", "Đường dẫn 'steam.exe' không hợp lệ.\n"
+                                 "Vui lòng thiết lập ở Tab 'Credit/Cài đặt' trước.",
+                                 parent=steam_tab_frame)
+            return
+
+        print(f"Đang chạy Steam cho user: {selected_username}")
+        try:
+            # Tắt Steam trước
+            print("Đang tắt Steam (nếu đang chạy)...")
+            subprocess.Popen([steam_path, "-shutdown"]) 
+            time.sleep(3) # Chờ 3 giây để Steam đóng
+            
+            # Khởi động lại với login
+            print(f"Đang khởi động Steam với user: {selected_username} và mật khẩu...")
+            subprocess.Popen([steam_path, "-login", selected_username, password])
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể chạy Steam: {e}", parent=steam_tab_frame)
+
+    elif account_type == "riot":
+        # --- LOGIC CHO RIOT ---
+        riot_path = local_config.get("riot_path", "")
+        
+        if not riot_path or not os.path.exists(riot_path):
+            messagebox.showerror("Lỗi", "Đường dẫn 'RiotClientServices.exe' không hợp lệ.\n"
+                                 "Vui lòng thiết lập ở Tab 'Credit/Cài đặt' trước.",
+                                 parent=steam_tab_frame)
+            return
+
+        # Chạy hàm pyautogui trong một thread riêng
+        print(f"Bắt đầu thread đăng nhập Riot cho: {selected_username}")
+        threading.Thread(
+            target=launch_riot_login_thread, 
+            args=(riot_path, selected_username, password), 
+            daemon=True
+        ).start()
+
+# Gắn sự kiện click đúp
+g_steam_account_listbox.bind("<Double-Button-1>", on_account_double_click)
+
+def get_steam_path_from_registry():
+    """
+    Quét Registry để tìm đường dẫn Steam.exe.
+    """
+    try:
+        # Mở key của Steam trong Registry (cho User hiện tại)
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam")
+        # Đọc giá trị của key "SteamExe"
+        steam_exe_path, _ = winreg.QueryValueEx(key, "SteamExe")
+        winreg.CloseKey(key)
+        
+        # Registry có thể dùng sai dấu '\', chúng ta chuẩn hóa nó
+        steam_exe_path = steam_exe_path.replace('/', '\\')
+        
+        if os.path.exists(steam_exe_path):
+            print(f"Tự động tìm thấy Steam tại: {steam_exe_path}")
+            return steam_exe_path
+    except FileNotFoundError:
+        print("Tự động tìm: Không tìm thấy key Steam trong Registry.")
+    except Exception as e:
+        print(f"Lỗi khi đọc Registry (Steam): {e}")
+    
+    # Nếu Registry thất bại, thử kiểm tra đường dẫn mặc định
+    default_path = r"C:\Program Files (x86)\Steam\steam.exe"
+    if os.path.exists(default_path):
+         print(f"Tự động tìm (Fallback): Tìm thấy Steam tại: {default_path}")
+         return default_path
+         
+    return None
+
+def get_riot_client_path_from_registry():
+    """
+    Quét Registry để tìm đường dẫn cài đặt Riot Client.
+    """
+    try:
+        # Mở key Uninstaller của Riot Client (cho User hiện tại)
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Uninstall\Riot Client")
+        # Đọc giá trị của key "InstallLocation"
+        install_location, _ = winreg.QueryValueEx(key, "InstallLocation")
+        winreg.CloseKey(key)
+        
+        # Nối đường dẫn thư mục với tên file .exe
+        riot_client_path = os.path.join(install_location, "RiotClientServices.exe")
+        
+        if os.path.exists(riot_client_path):
+            print(f"Tự động tìm thấy Riot Client tại: {riot_client_path}")
+            return riot_client_path
+    except FileNotFoundError:
+        print("Tự động tìm: Không tìm thấy key Riot Client trong Registry.")
+    except Exception as e:
+        print(f"Lỗi khi đọc Registry (Riot): {e}")
+
+    # Nếu Registry thất bại, thử kiểm tra đường dẫn mặc định
+    default_path = r"C:\Riot Games\Riot Client\RiotClientServices.exe"
+    if os.path.exists(default_path):
+         print(f"Tự động tìm (Fallback): Tìm thấy Riot Client tại: {default_path}")
+         return default_path
+         
+    return None
+
+def auto_detect_paths_thread():
+    """
+    (CHẠY TRONG THREAD)
+    Kiểm tra config, nếu đường dẫn rỗng thì bắt đầu quét Registry.
+    """
+    global local_config
+    
+    steam_path_updated = False
+    riot_path_updated = False
+
+    # 1. Kiểm tra Steam
+    # Chỉ tìm kiếm nếu đường dẫn trong config là rỗng
+    if not local_config.get("steam_path"):
+        print("Tự động tìm: Đường dẫn Steam rỗng, bắt đầu quét...")
+        steam_path = get_steam_path_from_registry()
+        if steam_path:
+            local_config["steam_path"] = steam_path
+            # Gửi tin nhắn để UI cập nhật
+            progress_queue.put(("steam_path_found", steam_path))
+            steam_path_updated = True
+
+    # 2. Kiểm tra Riot
+    if not local_config.get("riot_path"):
+        print("Tự động tìm: Đường dẫn Riot rỗng, bắt đầu quét...")
+        riot_path = get_riot_client_path_from_registry()
+        if riot_path:
+            local_config["riot_path"] = riot_path
+            # Gửi tin nhắn để UI cập nhật
+            progress_queue.put(("riot_path_found", riot_path))
+            riot_path_updated = True
+    
+    # 3. Lưu lại config nếu có thay đổi
+    if steam_path_updated or riot_path_updated:
+        print("Tự động tìm: Đã lưu đường dẫn mới vào settings.json")
+        save_local_config(local_config)
+    else:
+        print("Tự động tìm: Các đường dẫn đã được thiết lập, không cần quét.")
 
 def load_config_thread():
     """(ĐÃ SỬA) Tải cả config mod VÀ config theme."""
