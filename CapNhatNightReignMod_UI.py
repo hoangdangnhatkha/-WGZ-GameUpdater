@@ -373,11 +373,12 @@ local_config = load_local_config()
 def launch_riot_login_thread(riot_client_path, username, password):
     """
     (CHẠY TRONG THREAD)
-    TẮT, XÓA TOKEN, Khởi động lại, TÌM & FOCUS, và tự động điền.
+    Kiểm tra focus liên tục trước khi gõ phím.
     """
+    
     try:
-        # --- BƯỚC 1: TẮT CLIENT (Như cũ) ---
-        print("Đang cố gắng tắt Riot Client (nếu đang chạy)...")
+        # --- BƯỚC 1 & 2: TẮT CLIENT VÀ XÓA TOKEN (Như cũ) ---
+        progress_queue.put(("login_status_update", "Đang tắt Riot Client..."))
         subprocess.run(
             ["taskkill", "/F", "/IM", "RiotClientServices.exe"],
             capture_output=True, text=True
@@ -387,83 +388,102 @@ def launch_riot_login_thread(riot_client_path, username, password):
             capture_output=True, text=True
         )
         
-        # --- BƯỚC 2: XÓA DỮ LIỆU ĐĂNG NHẬP (MỚI) ---
-        print("Đang xóa file settings (để buộc đăng xuất)...")
+        progress_queue.put(("login_status_update", "Đang xóa token đăng nhập..."))
         try:
-            # Lấy đường dẫn %LOCALAPPDATA% (ví dụ: C:\Users\YourUser\AppData\Local)
             local_app_data = os.getenv('LOCALAPPDATA')
             if local_app_data:
-                # Đây là file Riot dùng để lưu trữ trạng thái đăng nhập
                 settings_file_path = os.path.join(
-                    local_app_data, 
-                    'Riot Games', 
-                    'Riot Client', 
-                    'Data', 
-                    'RiotClientPrivateSettings.yaml'
+                    local_app_data, 'Riot Games', 'Riot Client', 
+                    'Data', 'RiotClientPrivateSettings.yaml'
                 )
-                
                 if os.path.exists(settings_file_path):
                     os.remove(settings_file_path)
-                    print(f"Đã xóa thành công: {settings_file_path}")
-                else:
-                    print("Không tìm thấy file settings (có thể đã đăng xuất).")
             else:
-                print("Lỗi: Không thể tìm thấy thư mục LOCALAPPDATA.")
-                
+                 progress_queue.put(("login_status_update", "Lỗi: Không tìm thấy LOCALAPPDATA"))
         except Exception as e:
-            print(f"LỖI khi xóa file settings: {e}")
-            print("Cảnh báo: Không thể buộc đăng xuất. Script có thể thất bại.")
+            progress_queue.put(("login_status_update", "Lỗi: Không thể xóa token."))
         
-        # Chờ 2 giây sau khi tắt và xóa file
-        print("Chờ 2 giây...")
         time.sleep(2)
         
         # --- BƯỚC 3: KHỞI ĐỘNG LẠI (Như cũ) ---
-        print(f"Đang khởi động Riot Client tại: {riot_client_path}")
+        progress_queue.put(("login_status_update", "Đang khởi động Riot Client..."))
         subprocess.Popen([riot_client_path])
-        wait_time = 8
-        print(f"Đang chờ Riot Client khởi động (chờ {wait_time} giây)...")
-        time.sleep(wait_time) 
-
-        # --- BƯỚC 4: TÌM VÀ FOCUS CỬA SỔ (Như cũ) ---
-        print("Đang tìm và focus vào cửa sổ Riot Client...")
+        
+        # --- BƯỚC 4: CHỜ THÔNG MINH (Như cũ) ---
+        timeout_seconds = 20
+        start_time = time.time()
         riot_window = None
-        try:
+        
+        progress_queue.put(("login_status_update", f"Đang chờ cửa sổ Riot..."))
+        
+        while True:
             windows = gw.getWindowsWithTitle('Riot Client')
             if windows:
                 riot_window = windows[0]
-            else:
-                print("LỖI: Không tìm thấy cửa sổ 'Riot Client' sau 8 giây.")
+                progress_queue.put(("login_status_update", "Đã tìm thấy cửa sổ!"))
+                break 
+            if time.time() - start_time > timeout_seconds:
+                progress_queue.put(("login_status_hide", "Lỗi: Hết thời gian chờ Riot Client."))
                 return 
-        except Exception as e:
-            print(f"LỖI khi tìm cửa sổ: {e}.")
-            return
 
-        if riot_window.isMinimized:
-            riot_window.restore()
-        riot_window.activate()
-        time.sleep(0.5) 
+            time.sleep(0.5)
         
-        # --- BƯỚC 5: TỰ ĐỘNG HÓA (Như cũ) ---
-        print(f"Bắt đầu tự động điền cho: {username}")
-        
-        pyautogui.typewrite(username, interval=0.05)
-        pyautogui.press('tab')
-        time.sleep(0.5)
-        pyautogui.typewrite(password, interval=0.05)
-        pyautogui.press('enter')
-        
-        print("Đã hoàn tất tự động điền.")
+        # --- BƯỚC 5: TỰ ĐỘNG HÓA (CÓ KIỂM TRA FOCUS) ---
+        try:
+            progress_queue.put(("login_status_update", "Đang focus cửa sổ..."))
+            if riot_window.isMinimized:
+                riot_window.restore()
+                time.sleep(0.5) 
+            
+            riot_window.activate()
+            time.sleep(1) 
+
+            # --- KIỂM TRA FOCUS (LẦN 1) ---
+            progress_queue.put(("login_status_update", "Kiểm tra focus... (1/3)"))
+            if gw.getActiveWindow() != riot_window:
+                # Nếu cửa sổ active không phải là Riot, hủy bỏ
+                raise Exception("Người dùng đã click ra ngoài. Hủy đăng nhập.")
+            
+            progress_queue.put(("login_status_update", "Đang điền username..."))
+            pyautogui.typewrite(username, interval=0.05)
+            pyautogui.press('tab')
+            time.sleep(0.5)
+
+            # --- KIỂM TRA FOCUS (LẦN 2) ---
+            progress_queue.put(("login_status_update", "Kiểm tra focus... (2/3)"))
+            if gw.getActiveWindow() != riot_window:
+                raise Exception("Người dùng đã click ra ngoài. Hủy đăng nhập.")
+
+            progress_queue.put(("login_status_update", "Đang điền password..."))
+            pyautogui.typewrite(password, interval=0.05)
+            time.sleep(0.2) # Chờ 0.2 giây
+
+            # --- KIỂM TRA FOCUS (LẦN 3) ---
+            progress_queue.put(("login_status_update", "Kiểm tra focus... (3/3)"))
+            if gw.getActiveWindow() != riot_window:
+                raise Exception("Người dùng đã click ra ngoài. Hủy đăng nhập.")
+
+            pyautogui.press('enter')
+            
+            progress_queue.put(("login_status_update", "Hoàn tất! Đang chờ..."))
+            time.sleep(3)
+
+        finally:
+            # === ẨN POPUP ===
+            # (Nếu có Exception, nó sẽ bị bắt ở 'except' bên ngoài
+            # và 'finally' này sẽ chạy trước, ẩn popup)
+            progress_queue.put(("login_status_hide", None)) 
 
     except Exception as e:
+        # Bắt lỗi từ 'raise Exception' hoặc bất kỳ lỗi nào khác
         print(f"Lỗi không xác định trong launch_riot_login_thread: {e}")
+        # Gửi tin nhắn lỗi về để process_queue hiển thị
+        progress_queue.put(("login_status_hide", f"Đã hủy: {e}"))
 
 
 def load_accounts_from_drive_thread():
     """
-    (CHẠY NGẦM) Tìm file 'wgz_user_accounts.json' trên Drive.
-    Nếu thấy: Tải về và đọc.
-    Nếu không thấy: Tạo file mới.
+    (CHẠY NGẦM) Tải, và TỰ ĐỘNG DI CHUYỂN data cũ.
     """
     global drive_service, g_user_accounts_data, g_user_accounts_file_id
     global g_accounts_loaded
@@ -479,7 +499,6 @@ def load_accounts_from_drive_thread():
     try:
         print(f"Đang tìm file config account: {ACCOUNT_CONFIG_FILENAME}...")
         
-        # 1. Tìm file (Code cũ)
         query = f"name = '{ACCOUNT_CONFIG_FILENAME}' and '{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false"
         response = drive_service.files().list(
             q=query, spaces='drive', fields='files(id, name)'
@@ -487,42 +506,53 @@ def load_accounts_from_drive_thread():
         files = response.get('files', [])
 
         if files:
-            # 2a. NẾU TÌM THẤY
             file_info = files[0]
             g_user_accounts_file_id = file_info['id']
             print(f"Tìm thấy config: {g_user_accounts_file_id}. Đang tải nội dung...")
             
-            # --- SỬA LOGIC TẢI FILE (BẮT ĐẦU) ---
-            
-            # 1. Tạo yêu cầu (request)
             request = drive_service.files().get_media(fileId=g_user_accounts_file_id)
-            
-            # 2. Tạo một bộ đệm (buffer) trong bộ nhớ để lưu file
             file_content = io.BytesIO()
-            
-            # 3. Tạo trình tải (downloader) bằng MediaIoBaseDownload
             downloader = MediaIoBaseDownload(file_content, request)
             
-            # 4. Chạy trình tải
             done = False
             while done is False:
-                # Tải theo từng khối (chunk)
                 status, done = downloader.next_chunk()
                 if status:
                     print(f"Đang tải config account: {int(status.progress() * 100)}%")
 
             print("Tải config account hoàn tất.")
-            # --- SỬA LOGIC TẢI FILE (KẾT THÚC) ---
             
             try:
-                # Lấy nội dung từ bộ đệm (buffer)
-                g_user_accounts_data = json.loads(file_content.getvalue().decode('utf-8'))
+                # 1. Tải raw data
+                raw_data = json.loads(file_content.getvalue().decode('utf-8'))
+                
+                # --- LOGIC DI CHUYỂN (MỚI) ---
+                is_old_structure = False
+                if raw_data: # Kiểm tra xem có rỗng không
+                    first_key = next(iter(raw_data.keys()))
+                    # Nếu key là "Steam" hoặc "Riot", đây là cấu trúc cũ
+                    if first_key == "Steam" or first_key == "Riot":
+                        is_old_structure = True
+                
+                if is_old_structure:
+                    print("Phát hiện cấu trúc data cũ (theo Dịch vụ). Đang di chuyển...")
+                    # 2. Gọi hàm di chuyển
+                    g_user_accounts_data = migrate_data_to_game_keys(raw_data)
+                    
+                    # 3. Tự động lưu lại cấu trúc mới (chỉ 1 lần)
+                    print("Di chuyển hoàn tất. Đang tự động lưu cấu trúc mới lên Drive...")
+                    threading.Thread(target=save_accounts_to_drive_thread, daemon=True).start()
+                else:
+                    # Nếu cấu trúc đã đúng (key là Game), gán bình thường
+                    g_user_accounts_data = raw_data
+                # --- HẾT LOGIC DI CHUYỂN ---
+
             except json.JSONDecodeError:
                 print("Lỗi: File config trên Drive bị hỏng (JSON Lỗi). Dùng dict rỗng.")
                 g_user_accounts_data = {}
 
         else:
-            # 2b. NẾU KHÔNG TÌM THẤY -> Tạo file mới (Code cũ, giữ nguyên)
+            # (Code tạo file mới không đổi)
             print("Không tìm thấy config. Đang tạo file mới trên Drive...")
             g_user_accounts_data = {}
             new_file_id = create_empty_account_file_on_drive()
@@ -532,8 +562,8 @@ def load_accounts_from_drive_thread():
             else:
                 print("LỖI NGHIÊM TRỌNG: Không thể tạo file config mới.")
                 return
+
         g_accounts_loaded = True
-        # 3. Báo cho UI biết là đã tải xong (Code cũ)
         progress_queue.put(("accounts_loaded", None))
 
     except Exception as e:
@@ -621,6 +651,39 @@ def save_accounts_to_drive_thread():
     except Exception as e:
         print(f"Lỗi nghiêm trọng khi lưu config account: {e}")
         progress_queue.put(("account_save_status", (f"Lỗi: {e}", "Red.TLabel")))
+
+
+def migrate_data_to_game_keys(old_data):
+    """
+    (HÀM MỚI)
+    Chuyển đổi cấu trúc data từ {Service: [Accounts]} sang {Game: [Accounts]}.
+    """
+    print("Đang chạy logic di chuyển (migration) dữ liệu...")
+    new_data = {}
+    
+    # Lặp qua cấu trúc cũ (ví dụ: key="Steam", accounts_list=[...])
+    for service_name, accounts_list in old_data.items():
+        for acc_info in accounts_list:
+            # Lấy "game" (tag) đã lưu (ví dụ: "Elden Ring")
+            game_tag = acc_info.get("game")
+            
+            # Key mới sẽ là "game_tag"
+            key_to_use = game_tag
+            
+            if not key_to_use:
+                # Nếu tài khoản không có tag "game",
+                # dùng Dịch vụ (Steam/Riot) làm key dự phòng
+                key_to_use = service_name
+                
+                # Cập nhật lại acc_info để nó tự gán game
+                acc_info["game"] = service_name
+
+            # Thêm tài khoản vào key mới
+            # (ví dụ: new_data["Elden Ring"].append(acc_info))
+            new_data.setdefault(key_to_use, []).append(acc_info)
+            
+    print(f"Di chuyển hoàn tất. Data mới có {len(new_data)} keys (games).")
+    return new_data
 
 # --- THÊM CÁC HÀM GITHUB ---
 def get_github_token():
@@ -1314,7 +1377,9 @@ def animate_gif(delay):
 # --- Hàm xử lý queue ---
 def process_queue():
     # (Code hàm này không đổi)
+    global g_login_overlay_popup, g_login_overlay_label
     global download_options, local_config
+    global g_dynamic_account_buttons
     try:
         message_type, message_value = progress_queue.get_nowait()
 
@@ -1700,7 +1765,6 @@ def process_queue():
                 except: pass # Bỏ qua nếu lỗi
             
             # 2. Vô hiệu hóa tất cả các nút "Sửa" / "Xóa" / "Đăng nhập" (động)
-            global g_dynamic_account_buttons
             for btn in g_dynamic_account_buttons:
                 try:
                     btn.config(state=new_state)
@@ -1714,6 +1778,50 @@ def process_queue():
                 # Nếu là "Đã lưu!", tự động ẩn sau 3 giây (code cũ)
                 if text == "Đã lưu!":
                     root.after(3000, lambda: g_acct_save_status_label.config(text=""))
+        elif message_type == "login_status_update":
+            # Cập nhật text trên nhãn (thay vì pop-up)
+            if 'g_acct_login_status_label' in globals():
+                try:
+                    # Cập nhật text từ thread (ví dụ: "Đang tắt Riot Client...")
+                    g_acct_login_status_label.config(text=message_value, style="White.TLabel")
+                except tk.TclError: 
+                    pass # Bỏ qua nếu có lỗi
+        
+        elif message_type == "login_status_hide":
+            # Ẩn tin nhắn (xóa text) sau 3 giây
+            # và hiển thị lỗi nếu có
+            
+            label_to_clear = None # Biến tạm để dùng trong hàm 'after'
+            
+            if 'g_acct_login_status_label' in globals():
+                label_to_clear = g_acct_login_status_label
+                
+                if message_value: 
+                    # Nếu có tin nhắn lỗi (ví dụ: "Hết thời gian chờ")
+                    label_to_clear.config(text=message_value, style="Red.TLabel")
+                    # Hiển thị pop-up lỗi CHÍNH THỨC
+                    messagebox.showerror("Lỗi Đăng nhập Riot", message_value)
+                else:
+                    # Nếu không có lỗi (thành công)
+                    label_to_clear.config(text="Hoàn tất!", style="Green.TLabel")
+            
+            # Tự động xóa text trên nhãn sau 3 giây
+            if label_to_clear:
+                root.after(3000, lambda: label_to_clear.config(text=""))
+
+            try:           
+                if 'g_acct_page_2_back_btn' in globals():
+                    g_acct_page_2_back_btn.config(state=tk.NORMAL)
+                if 'g_acct_page_2_add_btn' in globals():
+                    g_acct_page_2_add_btn.config(state=tk.NORMAL)
+                    
+                for btn in g_dynamic_account_buttons:
+                    try:
+                        btn.config(state=tk.NORMAL)
+                    except tk.TclError:
+                        pass # Nút có thể đã bị hủy
+            except Exception as e:
+                print(f"Lỗi khi mở khóa nút: {e}")
         # --- THÊM MỚI: XỬ LÝ POP-UP SAU KHI TẢI XONG ---
         elif message_type == "download_complete":
             data = message_value
@@ -1856,6 +1964,8 @@ g_user_accounts_data = {}
 g_user_accounts_file_id = None
 g_accounts_loaded = False
 g_dynamic_account_buttons = []
+g_login_overlay_popup = None
+g_login_overlay_label = None
 # --- Hai trang (Frames) cho Tab Account ---
 g_acct_page_1_grid = ttk.Frame(account_tab_frame, padding=(10, 10))
 g_acct_page_1_grid.place(relx=0, rely=0, relwidth=1, relheight=1)
@@ -1907,6 +2017,10 @@ g_acct_page_2_add_btn = ttk.Button(
 )
 g_acct_page_2_add_btn.pack(side=tk.RIGHT)
 
+global g_acct_login_status_label
+g_acct_login_status_label = ttk.Label(g_acct_page_2_top_frame, text="", anchor=tk.CENTER)
+g_acct_login_status_label.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
+
 # Khung Treeview (danh sách)
 # Khung chứa Canvas và Scrollbar
 g_acct_list_frame = ttk.LabelFrame(g_acct_page_2_list, text="Accounts đã lưu")
@@ -1943,12 +2057,15 @@ g_acct_list_canvas.bind("<Configure>", on_acct_list_canvas_configure)
 # --- Các hàm Logic cho Tab Account ---
 
 def populate_account_game_grid():
-    """Tạo lưới các game/dịch vụ CÓ tài khoản."""
-    # --- SỬA: Đọc từ g_user_accounts_data ---
+    """
+    (ĐÃ VIẾT LẠI)
+    Tạo lưới game dựa trên các key (Game) từ g_user_accounts_data.
+    """
     global g_acct_grid_container, g_acct_page_1_grid
     global g_game_themes, g_user_accounts_data 
 
     # 1. Tạo Label "Vui lòng đăng nhập" (CHỈ 1 LẦN)
+    # (Code này không đổi)
     global g_acct_login_prompt_label
     if not 'g_acct_login_prompt_label' in globals():
         g_acct_login_prompt_label = ttk.Label(
@@ -1960,18 +2077,16 @@ def populate_account_game_grid():
         g_acct_login_prompt_label.pack(expand=True)
 
     # 1. Tạo Canvas Scroll (CHỈ 1 LẦN)
+    # (Code này không đổi)
     if g_acct_grid_container is None:
         canvas_host_frame = ttk.Frame(g_acct_page_1_grid)
         canvas_host_frame.pack(fill=tk.BOTH, expand=True, pady=5, padx=5)
-        
         page_1_scrollbar = ttk.Scrollbar(canvas_host_frame, orient="vertical")
         page_1_canvas = tk.Canvas(canvas_host_frame, borderwidth=0, highlightthickness=0, yscrollcommand=page_1_scrollbar.set)
         page_1_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         page_1_scrollbar.config(command=page_1_canvas.yview)
-
         g_acct_grid_container = ttk.Frame(page_1_canvas)
         canvas_window_id = page_1_canvas.create_window((0, 0), window=g_acct_grid_container, anchor="n")
-
         g_acct_grid_container.bind("<Configure>", lambda e, c=page_1_canvas: c.configure(scrollregion=c.bbox("all")))
         page_1_canvas.bind("<Configure>", lambda e, c=page_1_canvas, w=canvas_window_id: c.itemconfig(w, width=e.width - 4))
     
@@ -1979,13 +2094,11 @@ def populate_account_game_grid():
     for widget in g_acct_grid_container.winfo_children():
         widget.destroy()
 
-    # --- SỬA LỖI: Đọc từ g_user_accounts_data ---
-    # 3. Lấy danh sách game CÓ account
-    user_accounts_data = g_user_accounts_data # <-- SỬA Ở ĐÂY
+    # 3. Lấy danh sách game CÓ account (Code không đổi)
+    user_accounts_data = g_user_accounts_data 
     game_names_with_accounts = sorted(user_accounts_data.keys())
-    # --- HẾT SỬA ---
 
-    # 4. Tải Icon (Cache) - Tái sử dụng cache của Tab 1
+    # 4. Tải Icon (Cache) (Code không đổi)
     if not hasattr(root, 'cached_game_icons_small'):
         root.cached_game_icons_small = {}
     if not hasattr(root, 'default_game_icon_small'):
@@ -1994,70 +2107,48 @@ def populate_account_game_grid():
         except:
             root.default_game_icon_small = None
             
-    # 5. Tải icon Steam/Riot (MỚI)
+    # 5. Tải icon Steam/Riot (Code không đổi)
     if not hasattr(root, 'steam_icon_small'):
-        root.steam_icon_small = load_image_from_url("https://images.icon-icons.com/2428/PNG/512/steam_black_logo_icon_147078.png", size=(192, 89))
+        root.steam_icon_small = load_image_from_url("https://images.icon-icons.com/2428/PNG/512/steam_black_logo_icon_147078.png", size=(89, 89))
     if not hasattr(root, 'riot_icon_small'):
-        root.riot_icon_small = load_image_from_url("https://img.icons8.com/color/512/riot-games.png", size=(192, 89))
+        root.riot_icon_small = load_image_from_url("https://img.icons8.com/color/512/riot-games.png", size=(89, 89))
 
     # 6. Vẽ lưới game
     MAX_COLS = 3    
     col = 0
     row = 0
     
-    # --- GIỮ NGUYÊN LOGIC CŨ: Nút "Thêm Dịch vụ" (Steam/Riot) ---
-    def create_add_service_card(service_name, icon):
-        nonlocal col, row
-        card_frame = ttk.Frame(g_acct_grid_container, style="Card.TFrame", cursor="hand2")
-        card_frame.grid(row=row, column=col, padx=10, pady=10, sticky="ew")
-        card_frame.columnconfigure(0, weight=1)
+    # --- SỬA LOGIC: XÓA NÚT "Thêm Dịch vụ" ---
+    # (Vì giờ đây chúng ta thêm bằng cách chọn game trong pop-up)
 
-        if icon:
-            img_label = ttk.Label(card_frame, image=icon, cursor="hand2")
-            img_label.grid(row=0, column=0, pady=(10, 5), padx=10)
-        else:
-            img_label = ttk.Label(card_frame, text="[Lỗi 429 Tải Ảnh]", style="secondary.TLabel", cursor="hand2")
-            img_label.grid(row=0, column=0, pady=(10, 5), padx=10)
-
-        name_label = ttk.Label(card_frame, text=service_name, anchor=tk.CENTER, cursor="hand2", font=("Segoe UI", 10, "bold"))
-        name_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky="ew")
-
-        cmd = lambda e, g=service_name: show_account_list_for_game(g)
-        card_frame.bind("<Button-1>", cmd)
-        img_label.bind("<Button-1>", cmd)
-        name_label.bind("<Button-1>", cmd)
-
-        col += 1
-        if col >= MAX_COLS: col = 0; row += 1
-
-    # Tạo 2 nút "Steam" và "Riot" (chỉ khi chúng chưa có trong list)
-    if "Steam" not in game_names_with_accounts:
-        create_add_service_card("Steam", root.steam_icon_small)
-    if "Riot" not in game_names_with_accounts:
-        create_add_service_card("Riot", root.riot_icon_small)
-    # --- HẾT LOGIC CŨ ---
-
-    for game_name in game_names_with_accounts:
+    # --- SỬA LOGIC: LẶP QUA CÁC KEY GAME ---
+    for game_name in game_names_with_accounts: # (Key giờ là "Elden Ring", "Steam", v.v.)
         icon_img = None
         
+        # 1. Ưu tiên icon Steam/Riot (nếu key là "Steam" hoặc "Riot")
         if game_name == "Steam":
             icon_img = root.steam_icon_small
         elif game_name == "Riot":
             icon_img = root.riot_icon_small
         
+        # 2. Thử tìm trong cache
         if not icon_img:
             icon_img = root.cached_game_icons_small.get(game_name)
 
+        # 3. Thử tải (nếu chưa cache) (DÙNG g_game_themes)
         if not icon_img:
-            image_url = g_game_themes.get(game_name)
+            image_url = g_game_themes.get(game_name) # Lấy URL của game
             if image_url:
                 icon_img = load_image_from_url(image_url, size=(192, 89))
             
+            # 4. Dùng icon mặc định
             if not icon_img:
                 icon_img = root.default_game_icon_small
             
+            # Lưu vào cache
             root.cached_game_icons_small[game_name] = icon_img
         
+        # (Code tạo Card Frame, img_label, name_label... không đổi)
         card_frame = ttk.Frame(g_acct_grid_container, style="Card.TFrame", cursor="hand2")
         card_frame.grid(row=row, column=col, padx=10, pady=10, sticky="ew")
         card_frame.columnconfigure(0, weight=1)
@@ -2066,12 +2157,13 @@ def populate_account_game_grid():
             img_label = ttk.Label(card_frame, image=icon_img, cursor="hand2")
             img_label.grid(row=0, column=0, pady=(10, 5), padx=10)
         else:
-            img_label = ttk.Label(card_frame, text="[Lỗi 429 Tải Ảnh]", style="secondary.TLabel", cursor="hand2")
+            img_label = ttk.Label(card_frame, text="[Lỗi Tải Ảnh]", style="secondary.TLabel", cursor="hand2")
             img_label.grid(row=0, column=0, pady=(10, 5), padx=10)
 
         name_label = ttk.Label(card_frame, text=game_name, anchor=tk.CENTER, cursor="hand2", font=("Segoe UI", 10, "bold"))
         name_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky="ew")
 
+        # (Code Click -> Mở Trang 2 không đổi)
         cmd = lambda e, g=game_name: show_account_list_for_game(g)
 
         card_frame.bind("<Button-1>", cmd)
@@ -2085,26 +2177,41 @@ def populate_account_game_grid():
 
     for i in range(MAX_COLS): g_acct_grid_container.columnconfigure(i, weight=0)
 
+def on_acct_list_mouse_wheel(event):
+    """(HÀM MỚI) Cho phép cuộn bằng bánh xe chuột trên Tab Account."""
+    global g_acct_list_canvas
+    try:
+        scroll_amount = 0
+        if sys.platform == "win32":
+            scroll_amount = int(-1 * (event.delta / 120))
+        elif sys.platform == "darwin": # macOS
+            scroll_amount = event.delta
+        else: # Linux
+            if event.num == 4:
+                scroll_amount = -1
+            elif event.num == 5:
+                scroll_amount = 1
+        
+        g_acct_list_canvas.yview_scroll(scroll_amount, "units")
+    except Exception as e:
+        print(f"Lỗi cuộn chuột Tab Account: {e}")
 
 def show_account_list_for_game(game_name):
     """
     (ĐÃ VIẾT LẠI)
-    Vẽ các card tài khoản VÀ THÊM ẢNH GAME VÀO CARD.
+    Vẽ các card tài khoản VÀ GẮN SỰ KIỆN CUỘN CHUỘT.
     """
     global g_user_accounts_data, g_acct_list_container, g_acct_current_game, g_dynamic_account_buttons
     
-    g_acct_current_game = game_name # Lưu lại game đang xem
+    g_acct_current_game = game_name 
     
-    # Cập nhật tiêu đề
     g_acct_list_frame.config(text=f"Accounts đã lưu cho: {game_name}")
 
-    # --- Xóa các Card cũ ---
     for widget in g_acct_list_container.winfo_children():
         widget.destroy()
         
     g_dynamic_account_buttons.clear()
     
-    # --- Lấy danh sách account ---
     game_accounts = g_user_accounts_data.get(game_name, [])
     
     if not game_accounts:
@@ -2112,14 +2219,17 @@ def show_account_list_for_game(game_name):
                   text="Không có tài khoản nào được lưu cho dịch vụ này.", 
                   style="secondary.TLabel").pack(pady=10)
 
-    # --- LẤY ICON GAME (để thêm vào card) ---
-    icon_img = None
+    # --- LẤY ICON DỊCH VỤ (Làm ảnh dự phòng) ---
+    service_icon_img = None 
     if g_acct_current_game == "Steam":
-        icon_img = root.steam_icon_small
+        service_icon_img = root.steam_icon_small
     elif g_acct_current_game == "Riot":
-        icon_img = root.riot_icon_small
+        service_icon_img = root.riot_icon_small
     else:
-        icon_img = root.cached_game_icons_small.get(g_acct_current_game, root.default_game_icon_small)
+        service_icon_img = root.cached_game_icons_small.get(g_acct_current_game, root.default_game_icon_small)
+
+    # --- THÊM MỚI: Danh sách widget để bind ---
+    widgets_to_bind = [g_acct_list_container]
 
     # --- Vẽ các Card mới ---
     for i, acc_info in enumerate(game_accounts):
@@ -2127,10 +2237,12 @@ def show_account_list_for_game(game_name):
         # 1. Tạo Card (Frame) cho mỗi account
         card = ttk.Frame(g_acct_list_container, style="Card.TFrame", padding=10)
         card.pack(fill=tk.X, expand=True, pady=(0, 10))
+        widgets_to_bind.append(card)
         
         # 2. Frame bên trái (Nút Đăng nhập)
         left_frame = ttk.Frame(card)
         left_frame.pack(side=tk.LEFT, padx=(0, 15), fill=tk.Y)
+        widgets_to_bind.append(left_frame)
         
         login_btn = ttk.Button(
             left_frame, 
@@ -2140,38 +2252,63 @@ def show_account_list_for_game(game_name):
         )
         login_btn.pack(expand=True, fill=tk.BOTH)
         g_dynamic_account_buttons.append(login_btn)
+        widgets_to_bind.append(login_btn)
 
         # 3. Frame ở giữa (Thông tin)
         mid_frame = ttk.Frame(card)
         mid_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        widgets_to_bind.append(mid_frame)
 
         nickname = acc_info.get('nickname', 'N/A')
         username = acc_info.get('username', 'N/A')
         acc_type = acc_info.get('type', 'N/A').capitalize()
+        game_display_tag = acc_info.get('game', None) 
         
-        # --- SỬA: Đọc "game" từ acc_info, fallback về game hiện tại ---
-        game_display = acc_info.get('game', g_acct_current_game) 
-        # --- HẾT SỬA ---
+        icon_to_use = None
+        if game_display_tag:
+            icon_to_use = root.cached_game_icons_small.get(game_display_tag)
+            if not icon_to_use:
+                image_url = g_game_themes.get(game_display_tag)
+                if image_url:
+                    try:
+                        icon_to_use = load_image_from_url(image_url, size=(192, 89))
+                        if icon_to_use:
+                            root.cached_game_icons_small[game_display_tag] = icon_to_use
+                    except Exception as e:
+                        print(f"Lỗi tải ảnh game '{game_display_tag}': {e}")
+                        icon_to_use = None 
+        
+        if not icon_to_use:
+            icon_to_use = service_icon_img
 
-        if icon_img:
-            img_label = ttk.Label(mid_frame, image=icon_img)
+        if icon_to_use:
+            img_label = ttk.Label(mid_frame, image=icon_to_use)
             img_label.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky=tk.W)
+            widgets_to_bind.append(img_label)
 
         # Dùng grid để căn chỉnh thông tin
-        ttk.Label(mid_frame, text="Nickname:", style="secondary.TLabel").grid(row=1, column=0, sticky=tk.W)
-        ttk.Label(mid_frame, text=nickname, font=("Segoe UI", 10, "bold")).grid(row=1, column=1, sticky=tk.W, padx=5)
+        # (Tạo và bind các label)
+        l1 = ttk.Label(mid_frame, text="Nickname:", style="secondary.TLabel")
+        l1.grid(row=1, column=0, sticky=tk.W)
+        v1 = ttk.Label(mid_frame, text=nickname, font=("Segoe UI", 10, "bold"))
+        v1.grid(row=1, column=1, sticky=tk.W, padx=5)
         
-        # --- SỬA: Hiển thị game_display ---
-        ttk.Label(mid_frame, text="Game/Dịch vụ:", style="secondary.TLabel").grid(row=2, column=0, sticky=tk.W)
-        ttk.Label(mid_frame, text=game_display).grid(row=2, column=1, sticky=tk.W, padx=5) # <-- SỬA
-        # --- HẾT SỬA ---
+        l2 = ttk.Label(mid_frame, text="Game (Tag):", style="secondary.TLabel")
+        l2.grid(row=2, column=0, sticky=tk.W)
+        v2 = ttk.Label(mid_frame, text=(game_display_tag if game_display_tag else "(Không gán Game)"))
+        v2.grid(row=2, column=1, sticky=tk.W, padx=5)
 
-        ttk.Label(mid_frame, text="Loại:", style="secondary.TLabel").grid(row=3, column=0, sticky=tk.W)
-        ttk.Label(mid_frame, text=acc_type).grid(row=3, column=1, sticky=tk.W, padx=5)
+        l3 = ttk.Label(mid_frame, text="Dịch vụ:", style="secondary.TLabel")
+        l3.grid(row=3, column=0, sticky=tk.W)
+        v3 = ttk.Label(mid_frame, text=acc_type)
+        v3.grid(row=3, column=1, sticky=tk.W, padx=5)
+        
+        widgets_to_bind.extend([l1, v1, l2, v2, l3, v3])
 
         # 4. Frame bên phải (Nút Sửa/Xóa)
         right_frame = ttk.Frame(card)
         right_frame.pack(side=tk.RIGHT, fill=tk.Y)
+        widgets_to_bind.append(right_frame)
 
         edit_btn = ttk.Button(
             right_frame, 
@@ -2192,6 +2329,22 @@ def show_account_list_for_game(game_name):
         
         g_dynamic_account_buttons.append(edit_btn)
         g_dynamic_account_buttons.append(delete_btn)
+        widgets_to_bind.extend([edit_btn, delete_btn])
+
+    # --- THÊM MỚI: GẮN (BIND) TẤT CẢ WIDGETS ---
+    for widget in widgets_to_bind:
+        try:
+            widget.bind("<MouseWheel>", on_acct_list_mouse_wheel)
+            widget.bind("<Button-4>", on_acct_list_mouse_wheel) # Linux scroll up
+            widget.bind("<Button-5>", on_acct_list_mouse_wheel) # Linux scroll down
+        except tk.TclError as e:
+            print(f"Lỗi khi bind widget: {e}")
+    
+    # Cũng bind canvas chính
+    g_acct_list_canvas.bind("<MouseWheel>", on_acct_list_mouse_wheel)
+    g_acct_list_canvas.bind("<Button-4>", on_acct_list_mouse_wheel)
+    g_acct_list_canvas.bind("<Button-5>", on_acct_list_mouse_wheel)
+    # --- HẾT THÊM MỚI ---
 
     # Chuyển trang
     switch_account_page(g_acct_page_2_list)
@@ -2203,7 +2356,9 @@ def action_login_by_index(item_index):
     (Hàm MỚI thay thế on_account_double_click)
     Lấy thông tin từ index và chạy đăng nhập.
     """
+    print("--- DEBUG: 1. Đã bấm nút 'Đăng nhập' ---") # DEBUG 1
     global local_config, g_user_accounts_data, g_acct_current_game
+    global g_login_overlay_popup, g_login_overlay_label
     
     # Lấy thông tin account từ config
     try:
@@ -2211,17 +2366,19 @@ def action_login_by_index(item_index):
         username = acc_info.get("username")
         password = acc_info.get("password", "")
         acc_type = acc_info.get("type", "steam")
+        print(f"--- DEBUG: 2. Lấy thông tin thành công. Type: {acc_type}, User: {username} ---") # DEBUG 2
         
     except Exception as e:
-        print(f"Lỗi khi lấy thông tin account: {e}")
+        print(f"--- DEBUG: LỖI NGHIÊM TRỌNG. Không thể lấy thông tin account: {e} ---") # DEBUG 3
         messagebox.showerror("Lỗi", "Không thể lấy thông tin account này.")
         return
 
     # --- LOGIC ĐĂNG NHẬP (Giữ nguyên từ code cũ) ---
     if acc_type == "steam":
+        print("--- DEBUG: 3a. Bắt đầu logic Steam ---")
         steam_path = local_config.get("steam_path", "")
         if not steam_path or not os.path.exists(steam_path):
-            messagebox.showerror("Lỗi", "Đường dẫn 'steam.exe' không hợp lệ.", parent=account_tab_frame)
+            messagebox.showerror("Lỗi", "Đường dẫn 'steam.exe' không hợp lệ.")
             return
         
         print(f"Đang chạy Steam cho user: {username}")
@@ -2230,20 +2387,54 @@ def action_login_by_index(item_index):
             time.sleep(3) 
             subprocess.Popen([steam_path, "-login", username, password])
         except Exception as e:
-            messagebox.showerror("Lỗi", f"Không thể chạy Steam: {e}", parent=account_tab_frame)
+            messagebox.showerror("Lỗi", f"Không thể chạy Steam: {e}")
 
     elif acc_type == "riot":
+        # (Giữ lại các DEBUG print của bạn nếu muốn)
+        print("--- DEBUG: 3b. Bắt đầu logic Riot ---") 
         riot_path = local_config.get("riot_path", "")
-        if not riot_path or not os.path.exists(riot_path):
-            messagebox.showerror("Lỗi", "Đường dẫn Riot Client không hợp lệ.", parent=account_tab_frame)
+        print(f"--- DEBUG: 4. Lấy Riot Path từ config: '{riot_path}' ---")
+        
+        # Bước kiểm tra đường dẫn (Giữ nguyên)
+        if not riot_path:
+            print("--- DEBUG: LỖI 5a. Riot Path BỊ RỖNG. Dừng lại. ---")
+            messagebox.showerror("Lỗi", "Đường dẫn Riot Client BỊ RỖNG.\nVui lòng vào Tab 'Credit' -> 'Cài Đặt' để thiết lập.")
+            return
+            
+        if not os.path.exists(riot_path):
+            print(f"--- DEBUG: LỖI 5b. Path '{riot_path}' KHÔNG TỒN TẠI. Dừng lại. ---")
+            messagebox.showerror("Lỗi", f"Đường dẫn Riot Client KHÔNG TỒN TẠI:\n{riot_path}\n\nVui lòng kiểm tra lại.")
             return
 
+        # --- SỬA: KHÔNG TẠO POP-UP, CHỈ SET LABEL ---
+        print("--- DEBUG: 6. Đường dẫn HỢP LỆ. Cập nhật label và chạy Thread... ---")
+        try:
+            # Cập nhật nhãn trạng thái ngay lập tức
+            if 'g_acct_login_status_label' in globals():
+                g_acct_login_status_label.config(text="Đang bắt đầu...", style="White.TLabel")
+                global g_dynamic_account_buttons
+
+            if 'g_acct_page_2_back_btn' in globals():
+                g_acct_page_2_back_btn.config(state=tk.DISABLED)
+            if 'g_acct_page_2_add_btn' in globals():
+                g_acct_page_2_add_btn.config(state=tk.DISABLED)
+                
+            for btn in g_dynamic_account_buttons:
+                try:
+                    btn.config(state=tk.DISABLED)
+                except tk.TclError:
+                    pass
+        except Exception as e:
+            print(f"Lỗi khi set label: {e}")
+
+        # --- BẮT ĐẦU THREAD (NHƯ CŨ) ---
         print(f"Bắt đầu thread đăng nhập Riot cho: {username}")
         threading.Thread(
             target=launch_riot_login_thread, 
             args=(riot_path, username, password), 
             daemon=True
         ).start()
+        print("--- DEBUG: 9. Đã khởi động Thread. Hàm action_login_by_index kết thúc. ---")
 
 def delete_selected_account_by_index(item_index):
     """(Hàm MỚI thay thế delete_selected_account)"""
@@ -2275,16 +2466,14 @@ def delete_selected_account_by_index(item_index):
 
 def open_add_edit_account_popup(edit_index):
     """
-    (ĐÃ VIẾT LẠI)
-    Mở pop-up Thêm/Sửa với DROPDOWN game (load từ g_game_themes).
+    (ĐÃ SỬA LOGIC LƯU)
+    Pop-up Thêm/Sửa.
     """
     global g_acct_current_game, g_user_accounts_data, g_game_themes
 
-    # Tạo cửa sổ pop-up
     popup = tk.Toplevel(root)
     popup.transient(root)
     popup.grab_set()
-    
     form_frame = ttk.Frame(popup, padding=20)
     form_frame.pack()
 
@@ -2302,113 +2491,108 @@ def open_add_edit_account_popup(edit_index):
     else:
         popup.title(f"Thêm Account vào {g_acct_current_game}")
 
-    # --- Tạo Form ---
+    # --- Tạo Form (Code không đổi) ---
     widgets = {}
     
-    # --- 1. Game/Dịch vụ (DROPDOWN MỚI) ---
-    ttk.Label(form_frame, text="Game/Dịch vụ:").pack()
+    # 1. DỊCH VỤ (Service) (BẮT BUỘC)
+    ttk.Label(form_frame, text="Dịch vụ (Service):").pack()
+    service_list = ["Steam", "Riot"] 
+    service_combo = ttk.Combobox(form_frame, values=service_list, state="readonly", width=38)
+    service_combo.pack(pady=5)
     
-    # Lấy danh sách game từ g_game_themes VÀ thêm Steam/Riot
-    all_games_list = sorted(list(set(g_game_themes.keys()) | {"Steam", "Riot"}))
+    default_service = g_acct_current_game # Mặc định
+    if is_editing:
+        default_service = old_data.get("type", "steam").capitalize() 
+    if default_service not in service_list:
+        default_service = "Steam"
+        
+    service_combo.set(default_service)
+    widgets["service"] = service_combo 
+
+    # 2. GAME (Tag) (BẮT BUỘC)
+    ttk.Label(form_frame, text="Game (Key chính):").pack()
     
-    game_combo = ttk.Combobox(form_frame, values=all_games_list, state="readonly", width=38)
+    # --- SỬA LỖI: Chuyển .keys() thành set() TRƯỚC khi dùng | ---
+    game_list = sorted(list(set(g_game_themes.keys()) | {"Steam", "Riot"}))
+    # --- HẾT SỬA LỖI ---
+    
+    game_combo = ttk.Combobox(form_frame, values=game_list, state="readonly", width=38)
     game_combo.pack(pady=5)
     
-    # Xác định game mặc định
-    default_game = g_acct_current_game # Mặc định là game đang xem
-    if is_editing and "game" in old_data:
-        default_game = old_data["game"] # Nếu sửa, dùng game đã lưu
+    default_game = g_acct_current_game 
+    if is_editing:
+        default_game = old_data.get("game", g_acct_current_game) 
         
-    if default_game in all_games_list:
-        game_combo.set(default_game)
-    elif all_games_list:
-        game_combo.set(all_games_list[0]) # Fallback
-        
-    widgets["game"] = game_combo # Lưu vào widgets
+    game_combo.set(default_game)
+    widgets["game"] = game_combo 
     
-    # 2. Nickname
+    # 3. Nickname (Code không đổi)
     ttk.Label(form_frame, text="Tên gợi nhớ (Nickname):").pack()
     nickname_entry = ttk.Entry(form_frame, width=40)
     nickname_entry.pack(pady=5)
     nickname_entry.insert(0, old_data.get("nickname", ""))
     widgets["nickname"] = nickname_entry
 
-    # 3. Username
+    # 4. Username (Code không đổi)
     ttk.Label(form_frame, text="Username Đăng nhập:").pack()
     username_entry = ttk.Entry(form_frame, width=40)
     username_entry.pack(pady=5)
     username_entry.insert(0, old_data.get("username", ""))
     widgets["username"] = username_entry
     
-    # 4. Password
+    # 5. Password (Code không đổi)
     ttk.Label(form_frame, text="Password:").pack()
     password_entry = ttk.Entry(form_frame, width=40, show="*")
     password_entry.pack(pady=5)
     password_entry.insert(0, old_data.get("password", ""))
     widgets["password"] = password_entry
     
-    # (ĐÃ XÓA Ô "TYPE" - vì sẽ được tự động xác định)
-
-    # --- Hàm Lưu (ĐÃ VIẾT LẠI) ---
+    # --- Hàm Lưu (Code không đổi) ---
     def save_account():
         global g_user_accounts_data
         
-        # 1. Thu thập data
-        selected_game_key = widgets["game"].get() # Lấy từ dropdown
-        
-        if not selected_game_key:
-            messagebox.showwarning("Thiếu thông tin", "Bạn phải chọn một Game/Dịch vụ.", parent=popup)
-            return
+        selected_service = widgets["service"].get()
+        selected_game = widgets["game"].get()
 
-        # 2. Tự động xác định type
-        account_type = "riot" if selected_game_key == "Riot" else "steam"
+        if not selected_game:
+             messagebox.showwarning("Thiếu thông tin", "Bạn phải chọn một Game.", parent=popup)
+             return
+             
+        account_type = selected_service.lower()
+        game_to_save = selected_game
         
-        # 3. Tạo data object
         new_data = {
             "nickname": widgets["nickname"].get().strip(),
             "username": widgets["username"].get().strip(),
             "password": widgets["password"].get().strip(),
             "type": account_type,
-            "game": selected_game_key # <-- LƯU TÊN GAME VÀO DATA
+            "game": game_to_save
         }
         
         if not new_data["nickname"] or not new_data["username"]:
             messagebox.showwarning("Thiếu thông tin", "Nickname và Username là bắt buộc.", parent=popup)
             return
 
-        # 4. Xử lý logic Sửa (Edit) / Di chuyển (Move) / Thêm (Add)
         if is_editing:
-            original_game_key = g_acct_current_game
+            original_game_key = g_acct_current_game 
             
-            if selected_game_key == original_game_key:
-                # --- SỬA (Standard Edit) ---
-                # Chỉ cập nhật data tại vị trí cũ
+            if selected_game == original_game_key:
                 account_list = g_user_accounts_data.setdefault(original_game_key, [])
                 account_list[edit_index] = new_data
             else:
-                # --- DI CHUYỂN (Move) ---
-                # 1. Thêm vào danh sách game mới
-                g_user_accounts_data.setdefault(selected_game_key, []).append(new_data)
-                # 2. Xóa khỏi danh sách game cũ
+                g_user_accounts_data.setdefault(selected_game, []).append(new_data)
                 try:
                     g_user_accounts_data[original_game_key].pop(edit_index)
-                    # Dọn dẹp key game cũ nếu nó rỗng
                     if not g_user_accounts_data[original_game_key]:
                         del g_user_accounts_data[original_game_key]
                 except Exception as e:
                     print(f"Lỗi khi xóa item cũ trong lúc di chuyển: {e}")
         else:
-            # --- THÊM MỚI (Add New) ---
-            # Thêm vào danh sách của game đã chọn
-            g_user_accounts_data.setdefault(selected_game_key, []).append(new_data)
-        
-        # 5. Lưu vào Drive
+            g_user_accounts_data.setdefault(selected_game, []).append(new_data)
+
         threading.Thread(target=save_accounts_to_drive_thread, daemon=True).start()
         
-        # 6. Refresh (RẤT QUAN TRỌNG)
-        # Tải lại lưới (Trang 1) phòng trường hợp key game mới được thêm
         populate_account_game_grid()
-        # Tải lại danh sách (Trang 2) của game hiện tại
         show_account_list_for_game(g_acct_current_game) 
         
         popup.destroy()
@@ -2416,7 +2600,7 @@ def open_add_edit_account_popup(edit_index):
     # --- Nút Bấm ---
     save_button = ttk.Button(form_frame, text="Lưu", command=save_account, style="Accent.TButton")
     save_button.pack(pady=10)
-
+    
 def delete_selected_account():
     """Xóa account đã chọn khỏi Treeview."""
     global g_user_accounts_data, g_acct_current_game # <-- SỬA Ở ĐÂY
@@ -4885,7 +5069,28 @@ clean_temp_button.pack(pady=(5, 5), padx=5, anchor=tk.W)
 CreateToolTip(clean_temp_button, "Xóa các file .zip/.rar tạm (my_temp_download...)\n"
                                  "còn sót lại trong thư mục Temp của Windows.")
 
+def action_save_path_settings():
+    """Lấy đường dẫn từ Entry và lưu vào config."""
+    global local_config
+    
+    try:
+        # 1. Lấy giá trị từ các ô Entry
+        # (Thêm kiểm tra 'in globals()' để tránh lỗi nếu UI chưa tạo)
+        if 'g_steam_path_entry' in globals():
+            steam_path = g_steam_path_entry.get()
+            local_config["steam_path"] = steam_path
+            print(f"Đã lưu Steam Path: {steam_path}")
+            
+        if 'g_riot_path_entry' in globals():
+            riot_path = g_riot_path_entry.get()
+            local_config["riot_path"] = riot_path
+            print(f"Đã lưu Riot Path: {riot_path}")
 
+        # 2. Lưu file settings.json
+        save_local_config(local_config)
+        
+    except Exception as e:
+        print(f"Lỗi khi lưu cài đặt đường dẫn: {e}")
 # --- THÊM MỚI: CÀI ĐẶT ĐƯỜNG DẪN STEAM ---
 steam_path_frame = ttk.Frame(setting_frame)
 steam_path_frame.pack(fill=tk.X, padx=5, pady=(5,5))
@@ -4896,6 +5101,8 @@ steam_path_label.pack(side=tk.LEFT, anchor=tk.W)
 global g_steam_path_entry
 g_steam_path_entry = ttk.Entry(steam_path_frame)
 g_steam_path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10,2))
+g_steam_path_entry.bind("<FocusOut>", lambda e: action_save_path_settings())
+
 
 def browse_steam_exe():
     file_selected = filedialog.askopenfilename(
@@ -4922,6 +5129,7 @@ riot_path_label.pack(side=tk.LEFT, anchor=tk.W)
 global g_riot_path_entry
 g_riot_path_entry = ttk.Entry(riot_path_frame)
 g_riot_path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10,2))
+g_riot_path_entry.bind("<FocusOut>", lambda e: action_save_path_settings())
 
 def browse_riot_exe():
     file_selected = filedialog.askopenfilename(
