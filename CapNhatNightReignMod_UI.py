@@ -326,12 +326,14 @@ APP_NAME = "NightreignModUpdater"
 appdata_path = os.getenv('APPDATA')
 config_folder = os.path.join(appdata_path, APP_NAME)
 config_file_path = os.path.join(config_folder, 'settings.json')
+g_cache_dir = os.path.join(config_folder, "img_cache")
 
 # --- Logic cho việc lưu/tải file config local ---
 def load_local_config():
     """Tải config local (chỉ còn đường dẫn và cài đặt)."""
     try:
         os.makedirs(config_folder, exist_ok=True)
+        os.makedirs(g_cache_dir, exist_ok=True)
         with open(config_file_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
             # Đặt giá trị mặc định nếu thiếu
@@ -2957,37 +2959,72 @@ def load_drive_icon(filename, size=(32, 32)):
 def load_image_from_url(url, size=(192, 89)):
     """
     Tải ảnh từ URL, resize, và trả về PhotoImage.
-    Tự động kiểm tra và lưu vào cache (root.cached_images).
+    Sử dụng 3 cấp cache: RAM -> Ổ cứng -> Internet.
     """
+    global g_cache_dir # Lấy thư mục cache
     
-    # 1. Tạo một key (khóa) duy nhất dựa trên cả URL và Kích thước
+    # 1. TẠO KEY VÀ FILE PATH
+    # Tạo một key duy nhất (gồm URL và kích thước)
     cache_key = f"{url}_{size[0]}x{size[1]}"
+    
+    # Tạo tên file an toàn bằng cách "băm" (hash) key đó
+    # (Điều này tránh các ký tự không hợp lệ trong tên file)
+    cache_filename = f"{hashlib.sha256(cache_key.encode('utf-8')).hexdigest()}.png"
+    cache_file_path = os.path.join(g_cache_dir, cache_filename)
 
-    # 2. Kiểm tra xem key này đã có trong cache chưa
+    # 2. KIỂM TRA CACHE CẤP 1 (RAM)
     if cache_key in root.cached_images:
-        # Nếu có, trả về ảnh đã lưu ngay lập tức
         return root.cached_images[cache_key]
 
-    # 3. Nếu chưa có, tiến hành tải ảnh (code gốc của bạn)
+    # 3. KIỂM TRA CACHE CẤP 2 (Ổ CỨNG)
     try:
-        print(f"Đang tải ảnh (lần đầu): {url} @ {size}")
-        response = requests.get(url, timeout=5) # 5 giây timeout
-        response.raise_for_status() # Báo lỗi nếu 404, 500
+        if os.path.exists(cache_file_path):
+            # print(f"Cache HIT (Ổ cứng): {cache_key}")
+            # Tải ảnh từ file cache
+            img = Image.open(cache_file_path)
+            # (Không cần resize vì chúng ta đã lưu file đã resize)
+            
+            img_tk = ImageTk.PhotoImage(img)
+            root.cached_images[cache_key] = img_tk # Lưu vào RAM cho lần sau
+            return img_tk
+    except Exception as e:
+        print(f"Lỗi đọc file cache (sẽ tải lại): {cache_file_path}. Lỗi: {e}")
+        try:
+            os.remove(cache_file_path) # Xóa file cache hỏng
+        except:
+            pass # Bỏ qua nếu xóa lỗi
+
+    # 4. KIỂM TRA CACHE CẤP 3 (INTERNET) - (Cache MISS)
+    try:
+        # print(f"Cache MISS (Internet): {cache_key}")
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
 
         image_data = response.content
-        img = Image.open(io.BytesIO(image_data)) # Đọc ảnh từ bộ nhớ
+        img = Image.open(io.BytesIO(image_data))
+        
+        # --- SỬA LOGIC: Đảm bảo ảnh có kênh Alpha (RGBA) ---
+        # Điều này rất quan trọng để lưu file PNG trong suốt
+        if img.mode != 'RGBA':
+            img = img.convert('RGBA')
+        # --- HẾT SỬA ---
+
         img = img.resize(size, Image.Resampling.LANCZOS)
         
+        # --- LƯU VÀO Ổ CỨNG ---
+        try:
+            img.save(cache_file_path, "PNG") # Lưu file .png đã resize
+        except Exception as e:
+            print(f"Lỗi lưu file cache: {e}")
+        # --- HẾT LƯU ---
+        
         img_tk = ImageTk.PhotoImage(img)
-        root.cached_images[cache_key] = img_tk # Lưu ảnh
+        root.cached_images[cache_key] = img_tk # Lưu vào RAM
         return img_tk
         
     except Exception as e:
         print(f"Lỗi khi tải ảnh từ URL '{url}': {e}")
-        
-        # --- THÊM MỚI: Lưu lỗi (None) vào cache ---
-        # (Để tránh thử tải lại ảnh bị lỗi liên tục)
-        root.cached_images[cache_key] = None
+        root.cached_images[cache_key] = None # Lưu lỗi (None) vào RAM
         return None
 
 # Lưu vào root để không bị garbage-collected
@@ -4962,6 +4999,28 @@ def on_backup_toggle():
     save_local_config(local_config) # Lưu cài đặt ngay lập tức
     print(f"Đã đặt cài đặt Backup thành: {is_enabled}")
 
+def action_clear_image_cache():
+    """Xóa toàn bộ thư mục cache ảnh trên ổ cứng."""
+    global g_cache_dir
+    if not os.path.isdir(g_cache_dir):
+        messagebox.showinfo("Hoàn tất", "Không tìm thấy thư mục cache ảnh (đã sạch).")
+        return
+
+    if messagebox.askyesno("Xác nhận Xóa Cache",
+                           "Bạn có chắc chắn muốn xóa toàn bộ cache ảnh?\n"
+                           "(Lần khởi động sau sẽ phải tải lại tất cả ảnh.)"):
+        try:
+            # Xóa toàn bộ thư mục và tạo lại
+            shutil.rmtree(g_cache_dir)
+            os.makedirs(g_cache_dir, exist_ok=True)
+            
+            # Xóa cache RAM
+            root.cached_images.clear()
+            
+            messagebox.showinfo("Hoàn tất", "Đã xóa toàn bộ cache ảnh thành công.")
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể xóa thư mục cache: {e}")
+
 # --- THÊM MỚI: HÀM DỌN DẸP TEMP ---
 def action_clean_temp_files():
     """Quét thư mục TEMP và chỉ xóa các file do app này tạo ra."""
@@ -5239,6 +5298,15 @@ clean_temp_button = ttk.Button(
 clean_temp_button.pack(pady=(5, 5), padx=5, anchor=tk.W)
 CreateToolTip(clean_temp_button, "Xóa các file .zip/.rar tạm (my_temp_download...)\n"
                                  "còn sót lại trong thư mục Temp của Windows.")
+
+clear_img_cache_button = ttk.Button(
+    setting_frame,
+    text="Xóa Cache Ảnh",
+    command=action_clear_image_cache
+)
+clear_img_cache_button.pack(pady=(5, 5), padx=5, anchor=tk.W)
+CreateToolTip(clear_img_cache_button, "Xóa toàn bộ ảnh banner game đã lưu tạm.\n"
+                                      "Dùng khi ảnh bị cũ hoặc hiển thị sai.")
 
 def action_save_path_settings():
     """Lấy đường dẫn từ Entry và lưu vào config."""
