@@ -3,6 +3,7 @@ import gdown
 import zipfile
 import os
 import shutil
+import pyperclip
 import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog # Added simpledialog
@@ -28,7 +29,7 @@ import base64
 import time
 import math
 from datetime import datetime
-
+import concurrent.futures
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -51,7 +52,7 @@ g_game_search_entry = None
 g_game_grid_container = None
 g_all_mods_flat = {}
 g_game_themes = {}
-CURRENT_VERSION = "1.2.1"
+CURRENT_VERSION = "1.2.2"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
@@ -379,13 +380,16 @@ def launch_riot_login_thread(riot_client_path, username, password):
     try:
         # --- BƯỚC 1 & 2: TẮT CLIENT VÀ XÓA TOKEN (Như cũ) ---
         progress_queue.put(("login_status_update", "Đang tắt Riot Client..."))
+        CREATE_NO_WINDOW = 0x08000000
         subprocess.run(
             ["taskkill", "/F", "/IM", "RiotClientServices.exe"],
-            capture_output=True, text=True
+            capture_output=True, text=True,
+            creationflags=CREATE_NO_WINDOW
         )
         subprocess.run(
             ["taskkill", "/F", "/IM", "RiotClientUx.exe"],
-            capture_output=True, text=True
+            capture_output=True, text=True,
+            creationflags=CREATE_NO_WINDOW
         )
         
         progress_queue.put(("login_status_update", "Đang xóa token đăng nhập..."))
@@ -430,6 +434,12 @@ def launch_riot_login_thread(riot_client_path, username, password):
         
         # --- BƯỚC 5: TỰ ĐỘNG HÓA (CÓ KIỂM TRA FOCUS) ---
         try:
+            # --- BƯỚC 5A: LƯU CLIPBOARD GỐC CỦA NGƯỜI DÙNG ---
+            try:
+                original_clipboard = pyperclip.paste()
+            except Exception as e:
+                print(f"Cảnh báo: Không thể đọc clipboard: {e}")
+                
             progress_queue.put(("login_status_update", "Đang focus cửa sổ..."))
             if riot_window.isMinimized:
                 riot_window.restore()
@@ -441,11 +451,13 @@ def launch_riot_login_thread(riot_client_path, username, password):
             # --- KIỂM TRA FOCUS (LẦN 1) ---
             progress_queue.put(("login_status_update", "Kiểm tra focus... (1/3)"))
             if gw.getActiveWindow() != riot_window:
-                # Nếu cửa sổ active không phải là Riot, hủy bỏ
                 raise Exception("Người dùng đã click ra ngoài. Hủy đăng nhập.")
             
-            progress_queue.put(("login_status_update", "Đang điền username..."))
-            pyautogui.typewrite(username, interval=0.05)
+            # --- SỬA: DÙNG PASTE USERNAME ---
+            progress_queue.put(("login_status_update", "Đang dán username..."))
+            pyperclip.copy(username) # Copy username vào clipboard
+            pyautogui.hotkey('ctrl', 'v') # Dán (Ctrl+V)
+            
             pyautogui.press('tab')
             time.sleep(0.5)
 
@@ -454,8 +466,11 @@ def launch_riot_login_thread(riot_client_path, username, password):
             if gw.getActiveWindow() != riot_window:
                 raise Exception("Người dùng đã click ra ngoài. Hủy đăng nhập.")
 
-            progress_queue.put(("login_status_update", "Đang điền password..."))
-            pyautogui.typewrite(password, interval=0.05)
+            # --- SỬA: DÙNG PASTE PASSWORD ---
+            progress_queue.put(("login_status_update", "Đang dán password..."))
+            pyperclip.copy(password) # Copy password vào clipboard
+            pyautogui.hotkey('ctrl', 'v') # Dán (Ctrl+V)
+            
             time.sleep(0.2) # Chờ 0.2 giây
 
             # --- KIỂM TRA FOCUS (LẦN 3) ---
@@ -469,10 +484,15 @@ def launch_riot_login_thread(riot_client_path, username, password):
             time.sleep(3)
 
         finally:
-            # === ẨN POPUP ===
-            # (Nếu có Exception, nó sẽ bị bắt ở 'except' bên ngoài
-            # và 'finally' này sẽ chạy trước, ẩn popup)
-            progress_queue.put(("login_status_hide", None)) 
+            # === BƯỚC 5B: KHÔI PHỤC CLIPBOARD GỐC VÀ ẨN POPUP ===
+            try:
+                # Trả lại nội dung cũ cho clipboard của người dùng
+                pyperclip.copy(original_clipboard)
+            except Exception as e:
+                 print(f"Cảnh báo: Không thể khôi phục clipboard: {e}")
+                 
+            # Ẩn thông báo (như cũ)
+            progress_queue.put(("login_status_hide", None))
 
     except Exception as e:
         # Bắt lỗi từ 'raise Exception' hoặc bất kỳ lỗi nào khác
@@ -563,12 +583,15 @@ def load_accounts_from_drive_thread():
                 print("LỖI NGHIÊM TRỌNG: Không thể tạo file config mới.")
                 return
 
+        mark_accounts_as_saved()
+
         g_accounts_loaded = True
         progress_queue.put(("accounts_loaded", None))
 
     except Exception as e:
         print(f"Lỗi nghiêm trọng khi tải/tạo config account: {e}")
         messagebox.showerror("Lỗi Tải Account", f"Không thể tải file config account: {e}")
+        progress_queue.put(("accounts_load_failed", str(e)))
 
 def create_empty_account_file_on_drive():
     """Tạo file JSON rỗng (nội dung "{}") trên Drive và trả về ID."""
@@ -612,6 +635,8 @@ def save_accounts_to_drive_thread():
     
     try:
         # 1. Chuyển dict thành chuỗi JSON
+        if 'g_acct_page_2_save_btn' in globals() and g_acct_page_2_save_btn:
+            g_acct_page_2_save_btn.config(state=tk.DISABLED)
         json_string = json.dumps(g_user_accounts_data, indent=4, ensure_ascii=False)
         
         # 2. Chuẩn bị file media (DÙNG MediaIoBaseUpload)
@@ -643,6 +668,7 @@ def save_accounts_to_drive_thread():
             print(f"Đã lưu config account lên Drive (ID: {g_user_accounts_file_id})")
             # Gửi tin nhắn "Đã lưu!" và ẩn đi sau 3 giây
             progress_queue.put(("account_save_status", ("Đã lưu!", "Green.TLabel")))
+            mark_accounts_as_saved()
         else:
             # Lỗi không xác định
             raise Exception("Lỗi: Upload hoàn tất nhưng không có phản hồi.")
@@ -651,6 +677,8 @@ def save_accounts_to_drive_thread():
     except Exception as e:
         print(f"Lỗi nghiêm trọng khi lưu config account: {e}")
         progress_queue.put(("account_save_status", (f"Lỗi: {e}", "Red.TLabel")))
+        if 'g_acct_page_2_save_btn' in globals() and g_acct_page_2_save_btn:
+            g_acct_page_2_save_btn.config(state=tk.NORMAL)
 
 
 def migrate_data_to_game_keys(old_data):
@@ -1380,49 +1408,33 @@ def process_queue():
     global g_login_overlay_popup, g_login_overlay_label
     global download_options, local_config
     global g_dynamic_account_buttons
+    global g_accounts_data_loaded, g_images_preloaded
     try:
         message_type, message_value = progress_queue.get_nowait()
 
         if message_type == "config_loaded":
-            combined_data = message_value
-            download_options_flat = combined_data.get("mods", fallback_options)
+            combined_data = message_value # Đây là {"mods": ..., "themes": ...}
             
-            global g_all_mods_flat
-            g_all_mods_flat = download_options_flat
+            # 1. Gán theme ngay lập tức để thread preload có thể dùng
             global g_game_themes
             g_game_themes = combined_data.get("themes", {})
+            
+            # 2. Gán mod data toàn cục (dùng chung)
+            global g_all_mods_flat
+            g_all_mods_flat = combined_data.get("mods", fallback_options)
+
+            # 3. Cập nhật thanh progress bar (như cũ)
             progress_bar.stop()
             progress_bar.config(mode="determinate")
             progress_bar['value'] = 0
-
-            # --- SỬA LOGIC KHỞI ĐỘNG ---
-            # 1. Nhóm các mod theo game (Giống code accordion cũ)
-            global download_options # Lưu lại dict đã nhóm
-            download_options = {}
-            for key, data in download_options_flat.items():
-                if key == "updater": continue
-                game_name = data.get("game", "Khác")
-                if game_name not in download_options:
-                    download_options[game_name] = []
-                download_options[game_name].append( (key, data) )
-
-            # 2. Điền vào Lưới Game ở Trang 1
-            populate_page_1_grid(download_options) 
-
-            # 3. Hiển thị Trang 1
-            show_page(page_1_game_grid)
-            saved_path = local_config.get("destination_folder", "")
-            if saved_path:
-                path_entry.insert(0, saved_path)
-            status_label.configure(text="Hãy chọn đường dẫn và bấm bắt đầu.", style="White.TLabel")
-            start_button.config(state=tk.NORMAL)
-            browse_button.config(state=tk.NORMAL)
-            check_for_updates(message_value)
-            # --- THÊM MỚI: ĐIỀN DATA CHO TAB 4 VÀ 5 ---
-            g_steam_path_entry.insert(0, local_config.get("steam_path", ""))
-
-            if 'g_riot_path_entry' in globals():
-                g_riot_path_entry.insert(0, local_config.get("riot_path", ""))
+            
+            # 4. SỬA: Bắt đầu tải trước (preload) tất cả ảnh
+            print("Config đã tải. Bắt đầu tải trước (preload) tất cả ảnh...")
+            threading.Thread(target=preload_all_images_thread, 
+                             args=(g_game_themes, g_all_mods_flat), # Truyền themes và mods
+                             daemon=True).start()
+            
+            # 5. Bắt đầu tải Tab 2 (tài khoản)
             threading.Thread(target=try_auto_login_drive_thread, daemon=True).start()
 
         elif message_type == "status":
@@ -1744,12 +1756,59 @@ def process_queue():
             if 'g_riot_path_entry' in globals():
                 g_riot_path_entry.delete(0, tk.END)
                 g_riot_path_entry.insert(0, path)
-        elif message_type == "accounts_loaded":
-            if 'g_acct_login_prompt_label' in globals():
-                g_acct_login_prompt_label.pack_forget() # Ẩn nhãn "Vui lòng đăng nhập..."
+        elif message_type == "all_images_preloaded":
+            g_images_preloaded = True
+            print("Tất cả ảnh đã được tải trước. Đang hiển thị Lưới Game (Tab 1)...")
+            mod_config_dict = message_value # Đây là g_all_mods_flat được truyền qua
+
+            # --- Code này được di chuyển từ "config_loaded" ---
             
-            # Dùng data trong g_user_accounts_data để vẽ lưới
-            populate_account_game_grid()
+            # 1. Nhóm các mod theo game
+            global download_options # Lưu lại dict đã nhóm
+            download_options = {}
+            for key, data in mod_config_dict.items():
+                if key == "updater": continue
+                game_name = data.get("game", "Khác")
+                if game_name not in download_options:
+                    download_options[game_name] = []
+                download_options[game_name].append( (key, data) )
+
+            # 2. Điền vào Lưới Game (Hàm này sẽ TỰ ĐỘNG XÓA loading spinner)
+            populate_page_1_grid(download_options) 
+
+            # 3. Hiển thị Trang 1 (dù nó đã ở đó)
+            show_page(page_1_game_grid)
+            
+            # 4. Thiết lập đường dẫn
+            saved_path = local_config.get("destination_folder", "")
+            if saved_path:
+                path_entry.insert(0, saved_path)
+            status_label.configure(text="Hãy chọn đường dẫn và bấm bắt đầu.", style="White.TLabel")
+            start_button.config(state=tk.NORMAL)
+            browse_button.config(state=tk.NORMAL)
+            
+            # 5. Kiểm tra updates (dùng mod_config_dict)
+            check_for_updates(mod_config_dict)
+            
+            # 6. Điền data cho Tab 4 và 5
+            g_steam_path_entry.insert(0, local_config.get("steam_path", ""))
+
+            if 'g_riot_path_entry' in globals():
+                g_riot_path_entry.insert(0, local_config.get("riot_path", ""))
+            check_and_draw_account_grid()
+            
+        elif message_type == "accounts_loaded":
+            # --- SỬA: Lật cờ (flag) 2 ---
+            
+            g_accounts_data_loaded = True
+            print("Cờ g_accounts_data_loaded đã được SET (Thành công).")
+            check_and_draw_account_grid() # <-- Gọi hàm kiểm tra
+            
+        elif message_type == "accounts_load_failed":
+            # --- SỬA: Lật cờ (flag) 2 (ngay cả khi thất bại) ---
+            g_accounts_data_loaded = True # Vẫn set là "đã tải"
+            print(f"Account load failed: {message_value}. Cờ g_accounts_data_loaded đã được SET (Thất bại).")
+            check_and_draw_account_grid()
 
         elif message_type == "account_save_status":
             text, style = message_value
@@ -1763,7 +1822,9 @@ def process_queue():
             if 'g_acct_page_2_add_btn' in globals():
                 try: g_acct_page_2_add_btn.config(state=new_state)
                 except: pass # Bỏ qua nếu lỗi
-            
+            if 'g_acct_page_2_save_btn' in globals() and g_acct_page_2_save_btn:
+                try: g_acct_page_2_save_btn.config(state=new_state)
+                except: pass
             # 2. Vô hiệu hóa tất cả các nút "Sửa" / "Xóa" / "Đăng nhập" (động)
             for btn in g_dynamic_account_buttons:
                 try:
@@ -1919,8 +1980,7 @@ root.minsize(800, 550)
 root.resizable(False,False)
 
 g_backup_enabled = tk.BooleanVar(value=local_config.get("backup_enabled", False))
-root.cached_game_icons_small = {} # Cache cho Trang 1
-root.cached_game_icons_large = {}
+root.cached_images = {}
 # --- Định nghĩa Style ---
 
 style = ttk.Style()
@@ -1950,7 +2010,7 @@ notebook.add(main_tab_frame, text=" Tải/Cập Nhật Game ")
 # --- BẮT ĐẦU CODE CHO TAB 2 ("Quản lý Account") ---
 account_tab_frame = ttk.Frame(notebook, padding=(10, 10))
 # (Lưu ý: Dòng notebook.add() đã được di chuyển lên trên)
-notebook.add(account_tab_frame, text=" Quản lý Account ")
+notebook.add(account_tab_frame, text=" Chia Sẽ Acc Game ")
 # --- Biến Global cho Tab Account ---
 g_acct_current_page = None
 g_acct_page_1_grid = None
@@ -1966,9 +2026,33 @@ g_accounts_loaded = False
 g_dynamic_account_buttons = []
 g_login_overlay_popup = None
 g_login_overlay_label = None
+g_accounts_data_loaded = False
+g_images_preloaded = False
+g_acct_has_unsaved_changes = False
+g_acct_page_2_save_btn = None
 # --- Hai trang (Frames) cho Tab Account ---
 g_acct_page_1_grid = ttk.Frame(account_tab_frame, padding=(10, 10))
 g_acct_page_1_grid.place(relx=0, rely=0, relwidth=1, relheight=1)
+
+g_tab2_loading_frame = ttk.Frame(g_acct_page_1_grid, name="tab2_loading_frame")
+g_tab2_loading_frame.pack(expand=True, anchor=tk.CENTER)
+        
+ttk.Label(g_tab2_loading_frame, text="Đang tải dữ liệu tài khoản...").pack(pady=5)
+tab2_loader = ttk.Progressbar(g_tab2_loading_frame, orient="horizontal", length=200, mode="indeterminate")
+tab2_loader.pack(pady=10)
+tab2_loader.start(10)
+
+g_acct_page_1_top_frame = ttk.Frame(g_acct_page_1_grid)
+g_acct_page_1_top_frame.pack(fill=tk.X, pady=(0, 10))
+        
+# --- DI CHUYỂN NÚT: "Thêm Account Mới" (từ Trang 2) ---
+g_acct_page_2_add_btn = ttk.Button(
+    g_acct_page_1_top_frame, # <-- THAY ĐỔI: Parent là g_acct_page_1_top_frame
+    text="➕ Thêm Account Mới", 
+    command=lambda: open_add_edit_account_popup(None), # None = Thêm mới
+    style="Accent.TButton"
+)
+g_acct_page_2_add_btn.pack(side=tk.RIGHT)
 
 g_acct_page_2_list = ttk.Frame(account_tab_frame, padding=(10, 10))
 g_acct_page_2_list.place(relx=1, rely=0, relwidth=1, relheight=1) # Ẩn bên phải
@@ -2006,16 +2090,25 @@ g_acct_page_2_back_btn = ttk.Button(
 g_acct_page_2_back_btn.pack(side=tk.LEFT)
 
 global g_acct_save_status_label
-g_acct_save_status_label = ttk.Label(g_acct_page_2_top_frame, text="", anchor=tk.E)
-g_acct_save_status_label.pack(side=tk.RIGHT, padx=5)
+g_acct_save_status_label = ttk.Label(g_acct_page_1_top_frame, text="", anchor=tk.W)
+g_acct_save_status_label.pack(side=tk.LEFT, padx=5)
 
-g_acct_page_2_add_btn = ttk.Button(
+g_acct_page_2_add_btn_DUPLICATE = ttk.Button( # Đặt tên biến khác một chút
     g_acct_page_2_top_frame, 
     text="➕ Thêm Account Mới", 
     command=lambda: open_add_edit_account_popup(None), # None = Thêm mới
     style="Accent.TButton"
 )
-g_acct_page_2_add_btn.pack(side=tk.RIGHT)
+
+g_acct_page_2_save_btn = ttk.Button(
+    g_acct_page_1_top_frame,
+    text="💾 Lưu Thay Đổi",
+    command=save_accounts_to_drive_thread, # <-- Gọi thẳng hàm upload
+    style="Accent.TButton", # Nút "Lưu" sẽ là nút chính
+    state=tk.DISABLED # Bắt đầu ở trạng thái mờ
+)
+g_acct_page_2_save_btn.pack(side=tk.RIGHT, padx=(0, 5))
+g_acct_page_2_add_btn_DUPLICATE.pack(side=tk.RIGHT)
 
 global g_acct_login_status_label
 g_acct_login_status_label = ttk.Label(g_acct_page_2_top_frame, text="", anchor=tk.CENTER)
@@ -2054,7 +2147,36 @@ def on_acct_list_canvas_configure(event):
 g_acct_list_container.bind("<Configure>", on_acct_list_content_frame_configure)
 g_acct_list_canvas.bind("<Configure>", on_acct_list_canvas_configure)
 
+def mark_accounts_as_dirty():
+    """Kích hoạt nút 'Lưu' và hiển thị trạng thái 'chưa lưu'."""
+    global g_acct_has_unsaved_changes, g_acct_page_2_save_btn, g_acct_save_status_label
+    g_acct_has_unsaved_changes = True
+    if 'g_acct_page_2_save_btn' in globals() and g_acct_page_2_save_btn:
+        g_acct_page_2_save_btn.config(state=tk.NORMAL)
+    if 'g_acct_save_status_label' in globals() and g_acct_save_status_label:
+        g_acct_save_status_label.config(text="Có thay đổi chưa lưu...", style="Red.TLabel")
+
+def mark_accounts_as_saved():
+    """Vô hiệu hóa nút 'Lưu' (được gọi sau khi tải hoặc lưu thành công)."""
+    global g_acct_has_unsaved_changes, g_acct_page_2_save_btn
+    g_acct_has_unsaved_changes = False
+    if 'g_acct_page_2_save_btn' in globals() and g_acct_page_2_save_btn:
+        g_acct_page_2_save_btn.config(state=tk.DISABLED)
+
 # --- Các hàm Logic cho Tab Account ---
+def check_and_draw_account_grid():
+    """
+    (Hàm Mới) Kiểm tra xem cả hai luồng (Tải ảnh và Tải account)
+    đã hoàn thành chưa. Nếu rồi, mới vẽ Tab 2.
+    """
+    global g_images_preloaded, g_accounts_data_loaded
+    
+    if g_images_preloaded and g_accounts_data_loaded:
+        print("--- ĐIỀU KIỆN ĐỦ: Cả ảnh và account đã sẵn sàng. Đang vẽ Tab 2... ---")
+        populate_account_game_grid()
+    else:
+        # Báo cáo trạng thái hiện tại (để debug)
+        print(f"--- ĐIỀU KIỆN CHƯA ĐỦ: Images={g_images_preloaded}, Accounts={g_accounts_data_loaded}. Đang chờ... ---")
 
 def populate_account_game_grid():
     """
@@ -2064,20 +2186,37 @@ def populate_account_game_grid():
     global g_acct_grid_container, g_acct_page_1_grid
     global g_game_themes, g_user_accounts_data 
 
-    # 1. Tạo Label "Vui lòng đăng nhập" (CHỈ 1 LẦN)
-    # (Code này không đổi)
-    global g_acct_login_prompt_label
-    if not 'g_acct_login_prompt_label' in globals():
-        g_acct_login_prompt_label = ttk.Label(
-            g_acct_page_1_grid, 
-            text="Vui lòng Đăng nhập Google Drive (ở Tab 'Upload Lên Drive')\nđể tải và quản lý tài khoản.",
-            justify=tk.CENTER,
-            style="secondary.TLabel"
-        )
+    try:
+        # Tìm widget có tên 'tab2_loading_frame' và xóa nó
+        loading_frame = g_acct_page_1_grid.nametowidget("tab2_loading_frame")
+        if loading_frame:
+            loading_frame.destroy()
+    except KeyError:
+        pass # Không tìm thấy (đã bị xóa từ trước), bỏ qua
+    # --- HẾT THÊM MỚI ---
+    
+    # --- SỬA LOGIC: Quyết định hiển thị Prompt hay Lưới ---
+    if not drive_service:
+        # 1. TẠO PROMPT (Nếu chưa có)
+        global g_acct_login_prompt_label
+        if not 'g_acct_login_prompt_label' in globals():
+            g_acct_login_prompt_label = ttk.Label(
+                g_acct_page_1_grid, 
+                text="Vui lòng Đăng nhập Google Drive (ở Tab 'Upload Lên Drive')\nđể tải và quản lý tài khoản.",
+                justify=tk.CENTER,
+                style="secondary.TLabel"
+            )
+        # 2. HIỂN THỊ PROMPT (Luôn luôn)
         g_acct_login_prompt_label.pack(expand=True)
+        return # <-- QUAN TRỌNG: Dừng hàm tại đây
+    else:
+        # 3. ẨN PROMPT (Nếu tồn tại)
+        if 'g_acct_login_prompt_label' in globals():
+            try:
+                g_acct_login_prompt_label.pack_forget()
+            except: pass
 
     # 1. Tạo Canvas Scroll (CHỈ 1 LẦN)
-    # (Code này không đổi)
     if g_acct_grid_container is None:
         canvas_host_frame = ttk.Frame(g_acct_page_1_grid)
         canvas_host_frame.pack(fill=tk.BOTH, expand=True, pady=5, padx=5)
@@ -2098,21 +2237,6 @@ def populate_account_game_grid():
     user_accounts_data = g_user_accounts_data 
     game_names_with_accounts = sorted(user_accounts_data.keys())
 
-    # 4. Tải Icon (Cache) (Code không đổi)
-    if not hasattr(root, 'cached_game_icons_small'):
-        root.cached_game_icons_small = {}
-    if not hasattr(root, 'default_game_icon_small'):
-        try:
-            root.default_game_icon_small = load_image_from_url("https://i.imgur.com/g0tAUc2.png", size=(192, 89))
-        except:
-            root.default_game_icon_small = None
-            
-    # 5. Tải icon Steam/Riot (Code không đổi)
-    if not hasattr(root, 'steam_icon_small'):
-        root.steam_icon_small = load_image_from_url("https://images.icon-icons.com/2428/PNG/512/steam_black_logo_icon_147078.png", size=(89, 89))
-    if not hasattr(root, 'riot_icon_small'):
-        root.riot_icon_small = load_image_from_url("https://img.icons8.com/color/512/riot-games.png", size=(89, 89))
-
     # 6. Vẽ lưới game
     MAX_COLS = 3    
     col = 0
@@ -2123,30 +2247,24 @@ def populate_account_game_grid():
 
     # --- SỬA LOGIC: LẶP QUA CÁC KEY GAME ---
     for game_name in game_names_with_accounts: # (Key giờ là "Elden Ring", "Steam", v.v.)
-        icon_img = None
+        icon_img = None 
         
-        # 1. Ưu tiên icon Steam/Riot (nếu key là "Steam" hoặc "Riot")
+        # 1. Ưu tiên icon Steam/Riot (đã được cache bởi preload)
         if game_name == "Steam":
             icon_img = root.steam_icon_small
         elif game_name == "Riot":
             icon_img = root.riot_icon_small
         
-        # 2. Thử tìm trong cache
+        # 2. Lấy icon game (từ cache, thông qua load_image_from_url)
         if not icon_img:
-            icon_img = root.cached_game_icons_small.get(game_name)
-
-        # 3. Thử tải (nếu chưa cache) (DÙNG g_game_themes)
-        if not icon_img:
-            image_url = g_game_themes.get(game_name) # Lấy URL của game
+            image_url = g_game_themes.get(game_name)
             if image_url:
+                # Hàm này sẽ tự động lấy từ cache (vì preload đã chạy)
                 icon_img = load_image_from_url(image_url, size=(192, 89))
-            
-            # 4. Dùng icon mặc định
-            if not icon_img:
-                icon_img = root.default_game_icon_small
-            
-            # Lưu vào cache
-            root.cached_game_icons_small[game_name] = icon_img
+        
+        # 3. Dùng icon mặc định (từ cache)
+        if not icon_img:
+            icon_img = root.default_game_icon_small
         
         # (Code tạo Card Frame, img_label, name_label... không đổi)
         card_frame = ttk.Frame(g_acct_grid_container, style="Card.TFrame", cursor="hand2")
@@ -2453,7 +2571,7 @@ def delete_selected_account_by_index(item_index):
             if not g_user_accounts_data[g_acct_current_game]:
                 del g_user_accounts_data[g_acct_current_game]
             
-            threading.Thread(target=save_accounts_to_drive_thread, daemon=True).start()
+            mark_accounts_as_dirty()
             
             # Refresh
             show_account_list_for_game(g_acct_current_game) # Refresh danh sách
@@ -2519,11 +2637,18 @@ def open_add_edit_account_popup(edit_index):
     game_combo = ttk.Combobox(form_frame, values=game_list, state="readonly", width=38)
     game_combo.pack(pady=5)
     
-    default_game = g_acct_current_game 
+    default_game_to_set = "" # Mặc định là chuỗi rỗng (an toàn)
+
     if is_editing:
-        default_game = old_data.get("game", g_acct_current_game) 
-        
-    game_combo.set(default_game)
+        # Nếu đang SỬA, lấy game đã lưu (fallback về game đang xem)
+        default_game_to_set = old_data.get("game", g_acct_current_game)
+    else:
+        # Nếu đang THÊM MỚI, chỉ đặt game mặc định nếu nó không phải là None
+        if g_acct_current_game is not None:
+            default_game_to_set = g_acct_current_game
+            
+    # Giờ đây default_game_to_set sẽ là Tên Game (str) hoặc "" (str), không bao giờ là None
+    game_combo.set(default_game_to_set)
     widgets["game"] = game_combo 
     
     # 3. Nickname (Code không đổi)
@@ -2590,9 +2715,10 @@ def open_add_edit_account_popup(edit_index):
         else:
             g_user_accounts_data.setdefault(selected_game, []).append(new_data)
 
-        threading.Thread(target=save_accounts_to_drive_thread, daemon=True).start()
-        
+        mark_accounts_as_dirty()
+
         populate_account_game_grid()
+        
         show_account_list_for_game(g_acct_current_game) 
         
         popup.destroy()
@@ -2653,6 +2779,14 @@ page_2_mod_list = ttk.Frame(main_tab_frame, padding=(10, 10))
 page_3_progress = ttk.Frame(main_tab_frame, padding=(10, 10))
 
 page_1_game_grid.place(relx=0, rely=0, relwidth=1, relheight=1)
+g_tab1_loading_frame = ttk.Frame(page_1_game_grid, name="tab1_loading_frame")
+g_tab1_loading_frame.pack(expand=True, anchor=tk.CENTER)
+
+ttk.Label(g_tab1_loading_frame, text="Đang tải danh sách game và themes...").pack(pady=5)
+tab1_loader = ttk.Progressbar(g_tab1_loading_frame, orient="horizontal", length=200, mode="indeterminate")
+tab1_loader.pack(pady=10)
+tab1_loader.start(10)
+
 page_2_mod_list.place(relx=1, rely=0, relwidth=1, relheight=1) # Bắt đầu ở bên phải
 page_3_progress.place(relx=1, rely=0, relwidth=1, relheight=1) # Bắt đầu ở bên phải
 
@@ -2802,17 +2936,8 @@ def on_page_1_canvas_configure(event):
     canvas_width = event.width
     page_1_canvas.coords(page_1_canvas_window_id, canvas_width / 2 , 0)
 # --- Nội dung Tab 1 ---
-# (Code nội dung Tab 1 không đổi)
-try:
-    image_path = resource_path("logo.png")
-    my_image = Image.open(image_path)
-    my_image = my_image.resize((150, 150), Image.Resampling.LANCZOS)
-    tk_image = ImageTk.PhotoImage(my_image)
-    image_label = ttk.Label(page_1_game_grid, image=tk_image, anchor=tk.CENTER)
-    image_label.pack(pady=(10, 15))
-    root.tk_image = tk_image
-except Exception as e: 
-    print(f"Lỗi khi tải ảnh (bỏ qua): {e}")
+
+
 
 
 # --- THÊM MỚI: Tải các icon file chung ---
@@ -2830,18 +2955,39 @@ def load_drive_icon(filename, size=(32, 32)):
 
 # --- THÊM MỚI: HÀM TẢI ẢNH TỪ URL ---
 def load_image_from_url(url, size=(192, 89)):
-    """Tải ảnh từ URL, resize, và trả về PhotoImage."""
+    """
+    Tải ảnh từ URL, resize, và trả về PhotoImage.
+    Tự động kiểm tra và lưu vào cache (root.cached_images).
+    """
+    
+    # 1. Tạo một key (khóa) duy nhất dựa trên cả URL và Kích thước
+    cache_key = f"{url}_{size[0]}x{size[1]}"
+
+    # 2. Kiểm tra xem key này đã có trong cache chưa
+    if cache_key in root.cached_images:
+        # Nếu có, trả về ảnh đã lưu ngay lập tức
+        return root.cached_images[cache_key]
+
+    # 3. Nếu chưa có, tiến hành tải ảnh (code gốc của bạn)
     try:
-        print(f"Đang tải ảnh: {url}")
+        print(f"Đang tải ảnh (lần đầu): {url} @ {size}")
         response = requests.get(url, timeout=5) # 5 giây timeout
         response.raise_for_status() # Báo lỗi nếu 404, 500
 
         image_data = response.content
         img = Image.open(io.BytesIO(image_data)) # Đọc ảnh từ bộ nhớ
         img = img.resize(size, Image.Resampling.LANCZOS)
-        return ImageTk.PhotoImage(img)
+        
+        img_tk = ImageTk.PhotoImage(img)
+        root.cached_images[cache_key] = img_tk # Lưu ảnh
+        return img_tk
+        
     except Exception as e:
         print(f"Lỗi khi tải ảnh từ URL '{url}': {e}")
+        
+        # --- THÊM MỚI: Lưu lỗi (None) vào cache ---
+        # (Để tránh thử tải lại ảnh bị lỗi liên tục)
+        root.cached_images[cache_key] = None
         return None
 
 # Lưu vào root để không bị garbage-collected
@@ -2995,7 +3141,25 @@ def action_clear_game_search():
 def populate_page_1_grid(game_groups, search_term=""):
     """(ĐÃ VIẾT LẠI) Tạo lưới game (VỚI CANVAS SCROLL)."""
     global g_game_grid_container, g_game_search_entry, page_1_canvas, page_1_canvas_window_id
-
+    try:
+        # Tìm widget có tên 'tab1_loading_frame' và xóa nó
+        loading_frame = page_1_game_grid.nametowidget("tab1_loading_frame")
+        if loading_frame:
+            loading_frame.destroy()
+            root.update_idletasks() # <-- THÊM DÒNG NÀY
+    except KeyError:
+        pass
+    
+    try:
+        image_path = resource_path("logo.png")
+        my_image = Image.open(image_path)
+        my_image = my_image.resize((150, 150), Image.Resampling.LANCZOS)
+        tk_image = ImageTk.PhotoImage(my_image)
+        image_label = ttk.Label(page_1_game_grid, image=tk_image, anchor=tk.CENTER)
+        image_label.pack(pady=(10, 15))
+        root.tk_image = tk_image
+    except Exception as e: 
+        print(f"Lỗi khi tải ảnh (bỏ qua): {e}")
     # 1. Tạo Thanh tìm kiếm (CHỈ 1 LẦN)
     if g_game_search_entry is None:
         search_frame = ttk.Frame(page_1_game_grid)
@@ -3020,6 +3184,8 @@ def populate_page_1_grid(game_groups, search_term=""):
         canvas_host_frame = ttk.Frame(page_1_game_grid)
         canvas_host_frame.pack(fill=tk.BOTH, expand=True, pady=5, padx=5)
 
+        path_label_credit = ttk.Label(page_1_game_grid, text="by Mr-Mime 2025", style="secondary.TLabel")
+        path_label_credit.pack(side=tk.BOTTOM, pady=(5, 5))
         # Tạo Scrollbar
         page_1_scrollbar = ttk.Scrollbar(canvas_host_frame, orient="vertical")
         # page_1_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -3074,14 +3240,16 @@ def populate_page_1_grid(game_groups, search_term=""):
     for game_name in filtered_names: # <-- Dùng danh sách đã lọc
 
         # (Code lấy icon không đổi)
-        icon_img = root.cached_game_icons_small.get(game_name)
+        image_url = g_game_themes.get(game_name)
+        icon_img = None
+        
+        if image_url:
+            # Hàm này đã tự động cache, ta không cần kiểm tra
+            icon_img = load_image_from_url(image_url, size=(192, 89))
+            
         if not icon_img:
-            image_url = g_game_themes.get(game_name)
-            if image_url:
-                icon_img = load_image_from_url(image_url, size=(192, 89))
-            if not icon_img:
-                icon_img = root.default_game_icon_small
-            root.cached_game_icons_small[game_name] = icon_img
+            # Tải icon mặc định (cũng sẽ được cache tự động)
+            icon_img = root.default_game_icon_small
 
         # (Code tạo Card Frame không đổi)
         card_frame = ttk.Frame(g_game_grid_container, style="Card.TFrame", cursor="hand2")
@@ -3140,25 +3308,27 @@ def show_page_2_for_game(game_name):
 
     # --- THÊM MỚI: LOGIC TẢI ẢNH (TRONG THREAD) ---
     def load_game_image_thread():
-        """(Chạy ngầm) Tải ảnh cho game đã chọn."""
-        global g_game_image_label
+        """
+        (Chạy ngầm) Lấy ảnh đã được tải trước (preloaded) cho game đã chọn.
+        """
+        global g_game_image_label, g_game_themes
 
-        # 1. Lấy Icon từ Cache
-        icon_img = root.cached_game_icons_large.get(game_name)
+        icon_img = None
+        
+        # 1. Lấy URL
+        image_url = g_game_themes.get(game_name)
+        
+        # 2. Lấy ảnh từ cache (dùng hàm load_image_from_url)
+        if image_url:
+            # Hàm này sẽ lấy ngay lập tức từ root.cached_images
+            # vì preload_all_images_thread đã chạy
+            icon_img = load_image_from_url(image_url, size=(460, 215))
 
+        # 3. Nếu không có, dùng icon mặc định (cũng đã được preload)
         if not icon_img:
-            # 2. Thử tải từ URL
-            image_url = g_game_themes.get(game_name)
-            if image_url:
-                icon_img = load_image_from_url(image_url, size=(460, 215)) # <-- SỬA (Size LỚN)
+            icon_img = root.default_game_icon_large 
 
-            if not icon_img:
-                # 3. Fallback: Dùng icon mặc định LỚN
-                icon_img = root.default_game_icon_large # <-- SỬA
-
-            root.cached_game_icons_large[game_name] = icon_img # Lưu vào cache
-
-        # 5. Gửi về queue để cập nhật UI
+        # 4. Gửi về queue để cập nhật UI
         progress_queue.put(("game_image_loaded", icon_img))
 
     # Bắt đầu tải ảnh ngầm
@@ -3273,8 +3443,6 @@ button_frame.pack(pady=15)
 browse_button = ttk.Button(button_frame, text="Tìm đường dẫn...", command=browse_for_folder)
 browse_button.pack(side=tk.LEFT, padx=10)
 
-path_label_credit = ttk.Label(page_1_game_grid, text="by Mr-Mime 2025", style="secondary.TLabel")
-path_label_credit.pack(side=tk.BOTTOM, pady=(5, 5))
 option_label = ttk.Label(page_3_progress, text = "GG", anchor=tk.W, style="White.TLabel")
 
 progress_bar = ttk.Progressbar(page_3_progress, orient="horizontal", length=100, mode="indeterminate")
@@ -3987,8 +4155,12 @@ def try_auto_login_drive_thread():
     token_path = resource_path('token.json')
     creds_path = resource_path('credentials.json')
     
-    if not os.path.exists(creds_path): return # Không có file credentials
-    if not os.path.exists(token_path): return # Chưa đăng nhập lần nào
+    if not os.path.exists(creds_path): 
+        progress_queue.put(("accounts_load_failed", "credentials.json missing")) # <-- THÊM MỚI
+        return # Không có file credentials
+    if not os.path.exists(token_path): 
+        progress_queue.put(("accounts_load_failed", "token.json missing")) # <-- THÊM MỚI
+        return # Chưa đăng nhập lần nào
     
     try:
         print("Đang thử tự động đăng nhập Google Drive...")
@@ -4002,16 +4174,15 @@ def try_auto_login_drive_thread():
             drive_service = build('drive', 'v3', credentials=creds)
             print("Tự động đăng nhập Drive thành công.")
             
-            # Bật nút
-            drive_auth_button.config(text="Đã đăng nhập Google Drive", style="Green.TButton")
-            
             # --- BẮT ĐẦU TẢI ACCOUNT CONFIG ---
             load_accounts_from_drive_thread() # (Không cần thread lồng nhau)
         else:
             print("Tự động đăng nhập thất bại (token không hợp lệ).")
+            progress_queue.put(("accounts_load_failed", "Invalid token")) # <-- THÊM MỚI
             
     except Exception as e:
         print(f"Lỗi khi tự động đăng nhập Drive: {e}")
+        progress_queue.put(("accounts_load_failed", str(e)))
 
 def action_drive_login():
     entered_pin = simpledialog.askstring("Xác nhận PIN", "Nhập mã PIN quản trị:", show='*')
@@ -5221,6 +5392,46 @@ def load_gif_frames_thread():
 
     except Exception as e:
         print(f"Lỗi nghiêm trọng khi tải hoặc xử lý GIF: {e}")
+
+def preload_all_images_thread(themes_dict, mod_config_dict):
+    """
+    (ĐÃ SỬA) Tải và cache TẤT CẢ các ảnh game (Song song).
+    """
+    try:
+        # 1. Tải các icon mặc định/dịch vụ (tuần tự, vì chúng quan trọng)
+        # (Bạn cần điền URL chính xác vào đây)
+        print("Đang tải icon mặc định...")
+        root.default_game_icon_small = load_image_from_url("https://i.imgur.com/g0tAUc2.png", size=(192, 89))
+        root.default_game_icon_large = load_image_from_url("https://i.imgur.com/g0tAUc2.png", size=(460, 215))
+        root.steam_icon_small = load_image_from_url("https://images.icon-icons.com/2428/PNG/512/steam_black_logo_icon_147078.png", size=(89, 89))
+        root.riot_icon_small = load_image_from_url("https://img.icons8.com/color/512/riot-games.png", size=(89, 89))
+
+        print(f"Bắt đầu tải trước {len(themes_dict)} ảnh themes (song song)...")
+        
+        # 2. Dùng ThreadPoolExecutor để tải song song
+        # 'max_workers=10' có nghĩa là tải 10 ảnh cùng lúc
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            
+            # Tạo danh sách các "công việc" cần thực hiện
+            futures = []
+            for game_name, url in themes_dict.items():
+                if url:
+                    # Gửi công việc tải size nhỏ
+                    futures.append(executor.submit(load_image_from_url, url, (192, 89)))
+                    # Gửi công việc tải size lớn
+                    futures.append(executor.submit(load_image_from_url, url, (460, 215)))
+            
+            # (Không bắt buộc) Chờ tất cả công việc hoàn thành
+            concurrent.futures.wait(futures)
+
+        print("Tải trước (preload) ảnh song song hoàn tất.")
+
+    except Exception as e:
+        print(f"Lỗi trong quá trình tải trước ảnh (song song): {e}")
+    finally:
+        # 3. Gửi tin nhắn (như cũ)
+        progress_queue.put(("all_images_preloaded", mod_config_dict))
+
 # --- Chạy ứng dụng ---
 root.protocol("WM_DELETE_WINDOW", on_closing)
 status_label.configure(text="Đang tải config phiên bản...", style="White.TLabel")
