@@ -66,6 +66,7 @@
         "delete_before_extract": [
             "BepInEx"
         ],
-        "path_guide": "Thư mục gốc của game ROR2"
+        "path_guide": "Thư mục gốc của game ROR2",
+        "launch_file": "_Risk of Rain 2 - LND Game Launcher.exe"
     }
 }
