@@ -45,6 +45,7 @@ from google_auth_httplib2 import AuthorizedHttp
 import webbrowser
 from packaging import version
 import subprocess
+
 # --- THÊM MỚI: LỚP ĐẢM BẢO CHẠY 1 LẦN (SINGLETON) ---
 class SingleInstance:
     """Sử dụng Mutex của Windows để đảm bảo chỉ có 1 instance của app chạy."""
@@ -105,7 +106,7 @@ global g_mod_buttons
 g_mod_buttons = {}
 global g_current_selected_key
 g_current_selected_key = None
-CURRENT_VERSION = "1.2.3"
+CURRENT_VERSION = "1.2.4"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
@@ -2255,7 +2256,27 @@ style.configure("White.TLabel", foreground="white") # Cho theme tối
 style.configure("New.TLabel", foreground="red", font=('TkDefaultFont', 9, 'bold'))
 style.configure("Green.TRadiobutton", foreground="green")
 style.configure("Installed.TLabel", foreground="green")
-    
+
+style.configure("HoverAccent.TButton", 
+                font=style.lookup("TButton", "font"),
+                padding=style.lookup("TButton", "padding"),
+                relief=style.lookup("TButton", "relief"),
+                background="SystemButtonFace",  # Màu TButton mặc định
+                foreground="SystemButtonText") # Màu TButton mặc định
+
+# Map màu sắc
+# Khi 'hover' (di chuột) hoặc 'active' (nhấn), đổi sang màu Accent (xanh)
+style.map("HoverAccent.TButton",
+    background=[
+        ('active', "SystemAccentColor"), # 'active' is pressed
+        ('hover', "SystemAccentColor"),  # 'hover' is mouse-over
+    ],
+    foreground=[
+        ('active', "SystemAccentColorText"),
+        ('hover', "SystemAccentColorText"),
+    ]
+)
+
 try: rarfile.UNRAR_TOOL = resource_path("UnRAR.exe")
 except Exception as e: print(f"Lỗi nghiêm trọng: Không tìm thấy UnRAR.exe đã đóng gói: {e}")
 try:
@@ -3538,20 +3559,27 @@ def update_guide_text():
         guide_text_widget.delete("1.0", tk.END)
         guide_text_widget.insert(tk.END, "Lỗi khi tải hướng dẫn.")
     finally:
+        # --- (BEGIN) THAY ĐỔI: LUÔN PACK NÚT, CHỈ ĐỔI STATE ---
         guide_text_widget.config(state=tk.DISABLED)
         try:
-            # 1. Pack nút "Chạy Game" (🚀) NẾU NÓ TỒN TẠI
-            #    (Pack 🚀 trước để nó ở ngoài cùng bên phải)
-            if g_current_launch_path and 'g_launch_game_button' in globals():
+            # 1. Pack nút "Chạy Game" (🚀) (LUÔN LUÔN)
+            if 'g_launch_game_button' in globals():
                 g_launch_game_button.pack(side=tk.RIGHT, padx=(0, 10)) 
-            
-            # 2. Pack nút "Đặt đường dẫn" (⚙️)
-            #    (Pack ⚙️ sau để nó ở bên trái 🚀)
+                
+                # 2. Cấu hình trạng thái (ENABLE/DISABLE)
+                if g_current_launch_path:
+                    g_launch_game_button.config(state=tk.NORMAL)
+                else:
+                    g_launch_game_button.config(state=tk.DISABLED)
+
+            # 3. Pack nút "Đặt đường dẫn" (⚙️) (LUÔN LUÔN)
+            #    (Pack sau để nó ở bên trái 🚀)
             if 'g_set_path_button' in globals():
                 g_set_path_button.pack(side=tk.RIGHT, padx=(0, 5)) 
-        
+                
         except Exception as e:
             print(f"Lỗi khi pack nút bên phải: {e}")
+        # --- (END) THAY ĐỔI ---
 
 
 def on_game_search(event):
@@ -3731,28 +3759,28 @@ def populate_page_1_grid(game_groups, search_term=""):
             if os.path.exists(full_path) and os.path.isfile(full_path):
                 full_path_to_launch = full_path # File hợp lệ, lưu lại
 
-        # 4. Nếu file tồn tại -> Tạo nút
+        # --- (BEGIN) THAY ĐỔI: ĐỔI "Accent.TButton" thành "HoverAccent.TButton" ---
+        # 4. TẠO NÚT (LUÔN LUÔN)
+        launch_button_page1 = ttk.Button(
+            card_frame, 
+            text="🚀 Chạy Game",
+            state=tk.DISABLED,         # Bắt đầu ở trạng thái mờ
+            style="HoverAccent.TButton"  # <-- ĐỔI SANG STYLE MỚI
+        )
+        launch_button_page1.grid(row=2, column=0, pady=(0, 10), padx=10, sticky="ew")
+        # --- (END) THAY ĐỔI ---
+
+        # 5. KÍCH HOẠT NÚT NẾU TÌM THẤY FILE
         if full_path_to_launch:
-            # Dùng helper "create_page1_launch_cmd" đã tạo ở trên
             launch_cmd = create_page1_launch_cmd(full_path_to_launch) 
+            launch_button_page1.config(state=tk.NORMAL) # Kích hoạt
+            launch_button_page1.bind("<Button-1>", launch_cmd) # Gắn lệnh click
 
-            launch_button_page1 = ttk.Button(
-                card_frame, 
-                text="🚀 Chạy Game"
-                # (Không dùng style Accent để nó khác với nút trên Page 2)
-            )
-            # Đặt nút ở hàng 2, bên dưới Tên
-            launch_button_page1.grid(row=2, column=0, pady=(0, 10), padx=10, sticky="ew")
-
-            # Gắn lệnh vào <Button-1> (click trái)
-            launch_button_page1.bind("<Button-1>", launch_cmd) 
-
-            # Gắn cuộn chuột (quan trọng để cuộn trang)
-            launch_button_page1.bind("<MouseWheel>", on_mouse_wheel)
-            launch_button_page1.bind("<Button-4>", on_mouse_wheel)
-            launch_button_page1.bind("<Button-5>", on_mouse_wheel)
-
-        # --- HẾT THÊM MỚI --
+        # 6. GẮN SỰ KIỆN CUỘN (LUÔN LUÔN)
+        launch_button_page1.bind("<MouseWheel>", on_mouse_wheel)
+        launch_button_page1.bind("<Button-4>", on_mouse_wheel)
+        launch_button_page1.bind("<Button-5>", on_mouse_wheel)
+        # --- (END) THAY ĐỔI ---
 
         # (Code tạo lệnh Click không đổi)
         cmd = lambda event, g=game_name: show_page_2_for_game(g)
@@ -3781,7 +3809,6 @@ def populate_page_1_grid(game_groups, search_term=""):
 
     # Cấu hình grid container
     for i in range(MAX_COLS): g_game_grid_container.columnconfigure(i, weight=0)
-    # (Xóa rowconfigure)
 
 
 
@@ -3850,14 +3877,21 @@ def update_mod_button_states(selected_key):
     global g_mod_buttons, g_current_selected_key
     g_current_selected_key = selected_key
     
-    for key, button in g_mod_buttons.items():
+    # --- (BEGIN) THAY ĐỔI: Unpack tuple (select_button, checkmark_button) ---
+    for key, (select_button, checkmark_button) in g_mod_buttons.items():
         try:
             if key == selected_key:
-                # Đổi style thành Accent, đổi text, và VÔ HIỆU HÓA
-                button.config(text="✓", style="Accent.TButton", state=tk.NORMAL)
+                # Nút CHỌN (bên phải): Đổi thành "✓"
+                select_button.config(text="   ", style="Accent.TButton", state=tk.NORMAL)
+                
+                # Nút CHECK (bên trái): Hiện "✓" và bật
+                checkmark_button.config(text="   ", state=tk.NORMAL)
             else:
-                # Trả về style mặc định (TButton), đổi text, và BẬT
-                button.config(text="", style="TButton", state=tk.NORMAL)
+                # Nút CHỌN (bên phải): Trả về text rỗng
+                select_button.config(text="", style="TButton", state=tk.NORMAL)
+                
+                # Nút CHECK (bên trái): Ẩn text và mờ
+                checkmark_button.config(text="", state=tk.DISABLED)
         except tk.TclError:
             pass
 
@@ -3918,22 +3952,43 @@ def update_radio_buttons_text_for_game(game_name_to_show):
         row_frame = ttk.Frame(content_frame, style="Card.TFrame", padding=(10, 5))
         row_frame.pack(fill=tk.X, pady=2) 
         
+        # --- (BEGIN) THAY ĐỔI: THÊM FRAME NÚT ✓ BÊN TRÁI ---
+        # 1.a. Tạo frame chứa nút check bên trái
+        checkmark_frame = ttk.Frame(row_frame) # Đặt chiều rộng cố định
+        checkmark_frame.pack(side=tk.LEFT,padx=(0, 0))
+        
+        # 1.b. Tạo nút check (sẽ được 'update_mod_button_states' điều khiển)
+        checkmark_button = ttk.Button(
+            checkmark_frame, 
+            text="",                # Bắt đầu rỗng
+            style="Accent.TButton", # Dùng style Accent
+            state=tk.DISABLED       # Bắt đầu mờ
+        )
+        checkmark_button.pack(fill=tk.Y, expand=True)
+        # --- (END) THAY ĐỔI ---
+
         # --- Frame bên trái cho Text ---
+        # (Không thay đổi)
         left_frame = ttk.Frame(row_frame)
         left_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
         left_frame.columnconfigure(0, weight=1) 
 
         # --- Frame bên phải cho Nút ---
+        # (Không thay đổi)
         right_frame = ttk.Frame(row_frame)
         right_frame.pack(side=tk.RIGHT, padx=(0, 0))
 
         # 2. Tạo Tên Mod (Label)
+        # (Không thay đổi)
         name_label = ttk.Label(left_frame, text=display_name, font=("Segoe UI", 10, "bold"), anchor=tk.CENTER)
         name_label.grid(row=0, column=0, sticky="ew")
 
-        all_widgets_to_bind = [row_frame, left_frame, right_frame, name_label] # <-- SỬA Ở ĐÂY (thêm right_frame)
+        # --- (BEGIN) THAY ĐỔI: Thêm 2 widget mới vào all_widgets_to_bind ---
+        all_widgets_to_bind = [row_frame, checkmark_frame, checkmark_button, left_frame, right_frame, name_label] 
+        # --- (END) THAY ĐỔI ---
 
         # 3. Tạo các Label Trạng thái
+        # (Không thay đổi)
         if online_version == installed_version:
             status_text = f"✓ Đã cài đặt ({online_version})"
             status_label = ttk.Label(left_frame, text=status_text, style="Installed.TLabel", anchor=tk.CENTER) 
@@ -3950,10 +4005,12 @@ def update_radio_buttons_text_for_game(game_name_to_show):
             all_widgets_to_bind.append(new_label)
 
         # 4. Lấy key đầu tiên để tự động chọn
+        # (Không thay đổi)
         if first_key_to_select is None:
             first_key_to_select = key
 
         # 5. TẠO NÚT "CHỌN" (Accent.TButton)
+        # (Không thay đổi)
         click_command = create_click_handler(key)
         
         select_button = ttk.Button(
@@ -3963,11 +4020,14 @@ def update_radio_buttons_text_for_game(game_name_to_show):
         )
         select_button.pack(fill=tk.Y, expand=True)
         
-        # Lưu nút vào dict
-        g_mod_buttons[key] = select_button
+        # --- (BEGIN) THAY ĐỔI: Lưu cả 2 nút (dạng tuple) ---
+        g_mod_buttons[key] = (select_button, checkmark_button)
+        # --- (END) THAY ĐỔI ---
+
         all_widgets_to_bind.append(select_button) # Thêm vào để bind scroll
 
         # 6. Bind Mousewheel VÀ CLICK
+        # (Không thay đổi)
         for widget in all_widgets_to_bind:
             try:
                 # Bind cuộn chuột (như cũ)
@@ -3984,6 +4044,7 @@ def update_radio_buttons_text_for_game(game_name_to_show):
                 print(f"Lỗi khi bind widget: {e}")
 
     # 7. Tự động chọn mod đầu tiên
+    # (Không thay đổi)
     if first_key_to_select:
         # 1. Cập nhật biến
         selected_option.set(first_key_to_select)
@@ -6061,8 +6122,10 @@ splash.destroy()
 sv_ttk.set_theme("dark")
 # Hiển thị cửa sổ chính
 root.deiconify()
+
 # Đưa cửa sổ chính lên trên cùng
 root.after(10, lambda: apply_theme_to_titlebar(root))
+
 root.title("[WGZ] Game Updater")
 root.attributes('-topmost', 1) 
 root.focus_force()
