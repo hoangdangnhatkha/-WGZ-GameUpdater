@@ -12,6 +12,7 @@ import threading
 import queue
 import pyautogui
 import pygetwindow as gw
+import ctypes
 import re
 import io
 import requests
@@ -44,7 +45,55 @@ from google_auth_httplib2 import AuthorizedHttp
 import webbrowser
 from packaging import version
 import subprocess
-# --- HẾT ---
+# --- THÊM MỚI: LỚP ĐẢM BẢO CHẠY 1 LẦN (SINGLETON) ---
+class SingleInstance:
+    """Sử dụng Mutex của Windows để đảm bảo chỉ có 1 instance của app chạy."""
+    def __init__(self, mutex_name_bytes):
+        self.mutex_name = mutex_name_bytes
+        self.mutex = None
+        ERROR_ALREADY_EXISTS = 183
+        
+        # 1. Tạo một mutex với tên duy nhất
+        # (Cái tên này phải là duy nhất cho ứng dụng của bạn)
+        self.mutex = ctypes.windll.kernel32.CreateMutexA(
+            None,           # Security attributes (None = default)
+            1,              # bInitialOwner (1 = True, app này sở hữu nó ngay)
+            self.mutex_name # Tên (phải là dạng bytes)
+        )
+        
+        # 2. Kiểm tra lỗi ngay sau khi tạo
+        last_error = ctypes.windll.kernel32.GetLastError()
+        
+        # 3. Nếu lỗi là "Đã Tồn Tại", thoát app
+        if last_error == ERROR_ALREADY_EXISTS:
+            print("Phát hiện app đã chạy. Thoát instance mới.")
+            # Không cần đóng handle vì chúng ta không tạo được nó
+            sys.exit(0) # Thoát ngay lập tức
+    
+    def __del__(self):
+        # Hàm này sẽ được gọi khi app đóng (dù là bình thường hay crash)
+        # Nó sẽ giải phóng Mutex để lần sau app có thể chạy lại
+        if self.mutex:
+            ctypes.windll.kernel32.CloseHandle(self.mutex)
+
+def center_window_on_screen(window, width, height):
+    """Tính toán và đặt Toplevel (cửa sổ con) vào giữa màn hình."""
+    try:
+        # Lấy kích thước màn hình
+        screen_width = window.winfo_screenwidth()
+        screen_height = window.winfo_screenheight()
+
+        # Tính toán vị trí x, y để căn giữa
+        x = (screen_width // 2) - (width // 2)
+        y = (screen_height // 2) - (height // 2)
+
+        # Đặt kích thước VÀ vị trí cho cửa sổ
+        window.geometry(f'{width}x{height}+{x}+{y}')
+    except Exception as e:
+        print(f"Lỗi khi căn giữa cửa sổ: {e}")
+        # Fallback: nếu lỗi, chỉ đặt kích thước
+        window.geometry(f'{width}x{height}')
+
 scan_loading_window = None
 g_secret_click_count = 0
 g_current_game_name = None
@@ -52,6 +101,10 @@ g_game_search_entry = None
 g_game_grid_container = None
 g_all_mods_flat = {}
 g_game_themes = {}
+global g_mod_buttons
+g_mod_buttons = {}
+global g_current_selected_key
+g_current_selected_key = None
 CURRENT_VERSION = "1.2.3"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
@@ -369,7 +422,8 @@ def load_local_config():
         return {
             "game_paths": {}, "installed_versions": {}, "backup_enabled": False, 
             "secret_exe_id": "", "secret_zip_id": "", "steam_path": "", "riot_path": "",
-            "last_used_folder": "" # Thêm key mới
+            "last_used_folder": "", # Thêm key mới
+            "game_launchers": {}
         }
 
 def save_local_config(config_data):
@@ -1474,6 +1528,58 @@ def browse_for_folder():
         path_entry.delete(0, tk.END)
         path_entry.insert(0, folder_selected)
 
+def action_set_game_path_from_page_2():
+    """
+    (ĐÃ SỬA) Mở dialog CHỌN FILE, lưu path VÀ LAUNCH FILE, và cập nhật UI.
+    """
+    global local_config, g_current_game_name, path_entry
+    
+    if not g_current_game_name:
+        print("Lỗi: Không có game nào đang được chọn (g_current_game_name is None)")
+        return
+
+    # 1. Lấy path đã lưu (nếu có) để làm initialdir
+    current_path = local_config.get("game_paths", {}).get(g_current_game_name, "")
+    if not os.path.isdir(current_path):
+        current_path = local_config.get("last_used_folder", "") # Fallback
+
+    # --- SỬA: DÙNG askopenfilename ---
+    file_selected = filedialog.askopenfilename(
+        initialdir=current_path, 
+        title=f"Chọn file khởi chạy (launch file) cho {g_current_game_name}",
+        filetypes=[("All Files", "*.*")]
+    )
+    # --- HẾT SỬA ---
+    
+    if file_selected:
+        # --- THÊM MỚI: Tách thư mục và tên file ---
+        folder_selected = os.path.dirname(file_selected)
+        launcher_selected = os.path.basename(file_selected)
+        # --- HẾT THÊM MỚI ---
+
+        # 2. Cập nhật path_entry (ô text)
+        path_entry.delete(0, tk.END)
+        path_entry.insert(0, folder_selected) # <-- SỬA: Dùng folder_selected
+        
+        # 3. Cập nhật và lưu config
+        if 'game_paths' not in local_config:
+            local_config['game_paths'] = {}
+        if 'game_launchers' not in local_config: # Đảm bảo key tồn tại
+            local_config['game_launchers'] = {}
+            
+        local_config['game_paths'][g_current_game_name] = folder_selected # <-- SỬA: Dùng folder_selected
+        local_config['game_launchers'][g_current_game_name] = launcher_selected # <-- THÊM MỚI
+
+        # Cũng cập nhật 'last_used_folder' để đồng bộ
+        local_config['last_used_folder'] = folder_selected # <-- SỬA: Dùng folder_selected
+        
+        save_local_config(local_config)
+        print(f"Đã lưu đường dẫn cho {g_current_game_name}: {folder_selected}")
+        print(f"Đã lưu launch file cho {g_current_game_name}: {launcher_selected}")
+
+        # 4. (Quan trọng) Chạy lại hàm kiểm tra nút "Launch Game"
+        update_guide_text()
+
 # --- THÊM MỚI: HÀM CHẠY ANIMATION CHO GIF ---
 def animate_gif(delay):
     """Hàm lặp lại để cập nhật frame của GIF."""
@@ -2056,13 +2162,14 @@ def on_closing():
         root.destroy()
 
 # --- Hàm áp dụng theme cho title bar ---
+
 def apply_theme_to_titlebar(root_window):
     # (Code hàm này không đổi)
     current_theme = sv_ttk.get_theme()
     version = sys.getwindowsversion()
     if version.major >= 10:
         if version.build >= 22000:
-            color = "#1c1c1c" if current_theme == "dark" else "#fafafa"
+            color = "#3b3b3b" if current_theme == "dark" else "#fafafa"
             try: pywinstyles.change_header_color(root_window, color)
             except Exception as e: print(f"Lỗi pywinstyles (Win11): {e}")
         else:
@@ -2070,12 +2177,70 @@ def apply_theme_to_titlebar(root_window):
             except Exception as e: print(f"Lỗi pywinstyles (Win10): {e}")
     else: print("Warning: Title bar theming only supported on Windows 10/11.")
 
+try:
+    app_mutex_name = b"WGZ_GameUpdater_Singleton_Mutex"
+    g_singleton_lock = SingleInstance(app_mutex_name)
+    
+except Exception as e:
+    print(f"Cảnh báo: Không thể tạo singleton mutex: {e}")
 # --- Cài đặt cửa sổ Giao diện (UI) ---
 root = TkinterDnD.Tk()
-sv_ttk.set_theme("dark")
-apply_theme_to_titlebar(root)
-root.title("[WGZ] Game Updater")
-root.geometry("1050x900") # Giữ nguyên kích thước
+root.withdraw()
+# --- SPLASH SCREEN (BEGIN) ---
+splash = tk.Toplevel(root)
+splash.title("Loading")
+
+# Kích thước splash screen
+splash_width = 350
+splash_height = 200
+
+center_window_on_screen(splash, splash_width, splash_height)
+
+# Xóa viền cửa sổ
+splash.overrideredirect(True) 
+
+# Thêm style cho splash (dùng màu nền tối)
+splash_style = ttk.Style()
+splash_style.configure("Splash.TFrame", background="#2b2b2b")
+splash_style.configure("Splash.TLabel", background="#2b2b2b", foreground="white", font=("Segoe UI", 10))
+splash_style.configure("Splash.Header.TLabel", background="#2b2b2b", foreground="white", font=("Segoe UI", 14, "bold"))
+
+# Dùng Frame để có thể thêm viền
+splash_frame = ttk.Frame(splash, style="Splash.TFrame", borderwidth=1, relief="solid")
+splash_frame.pack(fill=tk.BOTH, expand=True)
+
+ttk.Label(splash_frame, text="WGZ Game Updater", style="Splash.Header.TLabel").pack(pady=(20, 10))
+
+# Thử tải logo cho splash (nếu lỗi thì bỏ qua)
+try:
+    # Giả sử bạn có file 'logo.png' trong resource
+    icon_path = resource_path("logo.png") 
+    splash_img = Image.open(icon_path).resize((50, 50), Image.Resampling.LANCZOS)
+    # Phải lưu lại, nếu không sẽ bị Python xóa mất
+    root.splash_logo_tk = ImageTk.PhotoImage(splash_img) 
+    ttk.Label(splash_frame, image=root.splash_logo_tk, style="Splash.TLabel").pack(pady=5)
+except Exception as e:
+    print(f"Không thể tải logo cho splash (bỏ qua): {e}")
+
+ttk.Label(splash_frame, text="Đang khởi động, vui lòng chờ...", style="Splash.TLabel").pack(pady=10)
+
+# Bắt buộc Tkinter phải vẽ splash screen ngay lập tức
+splash.update()
+
+root.update_idletasks()
+app_width = 1050
+app_height = 900
+
+# Lấy kích thước màn hình
+screen_width = root.winfo_screenwidth()
+screen_height = root.winfo_screenheight()
+
+# Tính toán vị trí x, y để căn giữa
+x = (screen_width // 2) - (app_width // 2)
+y = (screen_height // 2) - (app_height // 2)
+
+# Đặt kích thước VÀ vị trí cho cửa sổ
+root.geometry(f'{app_width}x{app_height}+{x}+{y}')
 root.minsize(800, 550)
 root.resizable(False,False)
 
@@ -2089,7 +2254,7 @@ style.configure("Green.TLabel", foreground="green")
 style.configure("White.TLabel", foreground="white") # Cho theme tối
 style.configure("New.TLabel", foreground="red", font=('TkDefaultFont', 9, 'bold'))
 style.configure("Green.TRadiobutton", foreground="green")
-
+style.configure("Installed.TLabel", foreground="green")
     
 try: rarfile.UNRAR_TOOL = resource_path("UnRAR.exe")
 except Exception as e: print(f"Lỗi nghiêm trọng: Không tìm thấy UnRAR.exe đã đóng gói: {e}")
@@ -2184,7 +2349,7 @@ g_acct_page_2_top_frame.pack(fill=tk.X, pady=(0, 10))
 
 g_acct_page_2_back_btn = ttk.Button(
     g_acct_page_2_top_frame, 
-    text="❮ Quay lại (Chọn Game)", 
+    text="❮ Quay lại", 
     command=lambda: switch_account_page(g_acct_page_1_grid)
 )
 g_acct_page_2_back_btn.pack(side=tk.LEFT)
@@ -2837,7 +3002,35 @@ def open_add_edit_account_popup(edit_index):
     # --- Nút Bấm ---
     save_button = ttk.Button(form_frame, text="Lưu", command=save_account, style="Accent.TButton")
     save_button.pack(pady=10)
-    
+    popup.update_idletasks() # Bắt Toplevel tính toán kích thước
+    width = popup.winfo_width()
+    height = popup.winfo_height()
+    center_window_on_screen(popup, width, height)
+
+def action_go_back_and_refresh_grid():
+    """
+    (HÀM MỚI) Refresh Lưới Game (Trang 1) và quay lại đó.
+    """
+    global download_options, g_game_search_entry
+
+    print("Đang quay lại và làm mới Lưới Game (Trang 1)...")
+    try:
+        # Lấy từ khóa tìm kiếm hiện tại (nếu có)
+        search_term = ""
+        if g_game_search_entry:
+            search_term = g_game_search_entry.get().lower()
+
+        # 1. Gọi hàm vẽ lại Trang 1
+        # (download_options là biến toàn cục đã có)
+        populate_page_1_grid(download_options, search_term)
+
+        # 2. Quay lại Trang 1
+        show_page(page_1_game_grid)
+    except Exception as e:
+        print(f"Lỗi khi quay lại và làm mới Lưới Game: {e}")
+        # Fallback: Dù lỗi cũng quay lại
+        show_page(page_1_game_grid)
+
 def delete_selected_account():
     """Xóa account đã chọn khỏi Treeview."""
     global g_user_accounts_data, g_acct_current_game # <-- SỬA Ở ĐÂY
@@ -2935,7 +3128,7 @@ page_2_top_nav_frame.pack(fill=tk.X, pady=(0, 10))
 
 # 1. Nút "Quay lại" (Bên trái)
 page_2_back_button = ttk.Button(page_2_top_nav_frame, text="❮ Quay lại (Chọn Game)", 
-                                command=lambda: show_page(page_1_game_grid))
+                                command=action_go_back_and_refresh_grid)
 page_2_back_button.pack(side=tk.LEFT)
 
 g_launch_game_button = ttk.Button(
@@ -2944,6 +3137,15 @@ g_launch_game_button = ttk.Button(
     command=action_launch_game, 
     style="Accent.TButton"
 )
+
+global g_set_path_button
+g_set_path_button = ttk.Button(
+    page_2_top_nav_frame,
+    text="⚙️", 
+    command=action_set_game_path_from_page_2,
+    width=2 
+)
+CreateToolTip(g_set_path_button, "Chọn đường dẫn đến file khởi động game")
 
 # 2. Nút "Bắt đầu Cài đặt" (Bên phải)
 # (Đã di chuyển từ dưới lên đây)
@@ -2955,7 +3157,7 @@ main_tab_frame.grid_columnconfigure(0, weight=1)
 
 def show_page(page_to_show):
     """(ĐÃ VIẾT LẠI) Chuyển trang với hiệu ứng trượt."""
-    global g_current_page
+    global g_current_page, page_2_back_button, g_set_path_button
     
     # Nếu đang ở trang đó, hoặc đang chạy animation, thì không làm gì
     if g_current_page == page_to_show or g_is_animating:
@@ -2964,6 +3166,10 @@ def show_page(page_to_show):
     if g_current_page == page_2_mod_list and page_to_show != page_3_progress:
         if 'g_launch_game_button' in globals():
             g_launch_game_button.pack_forget()
+        if 'page_2_back_button' in globals():
+            page_2_back_button.pack_forget()
+        if 'g_set_path_button' in globals():
+            g_set_path_button.pack_forget()
 
     print(f"Bắt đầu chuyển trang: {g_current_page.winfo_name()} -> {page_to_show.winfo_name()}")
 
@@ -3155,7 +3361,7 @@ root.drive_icon_unknown = load_drive_icon("unknown_icon.png")
 # --- HẾT THÊM MỚI ---
 # 1. Tạo options_frame (LabelFrame) làm frame host CỐ ĐỊNH
 # Frame này sẽ có chiều cao CỐ ĐỊNH và chứa cả canvas lẫn scrollbar
-options_frame = ttk.LabelFrame(page_2_mod_list, text="Bro muốn làm gì?", padding=(5, 5), height=250)
+options_frame = ttk.LabelFrame(page_2_mod_list, text="Bro muốn làm gì?", padding=(5, 5), height=275)
 options_frame.pack(fill=tk.X, expand=False, pady=10, padx=(10, 0))
 options_frame.pack_propagate(False) # RẤT QUAN TRỌNG: Giữ chiều cao cố định
 
@@ -3264,6 +3470,12 @@ def update_guide_text():
     # (Nút sẽ được hiện lại ở Bước 5 nếu file tồn tại)
     if 'g_launch_game_button' in globals():
         g_launch_game_button.pack_forget()
+        
+    if 'g_set_path_button' in globals():
+        try:
+            g_set_path_button.pack_forget()
+        except tk.TclError:
+            pass
     g_current_launch_path = None 
 
     try:
@@ -3283,12 +3495,20 @@ def update_guide_text():
             guide_text_widget.insert(tk.END, guide_text)
 
             # 5. KIỂM TRA FILE KHỞI CHẠY (LOGIC MỚI)
-            found_launch_file = None
-            mod_list = download_options.get(g_current_game_name, [])
-            for _key, mod_data in mod_list:
-                if mod_data.get("launch_file"):
-                    found_launch_file = mod_data.get("launch_file")
-                    break # Lấy file đầu tiên tìm thấy
+            if 'game_launchers' in local_config:
+                found_launch_file = local_config['game_launchers'].get(g_current_game_name)
+                if found_launch_file:
+                    print(f"Đã tìm thấy launch file do người dùng cài đặt: {found_launch_file}")
+
+
+            # Ưu tiên 2: Lấy từ JSON (nếu local không có)
+            if not found_launch_file:
+                mod_list = download_options.get(g_current_game_name, [])
+                for _key, mod_data in mod_list:
+                    if mod_data.get("launch_file"):
+                        found_launch_file = mod_data.get("launch_file")
+                        print(f"Đã tìm thấy launch file từ JSON: {found_launch_file}")
+                        break # Lấy file đầu tiên tìm thấy
 
             destination_folder = local_config.get("game_paths", {}).get(g_current_game_name, "")
 
@@ -3305,10 +3525,6 @@ def update_guide_text():
                 if os.path.exists(full_file_path) and os.path.isfile(full_file_path):
                     print(f"Persistent Check (Page 2): Tìm thấy file khởi chạy: {full_file_path}")
                     g_current_launch_path = full_file_path
-
-                    # HIỂN THỊ NÚT
-                    if 'g_launch_game_button' in globals():
-                        g_launch_game_button.pack(side=tk.RIGHT, padx=(0, 10))
                 else:
                     # (Debug) Báo nếu đã cấu hình nhưng không tìm thấy file
                     print(f"Persistent Check (Page 2): Đã cấu hình '{found_launch_file}' nhưng không tìm thấy tại '{destination_folder}'")
@@ -3323,6 +3539,19 @@ def update_guide_text():
         guide_text_widget.insert(tk.END, "Lỗi khi tải hướng dẫn.")
     finally:
         guide_text_widget.config(state=tk.DISABLED)
+        try:
+            # 1. Pack nút "Chạy Game" (🚀) NẾU NÓ TỒN TẠI
+            #    (Pack 🚀 trước để nó ở ngoài cùng bên phải)
+            if g_current_launch_path and 'g_launch_game_button' in globals():
+                g_launch_game_button.pack(side=tk.RIGHT, padx=(0, 10)) 
+            
+            # 2. Pack nút "Đặt đường dẫn" (⚙️)
+            #    (Pack ⚙️ sau để nó ở bên trái 🚀)
+            if 'g_set_path_button' in globals():
+                g_set_path_button.pack(side=tk.RIGHT, padx=(0, 5)) 
+        
+        except Exception as e:
+            print(f"Lỗi khi pack nút bên phải: {e}")
 
 
 def on_game_search(event):
@@ -3555,23 +3784,25 @@ def populate_page_1_grid(game_groups, search_term=""):
     # (Xóa rowconfigure)
 
 
+
 def show_page_2_for_game(game_name):
     """(ĐÃ VIẾT LẠI) Tải ảnh, điền mod, và chuyển sang Trang 2."""
-    global g_current_game_name, g_game_image_label, g_game_themes
+    global g_current_game_name, g_game_image_label, g_game_themes, local_config # <-- SỬA 1: Thêm 'local_config'
+    
+    local_config = load_local_config() # <-- SỬA 2: Thêm dòng này
+    
     g_current_game_name = game_name
     path_entry.delete(0, tk.END)
     # 1. Lấy path đã lưu cho game này
-    saved_game_path = local_config.get("game_paths", {}).get(game_name, "")
+    last_used_folder = local_config.get("last_used_folder", "")
 
-    if saved_game_path:
-        path_entry.insert(0, saved_game_path)
-    else:
-        # 2. Nếu game này chưa có path, dùng path chung cuối cùng (UX)
-        last_folder = local_config.get("last_used_folder", "")
-        path_entry.insert(0, last_folder)
+    path_entry.insert(0, last_used_folder)
 
     if 'g_launch_game_button' in globals():
         g_launch_game_button.pack_forget()
+    global page_2_back_button, g_set_path_button
+    
+    page_2_back_button.pack(side=tk.LEFT)
     # Đặt lại tiêu đề khung
     options_frame.config(text=f"Các mod cho: {game_name}")
 
@@ -3614,94 +3845,152 @@ def show_page_2_for_game(game_name):
     # Chuyển trang (ngay lập tức)
     show_page(page_2_mod_list)
 
+def update_mod_button_states(selected_key):
+    """Cập nhật trạng thái text và STYLE của tất cả các nút chọn mod."""
+    global g_mod_buttons, g_current_selected_key
+    g_current_selected_key = selected_key
+    
+    for key, button in g_mod_buttons.items():
+        try:
+            if key == selected_key:
+                # Đổi style thành Accent, đổi text, và VÔ HIỆU HÓA
+                button.config(text="✓", style="Accent.TButton", state=tk.NORMAL)
+            else:
+                # Trả về style mặc định (TButton), đổi text, và BẬT
+                button.config(text="", style="TButton", state=tk.NORMAL)
+        except tk.TclError:
+            pass
+
 def update_radio_buttons_text_for_game(game_name_to_show):
-    """(ĐÃ VIẾT LẠI) Tự động nhóm mod và tạo giao diện accordion."""
-    global local_config, radio_buttons
+    """(ĐÃ VIẾT LẠI) Dùng Accent.TButton để chọn."""
+    global local_config, radio_buttons, g_mod_buttons, g_current_selected_key
+    
+    # Reset trackers
+    g_mod_buttons.clear()
+    g_current_selected_key = None
+    selected_option.set("") # Xóa lựa chọn cũ
+
     local_config = load_local_config()
     for widget in content_frame.winfo_children(): widget.destroy()
-    radio_buttons = []
+    radio_buttons = [] # Vẫn giữ, dù không dùng, để tránh lỗi ở chỗ khác
 
-    # (Các style này không đổi)
     style.configure("New.TLabel", foreground="red", font=('TkDefaultFont', 9, 'bold'))
-    style.configure("Green.TRadiobutton", foreground="green")
-
+    style.configure("Installed.TLabel", foreground="green")
 
     # --- Hàm helper để đóng/mở (toggle) ---
+    # (Hàm này không đổi)
     def create_toggle_function(mod_frame, button, separator_widget):
         def toggle():
-            if mod_frame.winfo_viewable(): # Nếu đang thấy
-                mod_frame.pack_forget()    # Ẩn đi
-                button.config(text=f"{button.game_name} ▸") # Mũi tên đóng
+            if mod_frame.winfo_viewable(): 
+                mod_frame.pack_forget()    
+                button.config(text=f"{button.game_name} ▸") 
             else:
-                # Hiện ra ngay trước dòng kẻ
                 mod_frame.pack(fill=tk.X, expand=True, before=separator_widget, padx=(15, 0)) 
-                button.config(text=f"{button.game_name} ▾") # Mũi tên mở
+                button.config(text=f"{button.game_name} ▾") 
         return toggle
 
-    # Sắp xếp tên game (ví dụ: A-Z)
     first_key_to_select = None
 
     mod_list = download_options.get(game_name_to_show, [])
 
-    for (key, data) in mod_list:
+    # --- HÀM CLICK MỚI (Đơn giản) ---
+    def create_click_handler(key_value):
+        def handler(event=None):
+            # 1. Cập nhật biến (để nút "Bắt đầu" hoạt động)
+            selected_option.set(key_value)
+            # 2. Cập nhật hướng dẫn
+            update_guide_text()
+            # 3. Cập nhật trạng thái các nút "Chọn"
+            update_mod_button_states(key_value)
+        return handler
+    # --- KẾT THÚC HÀM CLICK ---
 
-        # (Code tạo Radiobutton cũ từ đây, chỉ đổi master)
+    for (key, data) in mod_list:
+        
         display_name = data.get("name", "LỖI: THIẾU TÊN")
         online_version = data.get("version")
         if not online_version: continue 
 
         installed_version = local_config.get("installed_versions", {}).get(key, "Chưa cài đặt")
 
-        row_frame = ttk.Frame(content_frame) # <-- SỬA: master là game_mod_frame
-        row_frame.pack(fill=tk.X, pady=1)
+        # 1. Tạo Row Frame (Card nhỏ)
+        # (Không cần cursor="hand2" nữa)
+        row_frame = ttk.Frame(content_frame, style="Card.TFrame", padding=(10, 5))
+        row_frame.pack(fill=tk.X, pady=2) 
+        
+        # --- Frame bên trái cho Text ---
+        left_frame = ttk.Frame(row_frame)
+        left_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        left_frame.columnconfigure(0, weight=1) 
 
-        button_text = f"{display_name} "
-        button_style = "TRadiobutton"
-        is_new = False
+        # --- Frame bên phải cho Nút ---
+        right_frame = ttk.Frame(row_frame)
+        right_frame.pack(side=tk.RIGHT, padx=(0, 0))
 
+        # 2. Tạo Tên Mod (Label)
+        name_label = ttk.Label(left_frame, text=display_name, font=("Segoe UI", 10, "bold"), anchor=tk.CENTER)
+        name_label.grid(row=0, column=0, sticky="ew")
+
+        all_widgets_to_bind = [row_frame, left_frame, right_frame, name_label] # <-- SỬA Ở ĐÂY (thêm right_frame)
+
+        # 3. Tạo các Label Trạng thái
         if online_version == installed_version:
-            button_text += f"({online_version}) - Đã cài đặt"
-            button_style = "Green.TRadiobutton"
+            status_text = f"✓ Đã cài đặt ({online_version})"
+            status_label = ttk.Label(left_frame, text=status_text, style="Installed.TLabel", anchor=tk.CENTER) 
+            status_label.grid(row=1, column=0, sticky="ew", pady=(2, 0)) 
+            all_widgets_to_bind.append(status_label)
         else:
-            button_text += f" - Hãy cập nhật phiên bản mới nhất ({online_version})"
-            is_new = True
+            if installed_version == "Chưa cài đặt":
+                status_text = f"🔥 Cần cài đặt ({online_version})"
+            else:
+                status_text = f"🔥 Cập nhật ({online_version})" 
+            
+            new_label = ttk.Label(left_frame, text=status_text, style="New.TLabel", anchor=tk.CENTER)
+            new_label.grid(row=1, column=0, sticky="ew", pady=(2, 0))
+            all_widgets_to_bind.append(new_label)
 
-        rb = ttk.Radiobutton(
-            row_frame, 
-            text=button_text, 
-            variable=selected_option, 
-            value=key,
-            style=button_style,
-            command=update_guide_text
-        )
-        rb.pack(side=tk.LEFT)
-        radio_buttons.append(rb)
-
-        # Lưu lại key đầu tiên để chọn mặc định
+        # 4. Lấy key đầu tiên để tự động chọn
         if first_key_to_select is None:
             first_key_to_select = key
 
-        # (Code bind cuộn chuột y hệt như cũ)
-        row_frame.bind("<MouseWheel>", on_mouse_wheel)
-        rb.bind("<MouseWheel>", on_mouse_wheel)
-        row_frame.bind("<Button-4>", on_mouse_wheel)
-        rb.bind("<Button-4>", on_mouse_wheel)
-        row_frame.bind("<Button-5>", on_mouse_wheel)
-        rb.bind("<Button-5>", on_mouse_wheel)
+        # 5. TẠO NÚT "CHỌN" (Accent.TButton)
+        click_command = create_click_handler(key)
+        
+        select_button = ttk.Button(
+            right_frame, 
+            text="Chọn", 
+            command=click_command
+        )
+        select_button.pack(fill=tk.Y, expand=True)
+        
+        # Lưu nút vào dict
+        g_mod_buttons[key] = select_button
+        all_widgets_to_bind.append(select_button) # Thêm vào để bind scroll
 
-        if is_new:
-            new_label = ttk.Label(row_frame, text="NEW!", style="New.TLabel")
-            new_label.pack(side=tk.LEFT, padx=(5, 0))
-            new_label.bind("<MouseWheel>", on_mouse_wheel)
-            new_label.bind("<Button-4>", on_mouse_wheel)
-            new_label.bind("<Button-5>", on_mouse_wheel)
+        # 6. Bind Mousewheel VÀ CLICK
+        for widget in all_widgets_to_bind:
+            try:
+                # Bind cuộn chuột (như cũ)
+                widget.bind("<MouseWheel>", on_mouse_wheel)
+                widget.bind("<Button-4>", on_mouse_wheel) 
+                widget.bind("<Button-5>", on_mouse_wheel)
 
+                # --- SỬA Ở ĐÂY: Bind Click chuột trái ---
+                # (Không cần bind cho chính select_button, vì nó đã có 'command')
+                if widget != select_button:
+                    widget.bind("<Button-1>", click_command)
 
-    # Chọn mod đầu tiên (nếu có)
+            except tk.TclError as e:
+                print(f"Lỗi khi bind widget: {e}")
+
+    # 7. Tự động chọn mod đầu tiên
     if first_key_to_select:
+        # 1. Cập nhật biến
         selected_option.set(first_key_to_select)
+        # 2. Cập nhật hướng dẫn
         update_guide_text()
-
+        # 3. Cập nhật trạng thái các nút
+        update_mod_button_states(first_key_to_select)
 
 
 path_frame = ttk.Frame(page_2_mod_list)
@@ -4627,7 +4916,7 @@ def action_start_scan():
     # Hiển thị cửa sổ "Đang tải"
     scan_loading_window = tk.Toplevel(root)
     scan_loading_window.title("Đang Quét...")
-    scan_loading_window.geometry("350x100")
+    center_window_on_screen(scan_loading_window, 350, 100)
     scan_loading_window.transient(root) # Giữ nó luôn ở trên app chính
     scan_loading_window.grab_set() # Chặn tương tác với app chính
     loading_label = ttk.Label(scan_loading_window, text="Đang so sánh file GitHub JSON và Google Drive...")
@@ -4711,7 +5000,7 @@ def show_scan_report(errors, warnings):
     """Tạo cửa sổ Toplevel MỚI để hiển thị báo cáo TƯƠNG TÁC."""
     report_window = tk.Toplevel(root)
     report_window.title("Báo Cáo Quét Lỗi Đồng Bộ")
-    report_window.geometry("700x500")
+    center_window_on_screen(report_window, 700, 500)
     report_window.transient(root)
     report_window.grab_set()
 
@@ -5347,7 +5636,7 @@ def open_secret_uploader():
 
     secret_window = tk.Toplevel(root)
     secret_window.title("Secret Updater Config")
-    secret_window.geometry("500x350")
+    center_window_on_screen(secret_window, 500, 350)
     secret_window.transient(root)
     secret_window.grab_set()
 
@@ -5430,7 +5719,7 @@ def start_secret_upload():
     # Hiển thị cửa sổ "Đang tải"
     scan_loading_window = tk.Toplevel(root)
     scan_loading_window.title("Đang Upload...")
-    scan_loading_window.geometry("350x100")
+    center_window_on_screen(scan_loading_window, 350, 100)
     scan_loading_window.transient(secret_window)
     scan_loading_window.grab_set()
 
@@ -5767,4 +6056,15 @@ browse_button.config(state=tk.DISABLED)
 root.after(100, process_queue)
 threading.Thread(target=load_config_thread, daemon=True).start()
 threading.Thread(target=load_gif_frames_thread, daemon=True).start()
+# Hủy splash screen
+splash.destroy()
+sv_ttk.set_theme("dark")
+# Hiển thị cửa sổ chính
+root.deiconify()
+# Đưa cửa sổ chính lên trên cùng
+root.after(10, lambda: apply_theme_to_titlebar(root))
+root.title("[WGZ] Game Updater")
+root.attributes('-topmost', 1) 
+root.focus_force()
+root.attributes('-topmost', 0)
 root.mainloop()
