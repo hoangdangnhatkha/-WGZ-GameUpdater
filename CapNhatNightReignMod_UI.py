@@ -109,7 +109,7 @@ global g_mod_buttons
 g_mod_buttons = {}
 global g_current_selected_key
 g_current_selected_key = None
-CURRENT_VERSION = "1.2.5"
+CURRENT_VERSION = "1.2.5.1"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
@@ -691,27 +691,29 @@ def launch_riot_login_thread(riot_client_path, username, password):
             except Exception as e:
                 print(f"Cảnh báo: Không thể đọc clipboard: {e}")
                 
-            progress_queue.put(("login_status_update", "Đang focus cửa sổ..."))
+            progress_queue.put(("login_status_update", "Đang focus cửa sổ (API)..."))
             
-            # --- SỬA LỖI: Logic focus mạnh mẽ hơn ---
-            # 1. Xử lý nếu cửa sổ đang bị minimize
-            if riot_window.isMinimized:
-                print("Phát hiện cửa sổ minimize, đang restore...")
-                riot_window.restore()
-                time.sleep(1.5) # Cho cửa sổ thời gian để "tỉnh dậy"
-            
-            # 2. Nếu cửa sổ không bị minimize, chỉ cần activate
-            else:
-                print("Cửa sổ không bị minimize, đang activate...")
-                riot_window.activate()
-                time.sleep(1) # Chờ 1 giây
-            
-            # 3. (QUAN TRỌNG) Kiểm tra lại
-            # Đề phòng trường hợp cửa sổ tự động minimize sau khi restore/activate
-            if riot_window.isMinimized:
-                 print("Cảnh báo: Cửa sổ tự động minimize. Đang thử restore lại...")
-                 riot_window.restore()
-                 time.sleep(1.5)
+            try:
+                # 1. Lấy "handle" (HWND) của cửa sổ từ pygetwindow
+                hwnd = riot_window._hWnd 
+
+                # 2. Dùng hàm ShowWindow để 'restore' (nếu nó đang minimize)
+                # SW_RESTORE = 9
+                ctypes.windll.user32.ShowWindow(hwnd, 9)
+                time.sleep(0.5) # Chờ 0.5s cho nó vẽ lại
+
+                # 3. Dùng hàm SetForegroundWindow để ép nó lên trên
+                ctypes.windll.user32.SetForegroundWindow(hwnd)
+                time.sleep(1.0) # Chờ 1s cho nó nhận focus
+                
+            except Exception as e:
+                print(f"Lỗi khi dùng ctypes focus: {e}. Quay lại dùng pygetwindow...")
+                # Fallback (dự phòng) về cách cũ nếu ctypes lỗi
+                if riot_window.isMinimized:
+                    riot_window.restore()
+                else:
+                    riot_window.activate()
+                time.sleep(1.0)
 
             # --- KIỂM TRA FOCUS (LẦN 1) ---
             progress_queue.put(("login_status_update", "Kiểm tra focus... (1/3)"))
