@@ -19,6 +19,9 @@ import requests
 import json
 import rarfile
 import winreg
+import winshell  # <-- THÊM MỚI
+import glob
+import pythoncom
 from PIL import Image, ImageTk
 import pywinstyles
 import sv_ttk
@@ -106,7 +109,7 @@ global g_mod_buttons
 g_mod_buttons = {}
 global g_current_selected_key
 g_current_selected_key = None
-CURRENT_VERSION = "1.2.4"
+CURRENT_VERSION = "1.2.5"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
@@ -435,6 +438,187 @@ def save_local_config(config_data):
     except Exception as e:
         print(f"Cảnh báo: Không thể lưu config local: {e}")
 
+def find_steam_path():
+    """Quét Registry để tìm steam.exe."""
+    try:
+        # 1. Thử tìm key 64-bit
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Valve\Steam")
+    except FileNotFoundError:
+        try:
+            # 2. Nếu không thấy, thử key 32-bit
+            key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Valve\Steam")
+        except FileNotFoundError:
+            print("Không tìm thấy Steam trong Registry.")
+            return None
+    
+    try:
+        # 3. Lấy giá trị 'InstallPath'
+        install_path, _ = winreg.QueryValueEx(key, "InstallPath")
+        exe_path = os.path.join(install_path, "steam.exe")
+        
+        if os.path.exists(exe_path):
+            print(f"Đã tự động tìm thấy Steam: {exe_path}")
+            return exe_path
+        else:
+            print("Tìm thấy InstallPath của Steam nhưng không thấy steam.exe.")
+            return None
+    except Exception as e:
+        print(f"Lỗi khi đọc giá trị Registry của Steam: {e}")
+        return None
+    finally:
+        winreg.CloseKey(key)
+
+def find_shortcut_target(search_dir, shortcut_name):
+    """
+    (Hàm helper) Tìm đệ quy trong một thư mục cho một shortcut 
+    và trả về đường dẫn .exe nếu nó trỏ đến RiotClientServices.exe
+    """
+    try:
+        # Dùng os.walk để tìm đệ quy
+        for root, dirs, files in os.walk(search_dir):
+            for file in files:
+                if file.lower() == shortcut_name.lower():
+                    # Tìm thấy file shortcut (ví dụ: "Riot Client.lnk")
+                    shortcut_path = os.path.join(root, file)
+                    try:
+                        # Dùng winshell để đọc file
+                        shortcut = winshell.shortcut(shortcut_path)
+                        target_path = shortcut.path # Đây là file .exe
+                        
+                        # KIỂM TRA QUAN TRỌNG:
+                        # Đảm bảo file .exe này là file chúng ta cần
+                        if target_path and os.path.basename(target_path).lower() == "riotclientservices.exe" and os.path.exists(target_path):
+                            print(f"Tìm thấy shortcut tại: {shortcut_path}")
+                            print(f"Shortcut trỏ đến: {target_path}")
+                            return target_path
+                    except Exception as e:
+                        print(f"Lỗi khi đọc shortcut {shortcut_path}: {e}")
+    except Exception as e:
+        print(f"Lỗi khi quét thư mục {search_dir}: {e}")
+    return None
+
+def find_riot_path():
+    """
+    Quét Registry, file config VÀ SHORTCUT để tìm RiotClientServices.exe (Thử 5 phương pháp).
+    """
+    
+    # --- PHƯƠNG PHÁP 1: TÌM TRONG "UNINSTALL" (Registry HKLM) ---
+    try:
+        key_path = r'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Riot Game "Riot Client"'
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path)
+        try:
+            install_location, _ = winreg.QueryValueEx(key, "InstallLocation")
+            target_exe_path = os.path.join(install_location, "RiotClientServices.exe")
+            if os.path.exists(target_exe_path):
+                print(f"Đã tự động tìm thấy Riot (Method 1): {target_exe_path}")
+                winreg.CloseKey(key)
+                return target_exe_path
+        except Exception: pass
+        finally: winreg.CloseKey(key)
+    except FileNotFoundError: print("Không tìm thấy Riot Client (Method 1). Đang thử Method 2...")
+    except Exception: pass
+
+    # --- PHƯƠNG PHÁP 2: TÌM TRONG KEY "Riot Games" (Registry HKLM) ---
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Riot Games\Riot Client")
+        try:
+            path_bytes, _ = winreg.QueryValueEx(key, "Path")
+            install_json_path = os.path.normpath(path_bytes)
+            install_folder = os.path.dirname(install_json_path)
+            target_exe_path = os.path.join(install_folder, "RiotClientServices.exe")
+            if os.path.exists(target_exe_path):
+                print(f"Đã tự động tìm thấy Riot (Method 2): {target_exe_path}")
+                winreg.CloseKey(key)
+                return target_exe_path
+        except Exception: pass
+        finally: winreg.CloseKey(key)
+    except FileNotFoundError: print("Không tìm thấy Riot Client (Method 2). Đang thử Method 3...")
+    except Exception: pass
+
+    # --- PHƯƠNG PHÁP 3: ĐỌC FILE CONFIG CỦA USER (LOCALAPPDATA) ---
+    try:
+        local_app_data = os.getenv('LOCALAPPDATA')
+        if local_app_data:
+            config_file_path = os.path.join(local_app_data, 'Riot Games', 'Riot Client', 'Data', 'RiotClientInstalls.json')
+            if os.path.exists(config_file_path):
+                with open(config_file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    install_folder = data.get('rc_default') or data.get('rc_live')
+                    if install_folder and os.path.isdir(install_folder):
+                        target_exe_path = os.path.join(install_folder, "RiotClientServices.exe")
+                        if os.path.exists(target_exe_path):
+                            print(f"Đã tự động tìm thấy Riot (Method 3): {target_exe_path}")
+                            return target_exe_path
+            else: print(f"Không tìm thấy file config (Method 3) tại: {config_file_path}")
+    except Exception as e: print(f"Lỗi khi thực hiện Method 3: {e}")
+    print("Đang thử Method 4...")
+
+    # --- PHƯƠNG PHÁP 4: ĐỌC FILE CONFIG TỪ PROGRAMDATA (ALL USERS) ---
+    try:
+        program_data = os.getenv('PROGRAMDATA')
+        if program_data:
+            config_file_path = os.path.join(program_data, 'Riot Games', 'RiotClientInstalls.json')
+            if os.path.exists(config_file_path):
+                with open(config_file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    install_folder = data.get('rc_default') or data.get('rc_live')
+                    if install_folder and os.path.isdir(install_folder):
+                        target_exe_path = os.path.join(install_folder, "RiotClientServices.exe")
+                        if os.path.exists(target_exe_path):
+                            print(f"Đã tự động tìm thấy Riot (Method 4): {target_exe_path}")
+                            return target_exe_path
+            else: print(f"Không tìm thấy file config (Method 4) tại: {config_file_path}")
+    except Exception as e: print(f"Lỗi khi thực hiện Method 4: {e}")
+    print("Đang thử Method 5...")
+
+    # --- PHƯƠNG PHÁP 5: TÌM SHORTCUT TRONG START MENU VÀ DESKTOP ---
+    try:
+        # Các vị trí phổ biến để tìm shortcut
+        search_locations = [
+            os.path.join(os.getenv('APPDATA'), r'Microsoft\Windows\Start Menu\Programs'), # User Start Menu
+            os.path.join(os.getenv('PROGRAMDATA'), r'Microsoft\Windows\Start Menu\Programs'), # All Users Start Menu
+            os.path.join(os.getenv('USERPROFILE'), r'Desktop'), # User Desktop
+            os.path.join(os.getenv('PUBLIC'), r'Desktop') # Public Desktop
+        ]
+        
+        # Tên file shortcut (thường là thế này)
+        shortcut_to_find = "Riot Client.lnk"
+        
+        for location in search_locations:
+            print(f"Đang quét shortcut trong: {location}")
+            found_path = find_shortcut_target(location, shortcut_to_find)
+            if found_path:
+                print(f"Đã tự động tìm thấy Riot (Method 5): {found_path}")
+                return found_path
+                
+    except Exception as e:
+        print(f"Lỗi khi thực hiện Method 5 (Tìm Shortcut): {e}")
+
+    # --- NẾU CẢ 5 PHƯƠNG PHÁP ĐỀU THẤT BẠI ---
+    print("Đã thử cả 5 phương pháp nhưng không tìm thấy Riot Client.")
+    return None
+
+def auto_find_paths_thread():
+    """
+    (CHẠY NGẦM) Tự động tìm Steam và Riot.
+    Gửi kết quả về progress_queue để xử lý an toàn.
+    """
+    
+    # --- SỬA LỖI: KHỞI TẠO COM TRƯỚC KHI DÙNG WINSHELL ---
+    try:
+        pythoncom.CoInitialize()
+    except Exception as e:
+        print(f"Cảnh báo: Không thể CoInitialize(): {e}")
+    # --- HẾT SỬA ---
+
+    steam_path = find_steam_path()
+    if steam_path:
+        progress_queue.put(("steam_path_found", steam_path))
+        
+    riot_path = find_riot_path()
+    if riot_path:
+        progress_queue.put(("riot_path_found", riot_path))
+
 local_config = load_local_config()
 
 
@@ -508,12 +692,26 @@ def launch_riot_login_thread(riot_client_path, username, password):
                 print(f"Cảnh báo: Không thể đọc clipboard: {e}")
                 
             progress_queue.put(("login_status_update", "Đang focus cửa sổ..."))
-            if riot_window.isMinimized:
-                riot_window.restore()
-                time.sleep(0.5) 
             
-            riot_window.activate()
-            time.sleep(1) 
+            # --- SỬA LỖI: Logic focus mạnh mẽ hơn ---
+            # 1. Xử lý nếu cửa sổ đang bị minimize
+            if riot_window.isMinimized:
+                print("Phát hiện cửa sổ minimize, đang restore...")
+                riot_window.restore()
+                time.sleep(1.5) # Cho cửa sổ thời gian để "tỉnh dậy"
+            
+            # 2. Nếu cửa sổ không bị minimize, chỉ cần activate
+            else:
+                print("Cửa sổ không bị minimize, đang activate...")
+                riot_window.activate()
+                time.sleep(1) # Chờ 1 giây
+            
+            # 3. (QUAN TRỌNG) Kiểm tra lại
+            # Đề phòng trường hợp cửa sổ tự động minimize sau khi restore/activate
+            if riot_window.isMinimized:
+                 print("Cảnh báo: Cửa sổ tự động minimize. Đang thử restore lại...")
+                 riot_window.restore()
+                 time.sleep(1.5)
 
             # --- KIỂM TRA FOCUS (LẦN 1) ---
             progress_queue.put(("login_status_update", "Kiểm tra focus... (1/3)"))
@@ -1947,14 +2145,24 @@ def process_queue():
         elif message_type == "steam_path_found":
             path = message_value
             if 'g_steam_path_entry' in globals():
-                g_steam_path_entry.delete(0, tk.END)
-                g_steam_path_entry.insert(0, path)
+                current_path = g_steam_path_entry.get()
+                if not current_path: # Chỉ điền nếu ô còn trống
+                    print(f"Auto-fill Steam: {path}")
+                    g_steam_path_entry.delete(0, tk.END)
+                    g_steam_path_entry.insert(0, path)
+                    # Tự động lưu vào config
+                    action_save_path_settings()
                 
         elif message_type == "riot_path_found":
             path = message_value
             if 'g_riot_path_entry' in globals():
-                g_riot_path_entry.delete(0, tk.END)
-                g_riot_path_entry.insert(0, path)
+                current_path = g_riot_path_entry.get()
+                if not current_path: # Chỉ điền nếu ô còn trống
+                    print(f"Auto-fill Riot: {path}")
+                    g_riot_path_entry.delete(0, tk.END)
+                    g_riot_path_entry.insert(0, path)
+                    # Tự động lưu vào config
+                    action_save_path_settings()
         elif message_type == "all_images_preloaded":
             g_images_preloaded = True
             print("Tất cả ảnh đã được tải trước. Đang hiển thị Lưới Game (Tab 1)...")
@@ -3177,13 +3385,14 @@ main_tab_frame.grid_columnconfigure(0, weight=1)
 
 
 def show_page(page_to_show):
-    """(ĐÃ VIẾT LẠI) Chuyển trang với hiệu ứng trượt."""
+    """(ĐÃ SỬA) Chuyển trang (KHÔNG có hiệu ứng trượt)."""
     global g_current_page, page_2_back_button, g_set_path_button
     
-    # Nếu đang ở trang đó, hoặc đang chạy animation, thì không làm gì
-    if g_current_page == page_to_show or g_is_animating:
+    # Nếu đang ở trang đó, không làm gì
+    if g_current_page == page_to_show:
         return 
     
+    # Ẩn các nút nếu rời Trang 2
     if g_current_page == page_2_mod_list and page_to_show != page_3_progress:
         if 'g_launch_game_button' in globals():
             g_launch_game_button.pack_forget()
@@ -3192,20 +3401,19 @@ def show_page(page_to_show):
         if 'g_set_path_button' in globals():
             g_set_path_button.pack_forget()
 
-    print(f"Bắt đầu chuyển trang: {g_current_page.winfo_name()} -> {page_to_show.winfo_name()}")
+    print(f"Đang chuyển trang: {g_current_page.winfo_name()} -> {page_to_show.winfo_name()}")
 
-    # --- Quyết định hướng trượt (logic) ---
-    direction = "left" # Mặc định là trượt sang trái
+    # --- SỬA LỖI: Bỏ animation ---
+    # 1. Ẩn trang hiện tại (đặt nó ở relx=1, bên phải)
+    g_current_page.place(relx=1, rely=0, relwidth=1, relheight=1)
     
-    if page_to_show == page_1_game_grid:
-        # Bất cứ khi nào quay về Trang 1, ta trượt sang phải (đi lùi)
-        direction = "right"
-    elif page_to_show == page_2_mod_list and g_current_page == page_3_progress:
-        # Đi từ Trang 3 (Progress) về Trang 2 (Mod List) -> trượt sang phải
-        direction = "right"
+    # 2. Hiển thị trang mới (đặt nó ở relx=0, ngay giữa)
+    page_to_show.place(relx=0, rely=0, relwidth=1, relheight=1)
+    page_to_show.tkraise() # Đảm bảo nó ở trên cùng
     
-    # Gọi hàm animation
-    animate_slide(g_current_page, page_to_show, direction)
+    # 3. Cập nhật trang hiện tại
+    g_current_page = page_to_show
+    # --- HẾT SỬA ---
 
 # --- THÊM MỚI: HÀM ANIMATION TRƯỢT ---
 def animate_slide(page_from, page_to, direction="left"):
@@ -6117,6 +6325,7 @@ browse_button.config(state=tk.DISABLED)
 root.after(100, process_queue)
 threading.Thread(target=load_config_thread, daemon=True).start()
 threading.Thread(target=load_gif_frames_thread, daemon=True).start()
+threading.Thread(target=auto_find_paths_thread, daemon=True).start()
 # Hủy splash screen
 splash.destroy()
 sv_ttk.set_theme("dark")
