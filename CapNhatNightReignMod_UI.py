@@ -691,24 +691,51 @@ def launch_riot_login_thread(riot_client_path, username, password):
             except Exception as e:
                 print(f"Cảnh báo: Không thể đọc clipboard: {e}")
                 
-            progress_queue.put(("login_status_update", "Đang focus cửa sổ (API)..."))
+            progress_queue.put(("login_status_update", "Đang focus cửa sổ (API v3)..."))
             
             try:
-                # 1. Lấy "handle" (HWND) của cửa sổ từ pygetwindow
                 hwnd = riot_window._hWnd 
 
-                # 2. Dùng hàm ShowWindow để 'restore' (nếu nó đang minimize)
-                # SW_RESTORE = 9
-                ctypes.windll.user32.ShowWindow(hwnd, 9)
-                time.sleep(0.5) # Chờ 0.5s cho nó vẽ lại
-
-                # 3. Dùng hàm SetForegroundWindow để ép nó lên trên
-                ctypes.windll.user32.SetForegroundWindow(hwnd)
-                time.sleep(1.0) # Chờ 1s cho nó nhận focus
+                # --- ĐỊNH NGHĨA HẰNG SỐ ---
+                SW_RESTORE = 9 # Hiển thị lại cửa sổ đã minimize
                 
+                # --- VÒNG LẶP KIỂM TRA FOCUS (Tối đa 3 giây) ---
+                # Chúng ta sẽ thử trong 3 giây để cửa sổ ổn định.
+                start_time = time.time()
+                while True:
+                    # 1. KIỂM TRA XEM CÓ BỊ MINIMIZE KHÔNG
+                    is_minimized = ctypes.windll.user32.IsIconic(hwnd)
+                    
+                    if is_minimized:
+                        print("API: Phát hiện minimize. Đang Restore (SW_RESTORE)...")
+                        # GỌI LỆNH RESTORE
+                        ctypes.windll.user32.ShowWindow(hwnd, SW_RESTORE)
+                        time.sleep(0.5) # Chờ 0.5s cho nó vẽ lại
+                    
+                    # 2. SAU KHI RESTORE (HOẶC NẾU KHÔNG BỊ), ÉP FOCUS
+                    # Dùng SetForegroundWindow để đưa cửa sổ lên trên cùng
+                    print("API: Đang SetForegroundWindow...")
+                    ctypes.windll.user32.SetForegroundWindow(hwnd)
+                    time.sleep(0.5) # Chờ 0.5s
+                    
+                    # 3. KIỂM TRA LẠI
+                    # Lấy HWND của cửa sổ đang focus *hiện tại*
+                    current_focus_hwnd = ctypes.windll.user32.GetForegroundWindow()
+                    
+                    if hwnd == current_focus_hwnd:
+                        print("API: Focus thành công! (HWND trùng khớp)")
+                        break # Thoát vòng lặp
+                    
+                    # 4. KIỂM TRA HẾT GIỜ
+                    if time.time() - start_time > 3.0:
+                        print("API CẢNH BÁO: Hết thời gian chờ focus (3s).")
+                        # Vẫn tiếp tục, hi vọng nó hoạt động
+                        break 
+                        
+                    print("API: Cửa sổ chưa focus, đang thử lại...")
+
             except Exception as e:
                 print(f"Lỗi khi dùng ctypes focus: {e}. Quay lại dùng pygetwindow...")
-                # Fallback (dự phòng) về cách cũ nếu ctypes lỗi
                 if riot_window.isMinimized:
                     riot_window.restore()
                 else:
