@@ -109,9 +109,11 @@ global g_mod_buttons
 g_mod_buttons = {}
 global g_current_selected_key
 g_current_selected_key = None
-CURRENT_VERSION = "1.2.5.1"
+CURRENT_VERSION = "1.2.6"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
+
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1439922562422411387/dL6kx7UA7gde-gh4ChiVs_tw5M3XY9NVyDzergGTEQLnaPkRde65ymnrwtWo9bktoIxS"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
 def resource_path(relative_path):
     """ Lấy đường dẫn tuyệt đối, hoạt động cho cả .py và .exe """
@@ -199,7 +201,7 @@ class CreateToolTip(object):
 
 def check_for_updates(config_data):
     """
-    So sánh phiên bản hiện tại, HIỂN THỊ POPUP NGAY LẬP TỨC.
+    So sánh phiên bản hiện tại, HIỂN THỊ POPUP VÀ BẮT BUỘC CẬP NHẬT.
     Trả về True nếu tìm thấy update, False nếu không.
     """
     try:
@@ -220,40 +222,46 @@ def check_for_updates(config_data):
                 print("Lỗi config: 'download_url' bị thiếu.")
                 return False
 
+            # --- SỬA: Thay đổi nội dung tin nhắn thành tin nhắn BẮT BUỘC ---
             message = (
                 f"Đã có phiên bản mới: {latest_version_str}!\n"
                 f"(Bạn đang dùng: {CURRENT_VERSION})\n\n"
                 f"Ghi chú:\n{notes}\n\n"
-                "Bạn có muốn tự động cập nhật ngay bây giờ?"
+                "Đây là bản cập nhật bắt buộc. Ứng dụng sẽ tự động cập nhật ngay bây giờ."
             )
 
-            # --- SỬA: Hiển thị popup và chạy updater ngay lập tức ---
-            if messagebox.askyesno("Có Cập Nhật Mới!", message):
-                try:
-                    main_app_path = sys.executable
-                    main_app_dir = os.path.dirname(main_app_path)
-                    updater_exe_path = os.path.join(main_app_dir, "updater.exe") 
+            # --- SỬA: Thay 'messagebox.askyesno' bằng 'messagebox.showwarning' ---
+            # Người dùng chỉ có thể bấm "OK"
+            messagebox.showwarning("Chuẩn Bị Cập Nhật!", message)
+            
+            # --- SỬA: Xóa 'if' - Chạy logic cập nhật ngay lập tức ---
+            try:
+                main_app_path = sys.executable
+                main_app_dir = os.path.dirname(main_app_path)
+                updater_exe_path = os.path.join(main_app_dir, "updater.exe") 
 
-                    if not os.path.exists(updater_exe_path):
-                        raise FileNotFoundError("Không tìm thấy file 'updater.exe'.")
+                if not os.path.exists(updater_exe_path):
+                    raise FileNotFoundError("Không tìm thấy file 'updater.exe'.")
 
-                    print("Đang xác thực file updater.exe...")
-                    is_valid, reason = verify_file_hash(updater_exe_path, EXPECTED_UPDATER_HASH)
+                print("Đang xác thực file updater.exe...")
+                is_valid, reason = verify_file_hash(updater_exe_path, EXPECTED_UPDATER_HASH)
 
-                    if not is_valid:
-                        messagebox.showerror("Lỗi An Ninh", f"Không thể chạy trình cập nhật. Lý do: {reason}.")
-                        webbrowser.open_new_tab(url)
-                        return True # Vẫn trả về True vì đã tìm thấy
-
-                    print("Xác thực thành công. Bắt đầu chạy updater...")
-                    subprocess.Popen([updater_exe_path, url, main_app_path])
-                    root.destroy()
-
-                except Exception as e:
-                    messagebox.showerror("Lỗi Cập Nhật", f"Không thể chạy updater: {e}\nSẽ mở link tải thủ công.")
+                if not is_valid:
+                    messagebox.showerror("Lỗi An Ninh", f"Không thể chạy trình cập nhật. Lý do: {reason}.")
                     webbrowser.open_new_tab(url)
+                    return True # Vẫn trả về True vì đã tìm thấy
 
-            return True # Đã tìm thấy update (dù người dùng bấm Yes hay No)
+                print("Xác thực thành công. Bắt đầu chạy updater...")
+                # (Chúng ta chạy updater và thoát ngay)
+                subprocess.Popen([updater_exe_path, url, main_app_path])
+                root.destroy()
+
+            except Exception as e:
+                # Nếu có lỗi khi chạy updater, mở link tải thủ công
+                messagebox.showerror("Lỗi Cập Nhật", f"Không thể chạy updater: {e}\nSẽ mở link tải thủ công.")
+                webbrowser.open_new_tab(url)
+            
+            return True # Đã tìm thấy update
             # --- HẾT SỬA ---
 
         else:
@@ -622,10 +630,13 @@ def auto_find_paths_thread():
 local_config = load_local_config()
 
 
+# DÁN CODE NÀY ĐÈ LÊN HÀM 'launch_riot_login_thread' CŨ CỦA BẠN
+# (Từ dòng 746 đến 918)
+
 def launch_riot_login_thread(riot_client_path, username, password):
     """
     (CHẠY TRONG THREAD)
-    Kiểm tra focus liên tục trước khi gõ phím.
+    Kiểm tra focus liên tục VÀ CHỜ FORM SẴN SÀNG trước khi gõ phím.
     """
     
     try:
@@ -665,7 +676,7 @@ def launch_riot_login_thread(riot_client_path, username, password):
         subprocess.Popen([riot_client_path])
         
         # --- BƯỚC 4: CHỜ THÔNG MINH (Như cũ) ---
-        timeout_seconds = 20
+        timeout_seconds = 30
         start_time = time.time()
         riot_window = None
         
@@ -683,9 +694,10 @@ def launch_riot_login_thread(riot_client_path, username, password):
 
             time.sleep(0.5)
         
-        # --- BƯỚC 5: TỰ ĐỘNG HÓA (CÓ KIỂM TRA FOCUS) ---
+        # --- BƯỚC 5: TỰ ĐỘNG HÓA (ĐÃ CẬP NHẬT) ---
         try:
-            # --- BƯỚC 5A: LƯU CLIPBOARD GỐC CỦA NGƯỜI DÙNG ---
+            from pywinauto.application import Application
+            # --- BƯỚC 5A: LƯU CLIPBOARD GỐC (Như cũ) ---
             try:
                 original_clipboard = pyperclip.paste()
             except Exception as e:
@@ -696,102 +708,125 @@ def launch_riot_login_thread(riot_client_path, username, password):
             try:
                 hwnd = riot_window._hWnd 
 
-                # --- ĐỊNH NGHĨA HẰNG SỐ ---
                 SW_RESTORE = 9 # Hiển thị lại cửa sổ đã minimize
                 
-                # --- VÒNG LẶP KIỂM TRA FOCUS (Tối đa 3 giây) ---
-                # Chúng ta sẽ thử trong 3 giây để cửa sổ ổn định.
+                # --- VÒNG LẶP KIỂM TRA FOCUS (Như cũ) ---
                 start_time = time.time()
                 while True:
-                    # 1. KIỂM TRA XEM CÓ BỊ MINIMIZE KHÔNG
                     is_minimized = ctypes.windll.user32.IsIconic(hwnd)
                     
                     if is_minimized:
                         print("API: Phát hiện minimize. Đang Restore (SW_RESTORE)...")
-                        # GỌI LỆNH RESTORE
                         ctypes.windll.user32.ShowWindow(hwnd, SW_RESTORE)
-                        time.sleep(0.5) # Chờ 0.5s cho nó vẽ lại
+                        time.sleep(0.5) 
                     
-                    # 2. SAU KHI RESTORE (HOẶC NẾU KHÔNG BỊ), ÉP FOCUS
-                    # Dùng SetForegroundWindow để đưa cửa sổ lên trên cùng
                     print("API: Đang SetForegroundWindow...")
                     ctypes.windll.user32.SetForegroundWindow(hwnd)
-                    time.sleep(0.5) # Chờ 0.5s
+                    time.sleep(0.5)
                     
-                    # 3. KIỂM TRA LẠI
-                    # Lấy HWND của cửa sổ đang focus *hiện tại*
                     current_focus_hwnd = ctypes.windll.user32.GetForegroundWindow()
                     
                     if hwnd == current_focus_hwnd:
                         print("API: Focus thành công! (HWND trùng khớp)")
-                        break # Thoát vòng lặp
+                        break
                     
-                    # 4. KIỂM TRA HẾT GIỜ
                     if time.time() - start_time > 3.0:
                         print("API CẢNH BÁO: Hết thời gian chờ focus (3s).")
-                        # Vẫn tiếp tục, hi vọng nó hoạt động
                         break 
                         
                     print("API: Cửa sổ chưa focus, đang thử lại...")
 
             except Exception as e:
+                # Fallback (Như cũ)
                 print(f"Lỗi khi dùng ctypes focus: {e}. Quay lại dùng pygetwindow...")
                 if riot_window.isMinimized:
                     riot_window.restore()
                 else:
                     riot_window.activate()
                 time.sleep(1.0)
+                # Lấy lại HWND sau khi fallback
+                hwnd = riot_window._hWnd 
+
+            # --- *** BƯỚC 5B: (MỚI) CHỜ FORM LOGIN SẴN SÀNG *** ---
+            try:
+                progress_queue.put(("login_status_update", "Đang kết nối với UI..."))
+                # 1. Kết nối pywinauto với cửa sổ Riot mà pygetwindow tìm thấy
+                # (Chúng ta dùng backend="uia" vì nó hiện đại, tốt cho app như Riot)
+                app = Application(backend="uia").connect(handle=riot_window._hWnd, timeout=20)
+                
+                # 2. Lấy đối tượng cửa sổ
+                dlg = app.window(handle=riot_window._hWnd)
+                
+                progress_queue.put(("login_status_update", "Đang chờ form login..."))
+                
+                # 3. Chờ cho đến khi label "TÊN NGƯỜI DÙNG" xuất hiện (tối đa 20s)
+                # (Dựa trên ảnh screenshot của bạn)
+                login_label = dlg.child_window(title="TÊN NGƯỜI DÙNG", control_type="Text")
+                login_label.wait('visible', timeout=20) 
+                
+                progress_queue.put(("login_status_update", "Form đã sẵn sàng!"))
+                
+            except Exception as e:
+                # Nếu hết 20s mà không tìm thấy, báo lỗi và hủy
+                print(f"Lỗi pywinauto: {e}")
+                progress_queue.put(("login_status_hide", f"Lỗi: Hết thời gian chờ form login ({e})"))
+                return
+
+            # --- BƯỚC 5C: TỰ ĐỘNG HÓA (Đã tối ưu) ---
 
             # --- KIỂM TRA FOCUS (LẦN 1) ---
-            progress_queue.put(("login_status_update", "Kiểm tra focus... (1/3)"))
-            if gw.getActiveWindow() != riot_window:
-                raise Exception("Người dùng đã click ra ngoài. Hủy đăng nhập.")
+            # (Kiểm tra này vẫn cần thiết, đề phòng người dùng click ra ngoài)
+            progress_queue.put(("login_status_update", "Kiểm tra focus API... (1/3)"))
+            is_minimized_check1 = ctypes.windll.user32.IsIconic(hwnd)
+            current_focus_check1 = ctypes.windll.user32.GetForegroundWindow()
+            if is_minimized_check1 or current_focus_check1 != hwnd:
+                raise Exception("Cửa sổ mất focus. Hủy đăng nhập. (Code 1)")
             
-            # --- SỬA: DÙNG PASTE USERNAME ---
-            progress_queue.put(("login_status_update", "Đang dán username..."))
-            pyperclip.copy(username) # Copy username vào clipboard
-            pyautogui.hotkey('ctrl', 'v') # Dán (Ctrl+V)
+            # --- SỬA: DÙNG PASTE USERNAME (Như cũ) ---
+            progress_queue.put(("login_status_update", "Đang gõ username..."))
+            # Gõ từng phím với khoảng trễ 0.05s để đảm bảo client nhận kịp
+            pyautogui.typewrite(username, interval=0.05) 
             
+            # Chờ client xử lý 'tab' (giữ nguyên)
             pyautogui.press('tab')
-            time.sleep(0.5)
 
             # --- KIỂM TRA FOCUS (LẦN 2) ---
-            progress_queue.put(("login_status_update", "Kiểm tra focus... (2/3)"))
-            if gw.getActiveWindow() != riot_window:
-                raise Exception("Người dùng đã click ra ngoài. Hủy đăng nhập.")
+            progress_queue.put(("login_status_update", "Kiểm tra focus API... (2/3)"))
+            is_minimized_check2 = ctypes.windll.user32.IsIconic(hwnd)
+            current_focus_check2 = ctypes.windll.user32.GetForegroundWindow()
+            if is_minimized_check2 or current_focus_check2 != hwnd:
+                raise Exception("Cửa sổ mất focus. Hủy đăng nhập. (Code 2)")
 
-            # --- SỬA: DÙNG PASTE PASSWORD ---
-            progress_queue.put(("login_status_update", "Đang dán password..."))
-            pyperclip.copy(password) # Copy password vào clipboard
-            pyautogui.hotkey('ctrl', 'v') # Dán (Ctrl+V)
+            # --- SỬA: DÙNG PASTE PASSWORD (Như cũ) ---
+            progress_queue.put(("login_status_update", "Đang gõ password..."))
+            pyautogui.typewrite(password, interval=0.05)
             
-            time.sleep(0.2) # Chờ 0.2 giây
+            # time.sleep(0.2) # <-- ĐÃ XÓA: Không cần thiết
 
             # --- KIỂM TRA FOCUS (LẦN 3) ---
-            progress_queue.put(("login_status_update", "Kiểm tra focus... (3/3)"))
-            if gw.getActiveWindow() != riot_window:
-                raise Exception("Người dùng đã click ra ngoài. Hủy đăng nhập.")
+            progress_queue.put(("login_status_update", "Kiểm tra focus API... (3/3)"))
+            is_minimized_check3 = ctypes.windll.user32.IsIconic(hwnd)
+            current_focus_check3 = ctypes.windll.user32.GetForegroundWindow()
+            if is_minimized_check3 or current_focus_check3 != hwnd:
+                raise Exception("Cửa sổ mất focus. Hủy đăng nhập. (Code 3)")
 
             pyautogui.press('enter')
             
             progress_queue.put(("login_status_update", "Hoàn tất! Đang chờ..."))
-            time.sleep(3)
+            time.sleep(3) # Giữ lại sleep 3s *SAU KHI ENTER* để chờ login
 
         finally:
-            # === BƯỚC 5B: KHÔI PHỤC CLIPBOARD GỐC VÀ ẨN POPUP ===
+            # === BƯỚC 5D: KHÔI PHỤC CLIPBOARD VÀ ẨN POPUP (Như cũ) ===
             try:
-                # Trả lại nội dung cũ cho clipboard của người dùng
                 pyperclip.copy(original_clipboard)
             except Exception as e:
                  print(f"Cảnh báo: Không thể khôi phục clipboard: {e}")
                  
-            # Ẩn thông báo (như cũ)
             progress_queue.put(("login_status_hide", None))
 
     except Exception as e:
         # Bắt lỗi từ 'raise Exception' hoặc bất kỳ lỗi nào khác
         print(f"Lỗi không xác định trong launch_riot_login_thread: {e}")
-        # Gửi tin nhắn lỗi về để process_queue hiển thị
         progress_queue.put(("login_status_hide", f"Đã hủy: {e}"))
 
 
@@ -1640,7 +1675,7 @@ def download_and_extract_logic():
         local_config['installed_versions'][selected_key] = new_version
         save_local_config(local_config)
 
-        update_radio_buttons_text_for_game(g_current_game_name)
+        refresh_mod_list_ui()
         progress_queue.put(("installation_complete_refresh_grid", None))
 
     except (zipfile.BadZipFile, rarfile.BadRarFile) as e:
@@ -2378,7 +2413,25 @@ def process_queue():
             messagebox.showerror("Lỗi Upload Theme", message_value, parent=g_theme_manager_window)
             # Tải lại config (vì có thể local và remote đã lệch)
             action_load_from_github_wrapper()
-
+        elif message_type == "anydesk_id_sent":
+            anydesk_id = message_value
+            messagebox.showinfo("Đã gửi Yêu cầu",
+                                f"Đã tự động gửi ID ({anydesk_id}) của bạn đến Discord\n\n"
+                                "Vui lòng giữ cửa sổ AnyDesk mở và đợi kết nối.",
+                                parent=root)
+        # --- THÊM MỚI: XỬ LÝ HỒI ĐÁP CỦA ANYDESK ---
+        elif message_type == "anydesk_error":
+            messagebox.showerror("Lỗi AnyDesk", 
+                                 f"Không thể khởi chạy AnyDesk:\n{message_value}",
+                                 parent=root)
+        
+        elif message_type == "anydesk_done":
+            # Bất kể thành công hay lỗi, bật lại nút
+            if 'g_anydesk_button' in globals():
+                try:
+                    g_anydesk_button.config(state=tk.NORMAL, text="🚀 Khởi chạy Hỗ trợ Từ xa")
+                except tk.TclError:
+                    pass
     except queue.Empty:
         pass
 
@@ -2421,6 +2474,7 @@ try:
     
 except Exception as e:
     print(f"Cảnh báo: Không thể tạo singleton mutex: {e}")
+
 # --- Cài đặt cửa sổ Giao diện (UI) ---
 root = TkinterDnD.Tk()
 root.withdraw()
@@ -3289,50 +3343,6 @@ def action_go_back_and_refresh_grid():
         # Fallback: Dù lỗi cũng quay lại
         show_page(page_1_game_grid)
 
-def delete_selected_account():
-    """Xóa account đã chọn khỏi Treeview."""
-    global g_user_accounts_data, g_acct_current_game # <-- SỬA Ở ĐÂY
-    
-    try:
-        selected_item_id = g_acct_list_treeview.selection()[0]
-        item_index = int(selected_item_id)
-    except (IndexError, TypeError):
-        messagebox.showwarning("Lỗi", "Vui lòng chọn một account để xóa.")
-        return
-
-    # Lấy nickname để xác nhận
-    try:
-        # --- SỬA LỖI: Đọc từ g_user_accounts_data ---
-        nickname = g_user_accounts_data[g_acct_current_game][item_index]["nickname"] # <-- SỬA Ở ĐÂY
-    except Exception:
-        nickname = "Account đã chọn"
-        
-    if messagebox.askyesno("Xác nhận Xóa", f"Bạn có chắc chắn muốn xóa '{nickname}'?"):
-        try:
-            g_user_accounts_data[g_acct_current_game].pop(item_index)
-            
-            if not g_user_accounts_data[g_acct_current_game]:
-                del g_user_accounts_data[g_acct_current_game]
-            
-            threading.Thread(target=save_accounts_to_drive_thread, daemon=True).start()
-            
-            # Refresh
-            show_account_list_for_game(g_acct_current_game) # Refresh danh sách
-            populate_account_game_grid() # Refresh lưới (vì game có thể bị xóa)
-            
-        except Exception as e:
-            messagebox.showerror("Lỗi", f"Không thể xóa account: {e}")
-
-# --- Thêm Menu Chuột phải (Context Menu) cho Treeview ---
-account_context_menu = tk.Menu(g_acct_list_treeview, tearoff=0)
-account_context_menu.add_command(
-    label="Sửa Account...", 
-    command=lambda: open_add_edit_account_popup(
-        int(g_acct_list_treeview.selection()[0]) # Lấy index và truyền vào
-    )
-)
-account_context_menu.add_command(label="Xóa Account", command=delete_selected_account)
-
 
 # --- HẾT CODE CHO TAB 2 ("Quản lý Account") ---
 # --- THÊM MỚI: TẠO 3 KHUNG TRANG (PAGE) ---
@@ -4099,15 +4109,23 @@ def show_page_2_for_game(game_name):
         # 4. Gửi về queue để cập nhật UI
         progress_queue.put(("game_image_loaded", icon_img))
 
-    # Bắt đầu tải ảnh ngầm
+    # Bắt đầu tải ảnh ngầm (Việc này nhanh, giữ nguyên)
     threading.Thread(target=load_game_image_thread, daemon=True).start()
-    # --- HẾT LOGIC TẢI ẢNH ---
-
-    # Điền danh sách mod (ngay lập tức)
-    update_radio_buttons_text_for_game(game_name) 
-
-    # Chuyển trang (ngay lập tức)
-    show_page(page_2_mod_list)
+    
+    # --- SỬA LỖI TỐI ƯU HÓA (BEGIN) ---
+    
+    # 1. XÓA SẠCH WIDGET CŨ (của game trước) NGAY LẬP TỨC
+    # (Di chuyển code 'destroy' từ hàm update_radio_buttons lên đây)
+    for widget in content_frame.winfo_children(): 
+        widget.destroy()
+    
+    # 2. CHUYỂN TRANG NGAY LẬP TỨC (Khi trang còn trống)
+    # (Hàm này giờ chỉ là `place()`, rất nhanh)
+    show_page(page_2_mod_list) 
+    
+    # 3. HẸN GIỜ (10ms) ĐỂ BẮT ĐẦU VẼ CÁC NÚT MỚI
+    # Điều này cho phép UI chuyển trang mượt mà trước khi bị "khóa"
+    root.after(10, update_radio_buttons_text_for_game, game_name)
 
 def update_mod_button_states(selected_key):
     """Cập nhật trạng thái text và STYLE của tất cả các nút chọn mod."""
@@ -4141,8 +4159,6 @@ def update_radio_buttons_text_for_game(game_name_to_show):
     g_current_selected_key = None
     selected_option.set("") # Xóa lựa chọn cũ
 
-    local_config = load_local_config()
-    for widget in content_frame.winfo_children(): widget.destroy()
     radio_buttons = [] # Vẫn giữ, dù không dùng, để tránh lỗi ở chỗ khác
 
     style.configure("New.TLabel", foreground="red", font=('TkDefaultFont', 9, 'bold'))
@@ -4289,6 +4305,28 @@ def update_radio_buttons_text_for_game(game_name_to_show):
         update_guide_text()
         # 3. Cập nhật trạng thái các nút
         update_mod_button_states(first_key_to_select)
+
+def refresh_mod_list_ui():
+    """
+    (Hàm mới) Xóa và vẽ lại danh sách mod (Trang 2) 
+    để cập nhật trạng thái (ví dụ: "Đã cài đặt").
+    """
+    global content_frame, g_current_game_name
+    
+    # Kiểm tra xem Trang 2 có đang hoạt động không
+    if not g_current_game_name or not content_frame.winfo_exists():
+        print("Lỗi: Không thể refresh mod list (UI không tồn tại).")
+        return
+
+    print(f"Đang làm mới danh sách mod cho: {g_current_game_name}")
+    
+    # 1. Xóa tất cả các nút mod cũ (ĐIỀU QUAN TRỌNG NHẤT)
+    for widget in content_frame.winfo_children(): 
+        widget.destroy()
+        
+    # 2. Gọi hàm vẽ lại các nút mod mới
+    # (Hàm này sẽ đọc config mới và vẽ lại đúng trạng thái)
+    update_radio_buttons_text_for_game(g_current_game_name)
 
 
 path_frame = ttk.Frame(page_2_mod_list)
@@ -6172,6 +6210,117 @@ def action_save_path_settings():
         
     except Exception as e:
         print(f"Lỗi khi lưu cài đặt đường dẫn: {e}")
+
+
+def action_launch_anydesk():
+    """
+    (HÀM MỚI)
+    Tìm, giải nén (copy) và chạy file AnyDesk.exe đã được đóng gói.
+    """
+    # 1. Vô hiệu hóa nút để tránh click nhiều lần
+    if 'g_anydesk_button' in globals():
+        g_anydesk_button.config(state=tk.DISABLED, text="Đang mở AnyDesk...")
+    
+    # 3. Bắt đầu tác vụ nặng trong thread (để không làm treo UI)
+    threading.Thread(target=launch_anydesk_thread, daemon=True).start()
+
+def launch_anydesk_thread():
+    """
+    (CHẠY NGẦM) 
+    Sao chép AnyDesk, CỐ GẮNG lấy ID, gửi nếu có, và SAU ĐÓ khởi chạy GUI.
+    """
+    # Cần thiết để ẩn cửa sổ console khi chạy subprocess
+    CREATE_NO_WINDOW = 0x08000000 
+    anydesk_id = None # Khởi tạo là None
+    
+    try:
+        # 1. Tìm và sao chép AnyDesk.exe ra thư mục Temp (giống như cũ)
+        source_path = resource_path("AnyDesk.exe")
+        if not os.path.exists(source_path):
+            raise FileNotFoundError("Không tìm thấy file 'AnyDesk.exe' đã đóng gói.")
+
+        temp_dir = os.environ.get('TEMP', os.getcwd())
+        dest_path = os.path.join(temp_dir, "AnyDesk_WGZ_Support.exe")
+        
+        print(f"Đang copy AnyDesk từ {source_path} -> {dest_path}")
+        shutil.copy2(source_path, dest_path)
+
+        # 2. CỐ GẮNG LẤY ID TỪ XA (Chạy lệnh --get-id)
+        print("Đang thử lấy ID AnyDesk...")
+        command_get_id = [dest_path, "--get-id"]
+        
+        try:
+            result = subprocess.run(
+                command_get_id, 
+                capture_output=True, 
+                text=True, 
+                timeout=5, # Thêm timeout 5 giây
+                creationflags=CREATE_NO_WINDOW
+            )
+            
+            output_id = result.stdout.strip()
+            
+            # Kiểm tra ID hợp lệ (phải là số và không phải "0")
+            if output_id.isdigit() and output_id != "0":
+                anydesk_id = output_id # Lưu ID hợp lệ
+            else:
+                print(f"Không thể tự động lấy ID (ID trả về: '{output_id}'). Đây có thể là lần chạy đầu tiên.")
+        
+        except Exception as e:
+            # Lỗi khi chạy --get-id (ví dụ: timeout)
+            print(f"Lỗi khi chạy --get-id: {e}. Sẽ mở GUI cho người dùng tự đọc.")
+            # Bỏ qua và tiếp tục, anydesk_id vẫn là None
+
+        # 3. GỬI ID LÊN DISCORD (NẾU CÓ)
+        if anydesk_id:
+            print(f"Lấy ID thành công: {anydesk_id}")
+            if "YOUR_ID" in DISCORD_WEBHOOK_URL:
+                print("Cảnh báo: DISCORD_WEBHOOK_URL chưa được cấu hình. Bỏ qua gửi.")
+            else:
+                print("Đang gửi ID lên Discord...")
+                payload = { "content": f"**Yêu cầu Hỗ trợ Mới!**\n> ID AnyDesk: `{anydesk_id}`" }
+                try:
+                    requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
+                except Exception as e:
+                    print(f"Lỗi khi gửi lên Discord: {e}") # Không dừng chương trình
+        else:
+            print("Không có ID tự động. Người dùng sẽ phải tự đọc.")
+
+        # 4. KHỞI CHẠY GUI CHO NGƯỜI DÙNG (LUÔN LUÔN)
+        print(f"Đang khởi chạy GUI AnyDesk cho người dùng...")
+        subprocess.Popen([dest_path])
+        
+        # 5. GỬI KẾT QUẢ VỀ QUEUE
+        if anydesk_id:
+            # Gửi tin nhắn thành công (có ID)
+            progress_queue.put(("anydesk_id_sent", anydesk_id))
+        else:
+            # Gửi tin nhắn yêu cầu đọc thủ công
+            progress_queue.put(("anydesk_manual_read_required", None))
+
+        # 6. (Tùy chọn) Chờ và Focus cửa sổ AnyDesk
+        time.sleep(5) # Cho AnyDesk 5s để mở
+        try:
+            windows = gw.getWindowsWithTitle('AnyDesk')
+            if windows:
+                print("Đã tìm thấy cửa sổ AnyDesk. Đang focus...")
+                window = windows[0]
+                if window.isMinimized:
+                    window.restore()
+                window.activate()
+        except Exception as e:
+            print(f"Lỗi khi focus cửa sổ AnyDesk: {e}")
+        
+    except Exception as e:
+        # Lỗi nghiêm trọng (ví dụ: không tìm thấy file AnyDesk.exe)
+        print(f"Lỗi nghiêm trọng trong luồng AnyDesk: {e}")
+        # SỬA LỖI: Gửi đúng thông báo lỗi (không phải 'anydesk_error')
+        # Chúng ta sẽ gửi chính lỗi đó
+        progress_queue.put(("anydesk_error", str(e)))
+    
+    finally:
+        # Luôn bật lại nút sau khi hoàn tất
+        progress_queue.put(("anydesk_done", None))
 # --- THÊM MỚI: CÀI ĐẶT ĐƯỜNG DẪN STEAM ---
 steam_path_frame = ttk.Frame(setting_frame)
 steam_path_frame.pack(fill=tk.X, padx=5, pady=(5,5))
@@ -6226,6 +6375,20 @@ riot_browse_button = ttk.Button(riot_path_frame, text="...",
                                  command=browse_riot_exe, width=3)
 riot_browse_button.pack(side=tk.LEFT)
 # --- HẾT THÊM MỚI ---
+
+# --- THÊM MỚI: KHUNG HỖ TRỢ KỸ THUẬT ---
+support_frame = ttk.LabelFrame(fourth_tab_frame, text="Hỗ trợ Kỹ thuật", padding=(10, 10))
+support_frame.pack(fill=tk.X, pady=(20, 10), padx=5)
+
+# Nút mới sẽ gọi hàm 'action_launch_anydesk'
+global g_anydesk_button
+g_anydesk_button = ttk.Button(
+    support_frame,
+    text="🚀 Khởi chạy Hỗ trợ Từ xa",
+    command=action_launch_anydesk, # Hàm logic mới chúng ta sẽ tạo
+    style="Accent.TButton"
+)
+g_anydesk_button.pack(pady=5, anchor=tk.W)
 
 # 2. Nút Kiểm tra Cập nhật (NÚT MỚI)
 # Khai báo nút ở phạm vi global để process_queue có thể truy cập
