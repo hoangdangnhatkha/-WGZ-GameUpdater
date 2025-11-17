@@ -6227,100 +6227,149 @@ def action_launch_anydesk():
 def launch_anydesk_thread():
     """
     (CHẠY NGẦM) 
-    Sao chép AnyDesk, CỐ GẮNG lấy ID, gửi nếu có, và SAU ĐÓ khởi chạy GUI.
+    Logic hoàn chỉnh, đã sửa lỗi "lần đầu chạy":
+    1. Kiểm tra xem AnyDesk đã cài đặt chưa.
+    2. Nếu có, dùng file đã cài để lấy ID.
+    3. Nếu không, CHẠY QUY TRÌNH CÀI ĐẶT (UAC).
+    4. Sau khi cài đặt, lấy ID từ file vừa cài.
     """
-    # Cần thiết để ẩn cửa sổ console khi chạy subprocess
-    CREATE_NO_WINDOW = 0x08000000 
-    anydesk_id = None # Khởi tạo là None
+    anydesk_id = None
     
     try:
-        # 1. Tìm và sao chép AnyDesk.exe ra thư mục Temp (giống như cũ)
-        source_path = resource_path("AnyDesk.exe")
-        if not os.path.exists(source_path):
-            raise FileNotFoundError("Không tìm thấy file 'AnyDesk.exe' đã đóng gói.")
-
-        temp_dir = os.environ.get('TEMP', os.getcwd())
-        dest_path = os.path.join(temp_dir, "AnyDesk_WGZ_Support.exe")
+        # --- 1. KIỂM TRA PHIÊN BẢN ĐÃ CÀI ĐẶT ---
+        installed_exe_path = r"C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
+        anydesk_to_use = None # Biến sẽ lưu đường dẫn .exe để chạy
         
-        print(f"Đang copy AnyDesk từ {source_path} -> {dest_path}")
-        shutil.copy2(source_path, dest_path)
+        if os.path.exists(installed_exe_path):
+            print("Phát hiện AnyDesk đã được cài đặt. Sẽ dùng file này.")
+            anydesk_to_use = installed_exe_path
+        else:
+            # --- 2. LOGIC CÀI ĐẶT (VÌ CHƯA CÀI) ---
+            print("AnyDesk chưa được cài đặt. Bắt đầu quy trình cài đặt lần đầu.")
+            
+            # 2a. Sao chép file portable (giống như cũ)
+            source_path = resource_path("AnyDesk.exe")
+            if not os.path.exists(source_path):
+                raise FileNotFoundError("Không tìm thấy file 'AnyDesk.exe' đã đóng gói.")
 
-        # 2. CỐ GẮNG LẤY ID TỪ XA (Chạy lệnh --get-id)
-        print("Đang thử lấy ID AnyDesk...")
-        command_get_id = [dest_path, "--get-id"]
+            temp_dir = os.environ.get('TEMP', os.getcwd())
+            dest_path = os.path.join(temp_dir, "AnyDesk_WGZ_Support.exe")
+            print(f"Đang copy AnyDesk từ {source_path} -> {dest_path}")
+            shutil.copy2(source_path, dest_path)
+            
+            # 2b. Chạy trình cài đặt (với UAC)
+            try:
+                print("Đang yêu cầu quyền Admin (UAC) để cài đặt...")
+                progress_queue.put(("anydesk_installing", None)) # Gửi tin nhắn "Đang cài đặt..."
+
+                install_path = r"C:\Program Files (x86)\AnyDesk"
+                params = (
+                    f'--install "{install_path}" '
+                    '--start-with-win '
+                    '--silent '
+                    '--remove-desktop-icon'
+                )
+
+                print(f"Đang yêu cầu quyền Admin để chạy: {dest_path} {params}")
+                
+                ret = ctypes.windll.shell32.ShellExecuteW(
+                    None, "runas", dest_path, params, None, 1
+                )
+
+                if ret <= 32:
+                    if ret == 1223: # Lỗi "Đã hủy" (Bấm "No" trên UAC)
+                         raise Exception("Người dùng đã hủy cài đặt (bấm 'No' trên UAC).")
+                    else:
+                         raise Exception(f"Không thể khởi chạy trình cài đặt (Lỗi Windows: {ret}).")
+                
+                print("UAC đã được chấp nhận. Đang chờ cài đặt...")
+                
+                # 2c. Chờ cài đặt (tăng timeout lên 3 phút)
+                timeout = 180 
+                start_time = time.time()
+                while not os.path.exists(installed_exe_path):
+                    time.sleep(1)
+                    if time.time() - start_time > timeout:
+                        raise Exception("Hết thời gian chờ cài đặt (180s). Vui lòng xác nhận UAC.")
+
+                print("Cài đặt AnyDesk hoàn tất.")
+                
+                # 2d. Đặt file để sử dụng là file vừa cài đặt
+                anydesk_to_use = installed_exe_path
+                progress_queue.put(("anydesk_install_complete", None))
+
+            except Exception as e:
+                # Nếu cài đặt lỗi, báo cho người dùng
+                print(f"Lỗi khi tự động cài đặt AnyDesk: {e}")
+                progress_queue.put(("anydesk_error", f"Lỗi cài đặt tự động: {e}"))
+                progress_queue.put(("anydesk_done", None))
+                return # Thoát nếu cài đặt thất bại
+        
+        # --- 3. LOGIC LẤY ID (CHẠY CHO MỌI TRƯỜNG HỢP) ---
+        # (anydesk_to_use bây giờ là file đã cài đặt)
+        
+        print(f"Đang thử lấy ID từ: {anydesk_to_use}")
+        command_get_id = [anydesk_to_use, "--get-id"]
+        CREATE_NO_WINDOW = 0x08000000 
         
         try:
+            # Tăng timeout lên 15s cho máy chậm
             result = subprocess.run(
                 command_get_id, 
                 capture_output=True, 
                 text=True, 
-                timeout=5, # Thêm timeout 5 giây
+                timeout=15, 
                 creationflags=CREATE_NO_WINDOW
             )
-            
             output_id = result.stdout.strip()
             
-            # Kiểm tra ID hợp lệ (phải là số và không phải "0")
             if output_id.isdigit() and output_id != "0":
-                anydesk_id = output_id # Lưu ID hợp lệ
+                anydesk_id = output_id 
             else:
-                print(f"Không thể tự động lấy ID (ID trả về: '{output_id}'). Đây có thể là lần chạy đầu tiên.")
+                # Nếu lấy ID vẫn thất bại (hiếm), yêu cầu đọc thủ công
+                print(f"Không thể tự động lấy ID ngay cả khi đã cài (ID: '{output_id}').")
+                progress_queue.put(("anydesk_manual_read_required", None))
         
         except Exception as e:
-            # Lỗi khi chạy --get-id (ví dụ: timeout)
-            print(f"Lỗi khi chạy --get-id: {e}. Sẽ mở GUI cho người dùng tự đọc.")
-            # Bỏ qua và tiếp tục, anydesk_id vẫn là None
-
-        # 3. GỬI ID LÊN DISCORD (NẾU CÓ)
-        if anydesk_id:
-            print(f"Lấy ID thành công: {anydesk_id}")
-            if "YOUR_ID" in DISCORD_WEBHOOK_URL:
-                print("Cảnh báo: DISCORD_WEBHOOK_URL chưa được cấu hình. Bỏ qua gửi.")
-            else:
-                print("Đang gửi ID lên Discord...")
-                payload = { "content": f"**Yêu cầu Hỗ trợ Mới!**\n> ID AnyDesk: `{anydesk_id}`" }
-                try:
-                    requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
-                except Exception as e:
-                    print(f"Lỗi khi gửi lên Discord: {e}") # Không dừng chương trình
-        else:
-            print("Không có ID tự động. Người dùng sẽ phải tự đọc.")
-
-        # 4. KHỞI CHẠY GUI CHO NGƯỜI DÙNG (LUÔN LUÔN)
-        print(f"Đang khởi chạy GUI AnyDesk cho người dùng...")
-        subprocess.Popen([dest_path])
-        
-        # 5. GỬI KẾT QUẢ VỀ QUEUE
-        if anydesk_id:
-            # Gửi tin nhắn thành công (có ID)
-            progress_queue.put(("anydesk_id_sent", anydesk_id))
-        else:
-            # Gửi tin nhắn yêu cầu đọc thủ công
+            print(f"Lỗi khi chạy --get-id (sau khi cài): {e}. Sẽ mở GUI cho người dùng tự đọc.")
             progress_queue.put(("anydesk_manual_read_required", None))
 
-        # 6. (Tùy chọn) Chờ và Focus cửa sổ AnyDesk
-        time.sleep(5) # Cho AnyDesk 5s để mở
+        # 4. GỬI ID LÊN DISCORD (NẾU CÓ)
+        if anydesk_id:
+            print(f"Lấy ID thành công: {anydesk_id}")
+            if "YOUR_ID" not in DISCORD_WEBHOOK_URL:
+                 print("Đang gửi ID lên Discord...")
+                 payload = { "content": f"**Yêu cầu Hỗ trợ Mới!**\n> ID AnyDesk: `{anydesk_id}`" }
+                 try:
+                     requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
+                 except Exception as e:
+                     print(f"Lỗi khi gửi lên Discord: {e}")
+            
+            progress_queue.put(("anydesk_id_sent", anydesk_id))
+        
+        # 5. KHỞI CHẠY GUI CHO NGƯỜI DÙNG
+        print(f"Đang khởi chạy GUI: {anydesk_to_use}")
+        subprocess.Popen([anydesk_to_use]) # Chạy file (đã cài)
+
+        # 6. FOCUS CỬA SỔ
+        time.sleep(5) 
         try:
             windows = gw.getWindowsWithTitle('AnyDesk')
             if windows:
-                print("Đã tìm thấy cửa sổ AnyDesk. Đang focus...")
                 window = windows[0]
-                if window.isMinimized:
-                    window.restore()
+                if window.isMinimized: window.restore()
                 window.activate()
         except Exception as e:
             print(f"Lỗi khi focus cửa sổ AnyDesk: {e}")
         
     except Exception as e:
-        # Lỗi nghiêm trọng (ví dụ: không tìm thấy file AnyDesk.exe)
         print(f"Lỗi nghiêm trọng trong luồng AnyDesk: {e}")
-        # SỬA LỖI: Gửi đúng thông báo lỗi (không phải 'anydesk_error')
-        # Chúng ta sẽ gửi chính lỗi đó
         progress_queue.put(("anydesk_error", str(e)))
     
     finally:
-        # Luôn bật lại nút sau khi hoàn tất
         progress_queue.put(("anydesk_done", None))
+
+
 # --- THÊM MỚI: CÀI ĐẶT ĐƯỜNG DẪN STEAM ---
 steam_path_frame = ttk.Frame(setting_frame)
 steam_path_frame.pack(fill=tk.X, padx=5, pady=(5,5))
