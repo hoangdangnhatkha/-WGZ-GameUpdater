@@ -113,7 +113,7 @@ CURRENT_VERSION = "1.2.6"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
 
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1439922562422411387/dL6kx7UA7gde-gh4ChiVs_tw5M3XY9NVyDzergGTEQLnaPkRde65ymnrwtWo9bktoIxS"
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1440183178236006431/EkoUlZVu9G8hyDcH95inr-l0m021fyk16XIvldf1P4JOoyVHXHeGB7AD0zh5g7zhKRcm"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
 def resource_path(relative_path):
     """ Lấy đường dẫn tuyệt đối, hoạt động cho cả .py và .exe """
@@ -786,7 +786,7 @@ def launch_riot_login_thread(riot_client_path, username, password):
             progress_queue.put(("login_status_update", "Đang gõ username..."))
             # Gõ từng phím với khoảng trễ 0.05s để đảm bảo client nhận kịp
             pyautogui.typewrite(username, interval=0.05) 
-            
+            time.sleep(0.5)
             # Chờ client xử lý 'tab' (giữ nguyên)
             pyautogui.press('tab')
 
@@ -2413,12 +2413,15 @@ def process_queue():
             messagebox.showerror("Lỗi Upload Theme", message_value, parent=g_theme_manager_window)
             # Tải lại config (vì có thể local và remote đã lệch)
             action_load_from_github_wrapper()
-        elif message_type == "anydesk_id_sent":
+        elif message_type == "anydesk_id_sent_to_discord":
             anydesk_id = message_value
             messagebox.showinfo("Đã gửi Yêu cầu",
                                 f"Đã tự động gửi ID ({anydesk_id}) của bạn đến Discord\n\n"
                                 "Vui lòng giữ cửa sổ AnyDesk mở và đợi kết nối.",
                                 parent=root)
+        
+        elif message_type == "anydesk_id_retrieved_locally":
+            anydesk_id = message_value
         # --- THÊM MỚI: XỬ LÝ HỒI ĐÁP CỦA ANYDESK ---
         elif message_type == "anydesk_error":
             messagebox.showerror("Lỗi AnyDesk", 
@@ -6215,27 +6218,57 @@ def action_save_path_settings():
 def action_launch_anydesk():
     """
     (HÀM MỚI)
-    Tìm, giải nén (copy) và chạy file AnyDesk.exe đã được đóng gói.
+    Hỏi xác nhận trước khi chạy thread.
     """
-    # 1. Vô hiệu hóa nút để tránh click nhiều lần
+    
+    # 1. HỎI XÁC NHẬN
+    message = (
+        "Bạn có muốn gửi yêu cầu hỗ trợ (tự động gửi ID) đến Discord không?\n\n"
+        "• Bấm 'Yes' để gửi ID.\n"
+        "• Bấm 'No' để chỉ mở AnyDesk"
+    )
+    # parent=root đảm bảo pop-up này nổi lên trên cửa sổ chính
+    send_to_discord = messagebox.askyesno("Xác nhận Hỗ trợ", message, parent=root)
+
+    # 2. VÔ HIỆU HÓA NÚT
+    # (Chỉ vô hiệu hóa sau khi người dùng đã bấm, bất kể Yes hay No)
     if 'g_anydesk_button' in globals():
         g_anydesk_button.config(state=tk.DISABLED, text="Đang mở AnyDesk...")
     
-    # 3. Bắt đầu tác vụ nặng trong thread (để không làm treo UI)
-    threading.Thread(target=launch_anydesk_thread, daemon=True).start()
+    # 3. BẮT ĐẦU THREAD (với lựa chọn của user)
+    # Chúng ta truyền `send_to_discord` (True/False) vào làm tham số
+    threading.Thread(target=launch_anydesk_thread, args=(send_to_discord,), daemon=True).start()
 
-def launch_anydesk_thread():
+def launch_anydesk_thread(send_to_discord):
     """
     (CHẠY NGẦM) 
     Logic hoàn chỉnh, đã sửa lỗi "lần đầu chạy":
+    0. TẮT tất cả tiến trình AnyDesk cũ.
     1. Kiểm tra xem AnyDesk đã cài đặt chưa.
     2. Nếu có, dùng file đã cài để lấy ID.
     3. Nếu không, CHẠY QUY TRÌNH CÀI ĐẶT (UAC).
-    4. Sau khi cài đặt, lấy ID từ file vừa cài.
+    4. Sau khi cài đặt, CHỜ SERVICE SẴN SÀNG và lấy ID.
     """
     anydesk_id = None
+    # Di chuyển cờ này lên đầu hàm để dùng chung
+    CREATE_NO_WINDOW = 0x08000000 
     
     try:
+        # --- 0. (THÊM MỚI) TẮT CÁC TIẾN TRÌNH ANYDESK CŨ ---
+        print("Đang tắt tất cả tiến trình AnyDesk đang chạy...")
+        subprocess.run(
+            ["taskkill", "/F", "/IM", "AnyDesk.exe"],
+            capture_output=True, text=True,
+            creationflags=CREATE_NO_WINDOW
+        )
+        subprocess.run(
+            ["taskkill", "/F", "/IM", "AnyDeskService.exe"],
+            capture_output=True, text=True,
+            creationflags=CREATE_NO_WINDOW
+        )
+        print("Tắt tiến trình cũ hoàn tất.")
+        # --- HẾT THÊM MỚI ---
+        
         # --- 1. KIỂM TRA PHIÊN BẢN ĐÃ CÀI ĐẶT ---
         installed_exe_path = r"C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
         anydesk_to_use = None # Biến sẽ lưu đường dẫn .exe để chạy
@@ -6265,7 +6298,6 @@ def launch_anydesk_thread():
                 install_path = r"C:\Program Files (x86)\AnyDesk"
                 params = (
                     f'--install "{install_path}" '
-                    '--start-with-win '
                     '--silent '
                     '--remove-desktop-icon'
                 )
@@ -6305,51 +6337,103 @@ def launch_anydesk_thread():
                 progress_queue.put(("anydesk_done", None))
                 return # Thoát nếu cài đặt thất bại
         
-        # --- 3. LOGIC LẤY ID (CHẠY CHO MỌI TRƯỜNG HỢP) ---
-        # (anydesk_to_use bây giờ là file đã cài đặt)
+        # --- BẮT ĐẦU SỬA: LOGIC LẤY ID (VỚI VÒNG LẶP CHỜ) ---
         
-        print(f"Đang thử lấy ID từ: {anydesk_to_use}")
+        print(f"Đang chờ AnyDesk Service sẵn sàng để lấy ID...")
         command_get_id = [anydesk_to_use, "--get-id"]
-        CREATE_NO_WINDOW = 0x08000000 
         
-        try:
-            # Tăng timeout lên 15s cho máy chậm
-            result = subprocess.run(
-                command_get_id, 
-                capture_output=True, 
-                text=True, 
-                timeout=15, 
-                creationflags=CREATE_NO_WINDOW
-            )
-            output_id = result.stdout.strip()
-            
-            if output_id.isdigit() and output_id != "0":
-                anydesk_id = output_id 
-            else:
-                # Nếu lấy ID vẫn thất bại (hiếm), yêu cầu đọc thủ công
-                print(f"Không thể tự động lấy ID ngay cả khi đã cài (ID: '{output_id}').")
-                progress_queue.put(("anydesk_manual_read_required", None))
-        
-        except Exception as e:
-            print(f"Lỗi khi chạy --get-id (sau khi cài): {e}. Sẽ mở GUI cho người dùng tự đọc.")
-            progress_queue.put(("anydesk_manual_read_required", None))
-
-        # 4. GỬI ID LÊN DISCORD (NẾU CÓ)
-        if anydesk_id:
-            print(f"Lấy ID thành công: {anydesk_id}")
-            if "YOUR_ID" not in DISCORD_WEBHOOK_URL:
-                 print("Đang gửi ID lên Discord...")
-                 payload = { "content": f"**Yêu cầu Hỗ trợ Mới!**\n> ID AnyDesk: `{anydesk_id}`" }
-                 try:
-                     requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=5)
-                 except Exception as e:
-                     print(f"Lỗi khi gửi lên Discord: {e}")
-            
-            progress_queue.put(("anydesk_id_sent", anydesk_id))
-        
-        # 5. KHỞI CHẠY GUI CHO NGƯỜI DÙNG
+        anydesk_id = None # Khởi tạo là None
+        get_id_timeout = 45 # Chờ tối đa 20 giây
+        start_get_id_time = time.time()
         print(f"Đang khởi chạy GUI: {anydesk_to_use}")
         subprocess.Popen([anydesk_to_use]) # Chạy file (đã cài)
+        while True:
+            try:
+                # Chạy lệnh (với timeout 5s, vì ta lặp lại)
+                result = subprocess.run(
+                    command_get_id, 
+                    capture_output=True, 
+                    text=True, 
+                    timeout=5, # Timeout 5 giây cho mỗi lần thử
+                    creationflags=CREATE_NO_WINDOW
+                )
+                output_id = result.stdout.strip()
+                
+                # Kiểm tra xem ID có hợp lệ không
+                if output_id.isdigit() and output_id != "0":
+                    print(f"AnyDesk đã sẵn sàng! Lấy ID thành công: {output_id}")
+                    anydesk_id = output_id 
+                    break # <-- THOÁT VÒNG LẶP VÌ ĐÃ CÓ ID
+                else:
+                    # ID trả về là "0" hoặc rỗng, có nghĩa là service chưa sẵn sàng
+                    print(f"Service chưa sẵn sàng (ID trả về: '{output_id}'). Đang thử lại sau 1s...")
+            
+            except subprocess.TimeoutExpired:
+                print("Lệnh --get-id bị timeout. Đang thử lại...")
+            except Exception as e:
+                # Lỗi không mong muốn, có thể file hỏng
+                print(f"Lỗi nghiêm trọng khi chạy --get-id: {e}. Sẽ mở GUI cho người dùng tự đọc.")
+                progress_queue.put(("anydesk_manual_read_required", None))
+                break # Thoát vòng lặp, không thử nữa
+
+            # Kiểm tra timeout của VÒNG LẶP
+            if time.time() - start_get_id_time > get_id_timeout:
+                print(f"Hết thời gian chờ {get_id_timeout}s. Không thể tự động lấy ID.")
+                progress_queue.put(("anydesk_manual_read_required", None))
+                break # Thoát vòng lặp
+
+            # Chờ 1 giây trước khi thử lại
+            time.sleep(1) 
+
+        # --- HẾT SỬA ---
+        
+        # 4. GỬI ID LÊN DISCORD (NẾU CÓ)
+        if anydesk_id:
+            
+            # --- BẮT ĐẦU SỬA: CHỈ GỬI NẾU USER ĐỒNG Ý ---
+            if send_to_discord and "YOUR_ID" not in DISCORD_WEBHOOK_URL:
+                 print("Đang gửi ID lên Discord (User đã đồng ý)...")
+                 
+                 # (ĐÂY LÀ CODE TẠO EMBED ĐÃ CHỌN Ở LẦN TRƯỚC)
+                 try:
+                    content_ping = "Một người dùng cần hỗ trợ!"
+                    embed = {
+                        "title": "🚀 Yêu Cầu Hỗ trợ AnyDesk Mới!",
+                        "color": 3447003, # Màu xanh
+                        "description": (
+                            f"**ID Người dùng:**\n"
+                            f"```{anydesk_id}```" 
+                        ),
+                        "footer": {
+                            "text": "Yêu cầu được gửi từ WGZ Game Updater"
+                        },
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                    payload = { "content": content_ping, "embeds": [embed] }
+                    requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
+                    
+                    # Gửi tin nhắn "Đã Gửi"
+                    progress_queue.put(("anydesk_id_sent_to_discord", anydesk_id))
+                    
+                 except Exception as e:
+                     print(f"Lỗi khi gửi lên Discord: {e}")
+                     # Nếu gửi lỗi, báo là "Chưa gửi"
+                     progress_queue.put(("anydesk_id_retrieved_locally", anydesk_id))
+                 # --- HẾT CODE EMBED ---
+            
+            else:
+                # User bấm "No" hoặc URL không được cấu hình
+                if not send_to_discord:
+                    print("User đã chọn không gửi ID lên Discord. Bỏ qua.")
+                else:
+                    print("Webhook URL chưa được cấu hình, bỏ qua gửi.")
+                
+                # Gửi tin nhắn "Chưa Gửi"
+                progress_queue.put(("anydesk_id_retrieved_locally", anydesk_id))
+            # --- HẾT SỬA ---
+        
+        # 5. KHỞI CHẠY GUI CHO NGƯỜI DÙNG
+        
 
         # 6. FOCUS CỬA SỔ
         time.sleep(5) 
