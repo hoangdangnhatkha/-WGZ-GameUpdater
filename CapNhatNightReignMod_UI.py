@@ -42,7 +42,8 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload, MediaIoBaseUpload
-
+from PIL import Image, ImageTk, ImageGrab # Thêm ImageGrab
+import random # Đảm bảo đã có random
 import httplib2 
 from google_auth_httplib2 import AuthorizedHttp
 
@@ -113,10 +114,12 @@ global g_mod_buttons
 g_mod_buttons = {}
 global g_current_selected_key
 g_current_selected_key = None
-CURRENT_VERSION = "1.2.6"
+CURRENT_VERSION = "1.2.7"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
-
+ROCKET_GIF_URL = "https://media.tenor.com/ike6N7DwCa0AAAAM/%D8%B1%D9%8A%D8%A7%D9%84-%D9%85%D8%AF%D8%B1%D9%8A%D8%AF.gif"
+g_rocket_frames = []
+g_rocket_raw_data = None
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1439922562422411387/dL6kx7UA7gde-gh4ChiVs_tw5M3XY9NVyDzergGTEQLnaPkRde65ymnrwtWo9bktoIxS"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
 def resource_path(relative_path):
@@ -1866,6 +1869,28 @@ def get_system_info_text():
 
     return "\n".join(info_text)
 
+def action_flush_dns():
+    """Chạy lệnh ipconfig /flushdns để sửa lỗi kết nối mạng."""
+    try:
+        # Chạy lệnh CMD ẩn (creationflags=0x08000000 để không hiện cửa sổ đen)
+        subprocess.run(["ipconfig", "/flushdns"], shell=True, creationflags=0x08000000)
+        messagebox.showinfo("Thành công", 
+                            "Đã xóa bộ nhớ đệm DNS (Flush DNS)!\n\n"
+                            "Nếu bạn gặp lỗi kết nối Drive/GitHub, hãy thử tải lại ngay bây giờ.")
+    except Exception as e:
+        messagebox.showerror("Lỗi", f"Không thể thực hiện lệnh: {e}")
+
+def action_open_data_folder():
+    """Mở thư mục AppData chứa config và cache."""
+    global config_folder
+    try:
+        if os.path.exists(config_folder):
+            os.startfile(config_folder)
+        else:
+            messagebox.showwarning("Lỗi", "Thư mục dữ liệu chưa được tạo.")
+    except Exception as e:
+        messagebox.showerror("Lỗi", f"Không thể mở thư mục: {e}")
+
 def action_copy_system_info():
     """Thực hiện lấy thông tin và copy vào clipboard."""
     try:
@@ -1968,87 +1993,105 @@ def launch_with_high_priority(file_path):
     except Exception as e:
         print(f"Lỗi Priority Launch (PowerShell): {e}")
         return False
-
-# --- THÊM MỚI: HÀM KHỞI CHẠY GAME ---
-def action_launch_game():
-    """Khởi chạy file với chế độ Smart Mode."""
-    global g_current_launch_path, g_smart_mode_enabled
-
-    if not g_current_launch_path or not os.path.exists(g_current_launch_path):
-        messagebox.showerror("Lỗi", "Không tìm thấy đường dẫn file.\nVui lòng thử cài đặt lại.")
-        return
+def _perform_launch_tab2():
+    """Hàm này chứa logic chạy game thực sự, được gọi sau khi delay."""
+    global g_current_launch_path, g_smart_mode_enabled, g_auto_close
 
     # --- SMART MODE LOGIC ---
     if g_smart_mode_enabled.get():
-        # 1. Dọn RAM toàn hệ thống (Chạy thread để không lag UI)
+        # 1. Dọn RAM
         threading.Thread(target=run_global_ram_cleaner, daemon=True).start()
         
-        # 2. Chạy Game với High Priority
+        # 2. Chạy Game (Priority)
         try:
             success = launch_with_high_priority(g_current_launch_path)
             if not success:
-                # Fallback nếu lệnh start /high thất bại
+                # Fallback
                 exe_dir = os.path.dirname(g_current_launch_path)
                 os.startfile(g_current_launch_path, cwd=exe_dir)
         except Exception as e:
             messagebox.showerror("Lỗi", f"Không thể khởi chạy: {e}")
             
     else:
-        # --- CHẾ ĐỘ THƯỜNG (Cũ) ---
+        # --- NORMAL MODE ---
         try:
             exe_dir = os.path.dirname(g_current_launch_path)
-            print(f"Normal Launch: {g_current_launch_path}")
             os.startfile(g_current_launch_path, cwd=exe_dir)
         except Exception as e:
-            messagebox.showerror("Lỗi Khởi chạy", f"Không thể mở file:\n{g_current_launch_path}\n\nLỗi: {e}")
+            messagebox.showerror("Lỗi Khởi chạy", f"Lỗi: {e}")
+
+    # --- AUTO CLOSE ---
     if g_auto_close.get():
         print("Auto-Close kích hoạt. Đang tắt tool...")
-        # Hẹn giờ 3 giây sau thì tắt (để chắc chắn game đã nhận lệnh chạy)
-        root.after(3000, lambda: sys.exit(0))
-
-def action_launch_game_from_page_1(path_to_launch):
-    """
-    (ĐÃ CẬP NHẬT) Khởi chạy file trực tiếp từ Page 1.
-    Đã tích hợp: Smart Game Mode (Global RAM Cleaner + High Priority).
-    """
-    global g_smart_mode_enabled # Cần biến này để kiểm tra config
-
-    if path_to_launch and os.path.exists(path_to_launch):
-        exe_dir = os.path.dirname(path_to_launch)
+        # Đợi thêm 1 xíu sau khi lệnh chạy game được gửi đi rồi mới tắt
+        root.after(1000, lambda: sys.exit(0))
         
-        # --- SMART MODE LOGIC ---
-        if g_smart_mode_enabled.get():
-            print(f"--- Smart Mode Activated for Page 1 Launch: {path_to_launch} ---")
-            
-            # 1. Dọn RAM toàn hệ thống (Chạy thread để không làm đơ UI)
-            threading.Thread(target=run_global_ram_cleaner, daemon=True).start()
-            
-            # 2. Chạy Game với High Priority
-            try:
-                success = launch_with_high_priority(path_to_launch)
-                if not success:
-                    # Fallback: Nếu lệnh CMD thất bại, dùng cách thường
-                    print("Priority launch failed, falling back to normal startfile.")
-                    os.startfile(path_to_launch, cwd=exe_dir)
-            except Exception as e:
-                messagebox.showerror("Lỗi Smart Mode", f"Không thể khởi chạy ưu tiên:\n{e}")
-                # Cố gắng chạy lại bằng cách thường
+# --- THÊM MỚI: HÀM KHỞI CHẠY GAME ---
+def action_launch_game():
+    """
+    Kiểm tra cài đặt để chọn hiệu ứng:
+    - Nếu BẬT Chaos: Nổ tung giao diện.
+    - Nếu TẮT Chaos: Chỉ cho nút bay đi (nhẹ nhàng).
+    """
+    global g_current_launch_path, page_2_mod_list, g_launch_game_button
+    global g_chaos_effect_enabled # Cần biến này
+
+    if not g_current_launch_path or not os.path.exists(g_current_launch_path):
+        messagebox.showerror("Lỗi", "Không tìm thấy đường dẫn file.")
+        return
+
+    # 1. Chạy hiệu ứng GIF trên ảnh bìa (Luôn chạy nếu có)
+    if 'g_game_image_label' in globals() and g_game_image_label.winfo_exists():
+        play_rocket_animation(target_widget=g_game_image_label)
+
+    # 2. QUYẾT ĐỊNH HIỆU ỨNG CHUYỂN CẢNH
+    if g_chaos_effect_enabled.get():
+        # --- CAO CẤP: NỔ TUNG GIAO DIỆN ---
+        animate_chaos_explosion(page_2_mod_list)
+
+    # 3. Hẹn giờ chạy logic game (Vẫn là 2 giây)
+    root.after(2000, _perform_launch_tab2)
+
+def _perform_launch_page1(path_to_launch):
+    """Logic chạy game thực sự cho Page 1."""
+    global g_smart_mode_enabled, g_auto_close
+    
+    exe_dir = os.path.dirname(path_to_launch)
+    
+    # --- SMART MODE ---
+    if g_smart_mode_enabled.get():
+        threading.Thread(target=run_global_ram_cleaner, daemon=True).start()
+        try:
+            success = launch_with_high_priority(path_to_launch)
+            if not success:
                 os.startfile(path_to_launch, cwd=exe_dir)
-        
-        else:
-            # --- NORMAL MODE (Cách cũ) ---
-            try:
-                print(f"Normal Launch from Page 1: {path_to_launch}")
-                os.startfile(path_to_launch, cwd=exe_dir)
-            except Exception as e:
-                messagebox.showerror("Lỗi Khởi chạy", f"Không thể mở file:\n{path_to_launch}\n\nLỗi: {e}")
-        if g_auto_close.get():
-            print("Auto-Close (Page 1) kích hoạt. Đang tắt tool...")
-            # Hẹn giờ 3 giây sau thì tắt (để chắc chắn game đã nhận lệnh chạy)
-            root.after(3000, lambda: sys.exit(0))
+        except Exception as e:
+            messagebox.showerror("Lỗi Smart Mode", f"Lỗi: {e}")
+            os.startfile(path_to_launch, cwd=exe_dir)
     else:
-        # Lỗi này có thể xảy ra nếu người dùng đổi destination_folder bên ngoài tool
-        messagebox.showerror("Lỗi", "Không tìm thấy file khởi chạy.\n(Đường dẫn có thể đã thay đổi hoặc bị xóa. Vui lòng kiểm tra lại thư mục game.)")
+        # --- NORMAL MODE ---
+        try:
+            os.startfile(path_to_launch, cwd=exe_dir)
+        except Exception as e:
+            messagebox.showerror("Lỗi Khởi chạy", f"Lỗi: {e}")
+
+    # --- AUTO CLOSE ---
+    if g_auto_close.get():
+        print("Auto-Close (Page 1) kích hoạt...")
+        root.after(1000, lambda: sys.exit(0))
+
+def action_launch_game_from_page_1(path_to_launch, btn_widget=None):
+    if path_to_launch and os.path.exists(path_to_launch):
+        
+        # [SỬA] Truyền nút bấm vào animation
+        if btn_widget:
+            play_rocket_animation(target_widget=btn_widget)
+        
+        # Hẹn giờ chạy
+        root.after(2000, lambda: _perform_launch_page1(path_to_launch))
+        
+    else:
+        messagebox.showerror("Lỗi", "Không tìm thấy file khởi chạy.")
 # --- HẾT THÊM MỚI ---
 
 def browse_for_folder():
@@ -2113,6 +2156,261 @@ def action_set_game_path_from_page_2():
 
         # 4. (Quan trọng) Chạy lại hàm kiểm tra nút "Launch Game"
         update_guide_text()
+
+# --- [MỚI] HÀM HIỆN NÚT RESET ---
+def show_reset_ui_button(parent_frame):
+    """Tạo một nút Reset to ở giữa màn hình."""
+    
+    # 1. Tạo nút Reset
+    reset_btn = ttk.Button(
+        parent_frame,
+        text="🔄 Khôi Phục Giao Diện",
+        style="Accent.TButton", # Dùng style xanh cho nổi bật
+        command=lambda: action_restore_ui(reset_btn)
+    )
+    
+    # 2. Đặt nút vào chính giữa frame cha
+    # Dùng place với relx/rely = 0.5 để căn giữa tuyệt đối
+    reset_btn.place(relx=0.5, rely=0.5, anchor=tk.CENTER, width=200, height=50)
+    
+    # 3. (Tùy chọn) Hiệu ứng xuất hiện (Fade in hoặc Scale up)
+    # Ở đây làm đơn giản là hiện ngay lập tức.
+
+def action_restore_ui(reset_btn_widget):
+    """
+    Khôi phục giao diện bằng cách Pack lại các Frame chính về vị trí cũ.
+    """
+    global g_current_game_name
+    
+    print("Đang khôi phục giao diện...")
+    
+    # 1. Xóa nút reset
+    reset_btn_widget.destroy()
+    
+    # 2. "Gọi hồn" các Frame chính quay về (Re-pack theo đúng thứ tự ban đầu)
+    # Lưu ý: Phải dùng place_forget() để xóa tọa độ -10000 trước khi pack()
+    
+    try:
+        # A. Ảnh Bìa
+        if 'image_placeholder_frame' in globals():
+            image_placeholder_frame.place_forget() 
+            image_placeholder_frame.pack(pady=(0, 10)) # Pack lại vào Page 2
+            
+        # B. Thanh công cụ trên (Nút Quay lại / Chạy Game)
+        if 'page_2_top_nav_frame' in globals():
+            page_2_top_nav_frame.place_forget()
+            page_2_top_nav_frame.pack(fill=tk.X, pady=(0, 10))
+
+        # C. Khung Hướng dẫn
+        if 'guide_frame' in globals():
+            guide_frame.place_forget()
+            guide_frame.pack(fill=tk.X, pady=(0, 5), padx=(10, 0))
+
+        # D. Khung Danh sách Mod (Options)
+        if 'options_frame' in globals():
+            options_frame.place_forget()
+            options_frame.pack(fill=tk.X, expand=False, pady=10, padx=(10, 0))
+            
+        # E. Khung Đường dẫn (Path)
+        if 'path_frame' in globals():
+            path_frame.place_forget()
+            path_frame.pack(fill=tk.X, pady=(5, 10))
+            
+        # F. Khung Nút dưới cùng (Bắt đầu Cài đặt)
+        if 'button_frame' in globals():
+            button_frame.place_forget()
+            button_frame.pack(pady=15)
+
+        # 3. Vẽ lại nội dung bên trong (Để đảm bảo dữ liệu đúng)
+        if g_current_game_name:
+            show_page_2_for_game(g_current_game_name)
+        else:
+            # Fallback nếu mất tên game
+            action_go_back_and_refresh_grid()
+            
+    except Exception as e:
+        print(f"Lỗi khi khôi phục UI: {e}")
+        messagebox.showerror("Lỗi", "Không thể khôi phục giao diện. Vui lòng khởi động lại App.")
+
+# --- [CẬP NHẬT] HIỆU ỨNG CHAOS + NÚT RESET ---
+def animate_chaos_explosion(container_frame):
+    """
+    Tách widget, cho bay tứ tung, và hiện nút Reset sau đó.
+    """
+    children = container_frame.winfo_children()
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    flying_objects = []
+
+    # 1. Tạo hiệu ứng nổ (Giữ nguyên logic cũ)
+    for widget in children:
+        try:
+            if not widget.winfo_viewable(): continue
+            
+            widget.update_idletasks()
+            x = widget.winfo_rootx()
+            y = widget.winfo_rooty()
+            w = widget.winfo_width()
+            h = widget.winfo_height()
+            
+            if w < 2 or h < 2: continue
+
+            img = ImageGrab.grab(bbox=(x, y, x+w, y+h))
+            tk_img = ImageTk.PhotoImage(img)
+
+            # Ẩn widget thật
+            widget.place(x=-10000, y=-10000) 
+
+            # Tạo mảnh vỡ bay
+            fly_win = tk.Toplevel(root)
+            fly_win.overrideredirect(True)
+            fly_win.attributes('-topmost', True)
+            fly_win.geometry(f"{w}x{h}+{x}+{y}")
+            
+            lbl = tk.Label(fly_win, image=tk_img, bd=0)
+            lbl.image = tk_img 
+            lbl.pack(fill="both", expand=True)
+
+            vx = random.randint(-20, 20)
+            vy = random.randint(-25, -5)
+            if vx == 0: vx = 5
+            
+            flying_objects.append({
+                "win": fly_win, "vx": vx, "vy": vy, "x": x, "y": y
+            })
+
+        except Exception as e:
+            print(f"Lỗi tạo clone: {e}")
+
+    # 2. Hàm vật lý (Giữ nguyên)
+    def physics_loop():
+        active_count = 0
+        for obj in flying_objects:
+            win = obj["win"]
+            if not win.winfo_exists(): continue
+            active_count += 1
+            
+            obj["x"] += obj["vx"]
+            obj["y"] += obj["vy"]
+            obj["vy"] += 1.5 # Trọng lực
+            
+            try:
+                win.geometry(f"+{int(obj['x'])}+{int(obj['y'])}")
+            except: pass
+
+            if (obj["y"] > screen_height + 100) or (obj["x"] < -500) or (obj["x"] > screen_width + 500):
+                win.destroy()
+
+        if active_count > 0:
+            root.after(20, physics_loop)
+
+    physics_loop()
+
+    # --- [MỚI] HẸN GIỜ HIỆN NÚT RESET ---
+    # Sau 1.5 giây (khi các mảnh vỡ đã bay đi bớt), hiện nút Reset
+    root.after(1500, lambda: show_reset_ui_button(container_frame))
+
+# --- [PHIÊN BẢN FULL SCREEN + OPACITY] HIỆU ỨNG GIF MỜ ẢO ---
+def play_rocket_animation(target_widget=None):
+    """
+    Tạo cửa sổ hiệu ứng mờ 50% đè lên đúng vị trí của widget mục tiêu (img_label).
+    """
+    global g_rocket_raw_data
+
+    if not target_widget: return
+
+    # 1. Lấy vị trí và kích thước CHÍNH XÁC của ảnh bìa (img_label) trên màn hình
+    target_widget.update_idletasks()
+    x = target_widget.winfo_rootx()
+    y = target_widget.winfo_rooty()
+    w = target_widget.winfo_width()
+    h = target_widget.winfo_height()
+    
+    # Nếu chưa hiển thị thì bỏ qua
+    if w < 2 or h < 2: return
+
+    # 2. Kiểm tra dữ liệu GIF
+    if not g_rocket_raw_data:
+        try:
+            if 'ROCKET_GIF_URL' in globals():
+                response = requests.get(ROCKET_GIF_URL, timeout=5)
+                g_rocket_raw_data = response.content
+        except Exception as e:
+            print(f"Lỗi tải GIF: {e}")
+            return
+
+    if not g_rocket_raw_data: return
+
+    try:
+        # 3. Tạo cửa sổ Overlay (Dùng Toplevel để chỉnh được Alpha)
+        overlay_win = tk.Toplevel(root)
+        
+        # Đặt vị trí trùng khít với img_label
+        overlay_win.geometry(f"{w}x{h}+{x}+{y}")
+        
+        overlay_win.overrideredirect(True) # Bỏ viền
+        
+        # --- QUAN TRỌNG: CHỈNH ĐỘ TRONG SUỐT ---
+        overlay_win.attributes('-alpha', 0.7) # 0.5 = 50% Opacity
+        # --------------------------------------
+
+        # Gắn nó vào cửa sổ chính để không bị che bởi các app khác
+        overlay_win.transient(root) 
+        overlay_win.lift()
+
+        # Cấu hình nền đen (để khi mờ đi nó sẽ làm tối ảnh game một chút)
+        bg_color = 'black'
+        overlay_win.config(bg=bg_color)
+
+        # Nếu muốn GIF lọc nền đen (transparent color), bỏ comment dòng dưới:
+        # overlay_win.attributes('-transparentcolor', bg_color) 
+
+        label = tk.Label(overlay_win, bg=bg_color, bd=0)
+        label.pack(fill=tk.BOTH, expand=True)
+
+        # Hẹn giờ tắt sau 2 giây
+        def close_animation():
+            try:
+                if overlay_win.winfo_exists():
+                    overlay_win.destroy()
+            except: pass
+        
+        overlay_win.after(2000, close_animation)
+
+        # 4. Xử lý GIF
+        im_data = io.BytesIO(g_rocket_raw_data)
+        im = Image.open(im_data)
+        
+        def update_frame(frame_idx):
+            try:
+                if not overlay_win.winfo_exists(): return
+            except: return
+
+            try:
+                # Giữ cửa sổ luôn nổi trên cùng trong app
+                overlay_win.lift() 
+                
+                im.seek(frame_idx)
+                # Resize ảnh bằng kích thước img_label
+                current_frame = im.copy().resize((w, h), Image.Resampling.LANCZOS)
+                tk_image = ImageTk.PhotoImage(current_frame)
+                
+                label.configure(image=tk_image)
+                label.image = tk_image 
+                
+                duration = im.info.get('duration', 30)
+                overlay_win.after(duration, lambda: update_frame(frame_idx + 1))
+                
+            except EOFError:
+                pass # Dừng ở frame cuối
+            except Exception:
+                close_animation()
+
+        update_frame(0)
+
+    except Exception as e:
+        print(f"Lỗi animation: {e}")
+
 
 # --- THÊM MỚI: HÀM CHẠY ANIMATION CHO GIF ---
 def animate_gif(delay):
@@ -4077,24 +4375,26 @@ def update_guide_text():
         guide_text_widget.delete("1.0", tk.END)
         guide_text_widget.insert(tk.END, "Lỗi khi tải hướng dẫn.")
     finally:
-        # --- (BEGIN) THAY ĐỔI: LUÔN PACK NÚT, CHỈ ĐỔI STATE ---
         guide_text_widget.config(state=tk.DISABLED)
         try:
-            # 1. Pack nút "Chạy Game" (🚀) (LUÔN LUÔN)
+            # --- [SỬA ĐỔI: ĐỔI THỨ TỰ PACK] ---
+            
+            # 1. Pack nút "Đặt đường dẫn" (⚙️) TRƯỚC 
+            # -> Kết quả: Nó sẽ nằm ở NGOÀI CÙNG BÊN PHẢI
+            if 'g_set_path_button' in globals():
+                g_set_path_button.pack(side=tk.RIGHT, padx=(0, 5)) 
+
+            # 2. Pack nút "Chạy Game" (🚀) SAU
+            # -> Kết quả: Nó sẽ nằm bên TRÁI nút bánh răng
             if 'g_launch_game_button' in globals():
                 g_launch_game_button.pack(side=tk.RIGHT, padx=(0, 10)) 
                 
-                # 2. Cấu hình trạng thái (ENABLE/DISABLE)
+                # Cấu hình trạng thái (ENABLE/DISABLE)
                 if g_current_launch_path:
                     g_launch_game_button.config(state=tk.NORMAL)
                 else:
                     g_launch_game_button.config(state=tk.DISABLED)
 
-            # 3. Pack nút "Đặt đường dẫn" (⚙️) (LUÔN LUÔN)
-            #    (Pack sau để nó ở bên trái 🚀)
-            if 'g_set_path_button' in globals():
-                g_set_path_button.pack(side=tk.RIGHT, padx=(0, 5)) 
-                
         except Exception as e:
             print(f"Lỗi khi pack nút bên phải: {e}")
         # --- (END) THAY ĐỔI ---
@@ -4272,13 +4572,20 @@ def populate_page_1_grid(game_groups, search_term=""):
         # 1. Lấy đường dẫn global đã lưu
         current_global_path = local_config.get("game_paths", {}).get(game_name, "")
 
-        # 2. Tìm file "launch_file" đầu tiên được cấu hình cho game này
+        # 2. Tìm file "launch_file" (ƯU TIÊN: User Config -> SAU ĐÓ: Server JSON)
         found_launch_file = None
-        mod_list = game_groups.get(game_name, [])
-        for _key, mod_data in mod_list:
-            if mod_data.get("launch_file"):
-                found_launch_file = mod_data.get("launch_file")
-                break # Lấy file đầu tiên tìm thấy
+        
+        # 2a. Kiểm tra trong config local trước (File do người dùng chọn)
+        if 'game_launchers' in local_config:
+            found_launch_file = local_config['game_launchers'].get(game_name)
+
+        # 2b. Nếu user chưa đặt, mới tìm trong JSON (Mặc định)
+        if not found_launch_file:
+            mod_list = game_groups.get(game_name, [])
+            for _key, mod_data in mod_list:
+                if mod_data.get("launch_file"):
+                    found_launch_file = mod_data.get("launch_file")
+                    break # Lấy file đầu tiên tìm thấy
 
         full_path_to_launch = None # Biến lưu đường dẫn đầy đủ
 
@@ -4291,21 +4598,36 @@ def populate_page_1_grid(game_groups, search_term=""):
 
         # --- (BEGIN) THAY ĐỔI: ĐỔI "Accent.TButton" thành "HoverAccent.TButton" ---
         # 4. TẠO NÚT (LUÔN LUÔN)
+        btn_text = "❌ Chưa Cài Đặt"
+        btn_state = tk.DISABLED
+        btn_style = "TButton" # Style thường (xám/mờ)
+        launch_cmd = None
+
+        # Nếu tìm thấy file hợp lệ: Đổi thành Chạy Game
+        if full_path_to_launch:
+            btn_text = "🚀 Chạy Game"
+            btn_state = tk.NORMAL
+            btn_style = "HoverAccent.TButton" # Style xanh nổi bật
+
+        # 4. TẠO NÚT VỚI CẤU HÌNH ĐÃ CHỌN
         launch_button_page1 = ttk.Button(
             card_frame, 
-            text="🚀 Chạy Game",
-            state=tk.DISABLED,         # Bắt đầu ở trạng thái mờ
-            style="HoverAccent.TButton"  # <-- ĐỔI SANG STYLE MỚI
+            text=btn_text,
+            state=btn_state,
+            style=btn_style 
         )
         launch_button_page1.grid(row=2, column=0, pady=(0, 10), padx=10, sticky="ew")
-        # --- (END) THAY ĐỔI ---
-
-        # 5. KÍCH HOẠT NÚT NẾU TÌM THẤY FILE
+        
+        # 5. GẮN LỆNH CLICK (Nếu có)
         if full_path_to_launch:
-            launch_cmd = create_page1_launch_cmd(full_path_to_launch) 
-            launch_button_page1.config(state=tk.NORMAL) # Kích hoạt
-            launch_button_page1.bind("<Button-1>", launch_cmd) # Gắn lệnh click
-
+            # --- [SỬA TẠI ĐÂY] ---
+            # Thay vì truyền 'b=launch_button_page1', ta truyền 't=card_frame'
+            # Để hiệu ứng phủ lên toàn bộ thẻ game
+            launch_cmd = lambda e, p=full_path_to_launch, t=img_label: action_launch_game_from_page_1(p, t)
+            
+            # Gắn vào sự kiện click chuột trái
+            launch_button_page1.bind("<Button-1>", launch_cmd)
+    
         # 6. GẮN SỰ KIỆN CUỘN (LUÔN LUÔN)
         launch_button_page1.bind("<MouseWheel>", on_mouse_wheel)
         launch_button_page1.bind("<Button-4>", on_mouse_wheel)
@@ -6183,6 +6505,277 @@ def action_clear_image_cache():
         except Exception as e:
             messagebox.showerror("Lỗi", f"Không thể xóa thư mục cache: {e}")
 
+# --- [TÍNH NĂNG] SỔ TAY GHI CHÚ (CLICK-THROUGH SWITCH) ---
+g_notes_window = None
+g_notes_is_ghost = False # Biến theo dõi trạng thái
+
+def set_window_click_through(hwnd, enable):
+    """Hàm helper để bật/tắt chế độ xuyên thấu chuột."""
+    try:
+        import ctypes
+        GWL_EXSTYLE = -20
+        WS_EX_LAYERED = 0x00080000
+        WS_EX_TRANSPARENT = 0x00000020
+        
+        style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        
+        if enable:
+            # Thêm cờ Transparent
+            new_style = style | WS_EX_LAYERED | WS_EX_TRANSPARENT
+            print("Note: Chế độ Bóng ma (Click-Through) -> ON")
+        else:
+            # Gỡ bỏ cờ Transparent (giữ lại Layered để dùng Alpha)
+            new_style = (style & ~WS_EX_TRANSPARENT) | WS_EX_LAYERED
+            print("Note: Chế độ Chỉnh sửa -> ON")
+            
+        ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_style)
+    except Exception as e:
+        print(f"Lỗi set style: {e}")
+
+def action_toggle_notes():
+    """
+    Quản lý Sổ tay:
+    - Nếu chưa mở -> Mở lên (Chế độ sửa).
+    - Nếu đang mở (Ghost) -> Chuyển về chế độ Sửa.
+    - Nếu đang mở (Sửa) -> Đóng lại (Hoặc chuyển Ghost tùy ý).
+    """
+    global g_notes_window, g_notes_is_ghost
+
+    # --- TRƯỜNG HỢP 1: ĐANG MỞ THÌ CHUYỂN CHẾ ĐỘ ---
+    if g_notes_window is not None:
+        if g_notes_is_ghost:
+            # Đang là Ghost -> Chuyển thành Edit (Unlock)
+            g_notes_is_ghost = False
+            
+            # Lấy HWND và tắt xuyên thấu
+            g_notes_window.update_idletasks()
+            import ctypes
+            hwnd = ctypes.windll.user32.GetParent(g_notes_window.winfo_id())
+            if hwnd == 0: hwnd = g_notes_window.winfo_id()
+            set_window_click_through(hwnd, False)
+            
+            # Thay đổi giao diện để báo hiệu
+            g_notes_window.attributes('-alpha', 0.9) # Đậm hơn
+            # Hiện lại thanh tiêu đề (nếu muốn logic phức tạp hơn, ở đây ta đổi màu viền)
+            g_notes_window.config(bg="#4a90e2") # Viền xanh dương (Edit Mode)
+            
+            # Focus vào cửa sổ
+            g_notes_window.lift()
+            g_notes_window.focus_force()
+        else:
+            # Đang là Edit -> Đóng lại (Hoặc bạn có thể chọn ẩn đi)
+            g_notes_window.destroy()
+            g_notes_window = None
+            g_notes_is_ghost = False
+        return
+
+    # --- TRƯỜNG HỢP 2: CHƯA MỞ -> TẠO MỚI ---
+    try:
+        g_notes_window = tk.Toplevel(root)
+        g_notes_window.title("Notes")
+        g_notes_window.geometry("350x250+50+150") 
+        g_notes_window.overrideredirect(True)
+        g_notes_window.attributes('-topmost', True)
+        g_notes_window.attributes('-alpha', 0.9)
+        g_notes_window.config(bg="#4a90e2") # Viền xanh (Edit Mode)
+
+        # Padding frame (để tạo viền màu)
+        padding_frame = tk.Frame(g_notes_window, bg="#4a90e2", padx=2, pady=2)
+        padding_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Khung nội dung chính
+        main_frame = ttk.Frame(padding_frame, style="Card.TFrame")
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # 1. THANH TIÊU ĐỀ
+        title_bar = tk.Frame(main_frame, bg="#333", height=30)
+        title_bar.pack(fill=tk.X)
+        
+        lbl_title = tk.Label(title_bar, text="📝 Đang Sửa (Kéo để di chuyển)", bg="#333", fg="white", cursor="fleur")
+        lbl_title.pack(side=tk.LEFT, padx=5)
+
+        # --- NÚT KHÓA (LOCK BUTTON) ---
+        def lock_notes():
+            global g_notes_is_ghost
+            g_notes_is_ghost = True
+            
+            # 1. Đổi giao diện
+            g_notes_window.attributes('-alpha', 0.4) # Mờ đi (Ghost)
+            g_notes_window.config(bg="#333") # Mất viền xanh
+            padding_frame.config(padx=0, pady=0) # Bỏ padding
+            
+            # 2. Kích hoạt Click-Through
+            g_notes_window.update_idletasks()
+            import ctypes
+            hwnd = ctypes.windll.user32.GetParent(g_notes_window.winfo_id())
+            if hwnd == 0: hwnd = g_notes_window.winfo_id()
+            set_window_click_through(hwnd, True)
+            
+            print("Đã khóa Note. Bấm nút trên App chính để Sửa lại.")
+
+        btn_lock = tk.Label(title_bar, text=" 🔒 Xong ", bg="#28a745", fg="white", cursor="hand2", font=("Segoe UI", 9, "bold"))
+        btn_lock.pack(side=tk.RIGHT, padx=2)
+        btn_lock.bind("<Button-1>", lambda e: lock_notes())
+        CreateToolTip(btn_lock, "Bấm vào đây để khóa Note và cho phép chuột bấm xuyên qua.\n(Để sửa lại: Bấm nút 'Sổ Tay Game' ở App chính)")
+
+        # 2. VÙNG NỘI DUNG
+        text_area = tk.Text(main_frame, bg="#222", fg="#00FF00", insertbackground="white", 
+                            font=("Consolas", 10), bd=0, highlightthickness=0)
+        text_area.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        text_area.images = [] 
+
+        # --- Paste & Resize Logic (Giữ nguyên) ---
+        def handle_paste(event):
+            try:
+                img = ImageGrab.grabclipboard()
+                if isinstance(img, Image.Image):
+                    orig_w, orig_h = img.size
+                    target_w = int(orig_w * 0.7)
+                    target_h = int(orig_h * 0.7)
+                    img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+                    
+                    curr_w = g_notes_window.winfo_width()
+                    curr_h = g_notes_window.winfo_height()
+                    new_w = max(curr_w, target_w + 30)
+                    new_h = max(curr_h, target_h + 60)
+                    g_notes_window.geometry(f"{new_w}x{new_h}")
+                    
+                    tk_img = ImageTk.PhotoImage(img)
+                    text_area.images.append(tk_img)
+                    text_area.image_create(tk.INSERT, image=tk_img)
+                    text_area.insert(tk.INSERT, "\n") 
+                    return "break" 
+                return None
+            except: pass
+
+        text_area.bind("<Control-v>", handle_paste)
+        text_area.insert("1.0", "Ctrl+V: Dán ảnh.\nBấm '🔒 Xong' để khóa & Click xuyên qua.\n")
+
+        # --- Di chuyển cửa sổ ---
+        def start_move(event):
+            g_notes_window.x = event.x
+            g_notes_window.y = event.y
+
+        def do_move(event):
+            deltax = event.x - g_notes_window.x
+            deltay = event.y - g_notes_window.y
+            x = g_notes_window.winfo_x() + deltax
+            y = g_notes_window.winfo_y() + deltay
+            g_notes_window.geometry(f"+{x}+{y}")
+
+        lbl_title.bind("<ButtonPress-1>", start_move)
+        lbl_title.bind("<B1-Motion>", do_move)
+        title_bar.bind("<ButtonPress-1>", start_move)
+        title_bar.bind("<B1-Motion>", do_move)
+
+        # Resize Grip (Giữ nguyên)
+        grip = tk.Label(main_frame, bg="#555", cursor="sizing")
+        grip.place(relx=1.0, rely=1.0, x=0, y=0, anchor="se", width=15, height=15)
+        def start_resize(event):
+            g_notes_window.start_w = g_notes_window.winfo_width()
+            g_notes_window.start_h = g_notes_window.winfo_height()
+            g_notes_window.start_x = event.x_root
+            g_notes_window.start_y = event.y_root
+        def do_resize(event):
+            delta_w = event.x_root - g_notes_window.start_x
+            delta_h = event.y_root - g_notes_window.start_y
+            new_w = max(g_notes_window.start_w + delta_w, 100)
+            new_h = max(g_notes_window.start_h + delta_h, 100)
+            g_notes_window.geometry(f"{new_w}x{new_h}")
+        grip.bind("<ButtonPress-1>", start_resize)
+        grip.bind("<B1-Motion>", do_resize)
+
+    except Exception as e:
+        print(f"Lỗi Notes: {e}")
+        g_notes_window = None
+
+# --- [THÊM MỚI] TÍNH NĂNG TÂM ẢO (CROSSHAIR) ---
+g_crosshair_window = None 
+
+def action_toggle_crosshair():
+    """
+    Bật/Tắt tâm ngắm ảo.
+    Sử dụng Windows API để cho phép click xuyên qua (Click-Through).
+    """
+    global g_crosshair_window
+    
+    # Import các hằng số Windows API
+    try:
+        import ctypes
+        GWL_EXSTYLE = -20
+        WS_EX_LAYERED = 0x00080000
+        WS_EX_TRANSPARENT = 0x00000020 # Cờ quan trọng nhất: Click xuyên qua
+    except ImportError:
+        messagebox.showerror("Lỗi", "Tính năng này yêu cầu thư viện ctypes (Windows).")
+        return
+
+    # Nếu đang bật -> Tắt đi
+    if g_crosshair_window is not None:
+        try:
+            g_crosshair_window.destroy()
+        except: pass
+        g_crosshair_window = None
+        print("Đã tắt Crosshair.")
+        return
+
+    # Nếu đang tắt -> Bật lên
+    try:
+        g_crosshair_window = tk.Toplevel(root)
+        g_crosshair_window.title("Crosshair")
+        
+        # 1. Cấu hình hình học
+        w, h = 30, 30
+        screen_w = root.winfo_screenwidth()
+        screen_h = root.winfo_screenheight()
+        x = (screen_w // 2) - (w // 2)
+        y = (screen_h // 2) - (h // 2)
+        
+        g_crosshair_window.geometry(f"{w}x{h}+{x}+{y}")
+        g_crosshair_window.overrideredirect(True) 
+        g_crosshair_window.attributes('-topmost', True) 
+        
+        # 2. Màu nền trong suốt
+        bg_color = '#000001' 
+        g_crosshair_window.config(bg=bg_color)
+        try:
+            g_crosshair_window.attributes('-transparentcolor', bg_color)
+        except Exception: pass
+
+        # 3. Vẽ Tâm
+        canvas = tk.Canvas(g_crosshair_window, width=w, height=h, bg=bg_color, highlightthickness=0)
+        canvas.pack()
+        
+        center = w // 2
+        length = 8
+        thickness = 2
+        
+        # Vẽ dấu cộng màu xanh lá (Lime)
+        canvas.create_line(center - length, center, center + length + 1, center, fill="#00FF00", width=thickness)
+        canvas.create_line(center, center - length, center, center + length + 1, fill="#00FF00", width=thickness)
+        
+        # --- [QUAN TRỌNG] KÍCH HOẠT CHẾ ĐỘ XUYÊN THẤU ---
+        # Phải update idletasks để window có ID (HWND) trước khi gọi API
+        g_crosshair_window.update_idletasks() 
+        
+        hwnd = ctypes.windll.user32.GetParent(g_crosshair_window.winfo_id())
+        if hwnd == 0: # Fallback nếu không lấy được parent
+            hwnd = g_crosshair_window.winfo_id()
+            
+        # Lấy style hiện tại
+        current_style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        
+        # Thêm cờ Transparent (Xuyên thấu chuột) và Layered
+        new_style = current_style | WS_EX_LAYERED | WS_EX_TRANSPARENT
+        
+        # Áp dụng style mới
+        ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_style)
+        
+        print("Đã bật Crosshair (Click-Through Mode).")
+
+    except Exception as e:
+        print(f"Lỗi bật Crosshair: {e}")
+        g_crosshair_window = None
+
 # --- THÊM MỚI: HÀM DỌN DẸP TEMP ---
 def action_clean_temp_files():
     """
@@ -6465,7 +7058,7 @@ def on_backup_toggle():
 
 backup_checkbutton = ttk.Checkbutton(
     setting_frame,
-    text="Tự động sao lưu (Backup)",
+    text="💾 Tự động sao lưu (Backup)",
     variable=g_backup_enabled,
     command=on_backup_toggle,
     style="Switch.TCheckbutton"
@@ -6513,6 +7106,24 @@ auto_close_check = ttk.Checkbutton(
 auto_close_check.pack(anchor=tk.W, pady=5)
 CreateToolTip(auto_close_check, "Sau khi bấm 'Chạy Game', ứng dụng này sẽ tự tắt\nđể giải phóng hoàn toàn RAM cho game.")
 
+# --- [THÊM MỚI] NÚT GẠT HIỆU ỨNG VỤ NỔ ---
+g_chaos_effect_enabled = tk.BooleanVar(value=local_config.get("chaos_effect_enabled", False)) # Mặc định là Bật (True)
+
+def on_chaos_effect_toggle():
+    global local_config
+    local_config["chaos_effect_enabled"] = g_chaos_effect_enabled.get()
+    save_local_config(local_config)
+    print(f"Chaos Effect: {g_chaos_effect_enabled.get()}")
+
+chaos_checkbutton = ttk.Checkbutton(
+    setting_frame,
+    text="💥 Ảo Thuật của Uchiha Itachi ",
+    variable=g_chaos_effect_enabled,
+    command=on_chaos_effect_toggle,
+    style="Switch.TCheckbutton"
+)
+chaos_checkbutton.pack(anchor=tk.W, pady=5)
+CreateToolTip(chaos_checkbutton, "Khi bấm 'Chạy Game', giao diện sẽ nổ tung bay tứ tán.\nTắt đi nếu bạn thích sự nghiêm túc.")
 # --- Cột Phải: Công Cụ & Bảo Trì ---
 tools_frame = ttk.LabelFrame(settings_container, text="🛠️ Công Cụ & Bảo Trì", padding=10)
 tools_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
@@ -6542,6 +7153,18 @@ CreateToolTip(snapshot_btn, "Copy thông tin CPU/RAM/GPU để nhờ hỗ trợ.
 global update_app_button
 update_app_button = ttk.Button(tools_frame, text="Kiểm tra Update App", command=action_manual_check_for_updates)
 update_app_button.grid(row=1, column=1, sticky="nsew", padx=2, pady=2, ipady=5)
+
+crosshair_btn = ttk.Button(tools_frame, text="🎯 Bật/Tắt Tâm Ảo", command=action_toggle_crosshair)
+crosshair_btn.grid(row=2, column=0, sticky="nsew", padx=2, pady=2, ipady=5)
+CreateToolTip(crosshair_btn, "Hiển thị tâm ngắm (Crosshair) màu xanh giữa màn hình.\nHỗ trợ bắn không cần ngắm (No-scope) trong game.")
+
+open_data_btn = ttk.Button(tools_frame, text="📂 Mở Data Folder", command=action_open_data_folder)
+open_data_btn.grid(row=2, column=1, sticky="nsew", padx=2, pady=2, ipady=5)
+CreateToolTip(open_data_btn, "Mở thư mục chứa settings.json và file log.")
+
+notes_btn = ttk.Button(tools_frame, text="📝 Note Dán Màn Hình", command=action_toggle_notes)
+notes_btn.grid(row=3, column=0, sticky="nsew", padx=2, pady=2, ipady=5)
+CreateToolTip(notes_btn, "Hiện tờ giấy ghi chú trong suốt trên màn hình game.\nDùng để ghi mật khẩu, nhiệm vụ...")
 
 # --- 3. PATH SETTINGS (Đường dẫn) ---
 path_settings_frame = ttk.LabelFrame(fourth_tab_frame, text="🔗 Liên Kết Launcher (Tự động tìm thấy)", padding=10)
@@ -6905,6 +7528,25 @@ def load_config_thread():
     }
     progress_queue.put(("config_loaded", combined_data))
 
+def preload_rocket_gif_thread():
+    """
+    Chạy ngầm ngay khi mở App để tải GIF vào RAM.
+    Giúp bấm nút 'Chạy Game' là hiện hiệu ứng ngay lập tức.
+    """
+    global g_rocket_raw_data, ROCKET_GIF_URL
+    
+    if g_rocket_raw_data: 
+        return # Đã có dữ liệu thì thôi
+
+    try:
+        print(f"Đang tải trước (Preload) GIF hiệu ứng...")
+        response = requests.get(ROCKET_GIF_URL, timeout=10)
+        response.raise_for_status()
+        g_rocket_raw_data = response.content # Lưu dữ liệu thô vào RAM
+        print("✅ Tải trước GIF hiệu ứng hoàn tất!")
+    except Exception as e:
+        print(f"⚠️ Lỗi khi tải trước GIF (Sẽ thử lại khi bấm nút): {e}")
+
 # --- THÊM MỚI: HÀM TẢI GIF ĐỘNG ---
 def load_gif_frames_thread():
     """(Chạy ngầm) Tải GIF từ URL và tách các frame."""
@@ -6987,6 +7629,7 @@ root.after(100, process_queue)
 threading.Thread(target=load_config_thread, daemon=True).start()
 threading.Thread(target=load_gif_frames_thread, daemon=True).start()
 threading.Thread(target=auto_find_paths_thread, daemon=True).start()
+threading.Thread(target=preload_rocket_gif_thread, daemon=True).start()
 # Hủy splash screen
 splash.destroy()
 sv_ttk.set_theme("dark")
