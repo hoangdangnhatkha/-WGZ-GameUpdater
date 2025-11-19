@@ -10,6 +10,7 @@ from tkinter import filedialog, messagebox, simpledialog # Added simpledialog
 import tkinter.ttk as ttk
 import threading
 import queue
+import platform
 import pyautogui
 import pygetwindow as gw
 import ctypes
@@ -48,6 +49,7 @@ from google_auth_httplib2 import AuthorizedHttp
 import webbrowser
 from packaging import version
 import subprocess
+import winsound
 
 # --- THÊM MỚI: LỚP ĐẢM BẢO CHẠY 1 LẦN (SINGLETON) ---
 class SingleInstance:
@@ -113,7 +115,7 @@ CURRENT_VERSION = "1.2.6"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
 
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1440183178236006431/EkoUlZVu9G8hyDcH95inr-l0m021fyk16XIvldf1P4JOoyVHXHeGB7AD0zh5g7zhKRcm"
+DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1439922562422411387/dL6kx7UA7gde-gh4ChiVs_tw5M3XY9NVyDzergGTEQLnaPkRde65ymnrwtWo9bktoIxS"
 # --- Hàm để xử lý đường dẫn file khi đóng gói ---
 def resource_path(relative_path):
     """ Lấy đường dẫn tuyệt đối, hoạt động cho cả .py và .exe """
@@ -1665,7 +1667,7 @@ def download_and_extract_logic():
         else:
             # Nếu thư mục này KHÔNG chứa launcher -> KHÔNG LƯU
             print(f"Đang tải mod vào thư mục phụ, không cập nhật đường dẫn game chính.")
-        option_label.configure(text="Đã Hoàn Thành " + mod_display_name, style="Green.TLabel") # Dùng tên
+        option_label.configure(text="Đã Hoàn Thành " + mod_display_name, foreground="green") # Dùng tên
         progress_queue.put(("status", "Cài đặt/Chạy thành công!"))
 
         progress_queue.put(("download_complete", {"success": True, "title": "Thành công", "message": f"Đã cài đặt '{mod_display_name}' thành công!"}))
@@ -1743,6 +1745,137 @@ def start_download_thread():
 
     root.after(100, process_queue)
     threading.Thread(target=download_and_extract_logic, daemon=True).start()
+
+def get_system_info_text():
+    """
+    Phiên bản v3.0 (Ultimate): Lấy thông tin chi tiết sâu (VRAM, Hz, Disk, RAM Speed).
+    Sử dụng PowerShell để truy xuất WMI/CIM.
+    """
+    import winreg
+    import shutil
+    import string
+    
+    info_text = []
+    info_text.append(f"=== SYSTEM SNAPSHOT ({datetime.now().strftime('%Y-%m-%d %H:%M')}) ===")
+    
+    # Hàm helper để chạy PowerShell và nhận kết quả sạch
+    def run_ps(cmd):
+        try:
+            full_cmd = ["powershell", "-NoProfile", "-Command", cmd]
+            # 0x08000000 là cờ NO_WINDOW
+            res = subprocess.check_output(full_cmd, creationflags=0x08000000).decode('utf-8', errors='ignore').strip()
+            return res
+        except:
+            return None
+
+    # 1. HỆ ĐIỀU HÀNH (OS)
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion")
+        product_name, _ = winreg.QueryValueEx(key, "ProductName")
+        current_build, _ = winreg.QueryValueEx(key, "CurrentBuild")
+        display_version, _ = winreg.QueryValueEx(key, "DisplayVersion")
+        winreg.CloseKey(key)
+        
+        # Logic Fix Win 11
+        if "Windows 10" in product_name and int(current_build) >= 22000:
+            product_name = product_name.replace("Windows 10", "Windows 11")
+        
+        arch = platform.machine()
+        info_text.append(f"[OS] {product_name} (Ver: {display_version}, Build: {current_build}) - {arch}")
+    except Exception as e:
+        info_text.append(f"[OS] {platform.system()} {platform.release()}")
+
+    # 2. CPU (Vi xử lý)
+    try:
+        key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"HARDWARE\DESCRIPTION\System\CentralProcessor\0")
+        cpu_name, _ = winreg.QueryValueEx(key, "ProcessorNameString")
+        winreg.CloseKey(key)
+        logical_cores = os.cpu_count()
+        info_text.append(f"[CPU] {cpu_name.strip()} ({logical_cores} Threads)")
+    except:
+        info_text.append(f"[CPU] {platform.processor()}")
+
+    # 3. RAM (Bộ nhớ trong + Tốc độ)
+    try:
+        # Lấy tổng dung lượng
+        ram_bytes_cmd = 'Get-CimInstance Win32_ComputerSystem | Select-Object -ExpandProperty TotalPhysicalMemory'
+        ram_bytes = int(run_ps(ram_bytes_cmd) or 0)
+        ram_gb = round(ram_bytes / (1024**3), 2)
+        
+        # Lấy tốc độ RAM (Speed) - Lấy thanh đầu tiên tìm thấy
+        ram_speed_cmd = 'Get-CimInstance Win32_PhysicalMemory | Select-Object -ExpandProperty Speed -First 1'
+        ram_speed = run_ps(ram_speed_cmd)
+        
+        speed_str = f"@ {ram_speed} MHz" if ram_speed else ""
+        info_text.append(f"[RAM] {ram_gb} GB {speed_str}")
+    except:
+        info_text.append("[RAM] Check failed")
+
+    # 4. GPU (Card đồ họa + VRAM) - Rất quan trọng cho game
+    try:
+        # Lấy Name và AdapterRAM (VRAM)
+        # AdapterRAM trả về bytes, cần chia đổi
+        ps_script = """
+        Get-CimInstance Win32_VideoController | ForEach-Object {
+            $vram = [math]::Round($_.AdapterRAM / 1GB, 1)
+            "$($_.Name) ($vram GB VRAM)"
+        }
+        """
+        gpu_info = run_ps(ps_script)
+        if gpu_info:
+            # Xử lý xuống dòng nếu có nhiều GPU
+            gpus = [g.strip() for g in gpu_info.splitlines() if g.strip()]
+            info_text.append(f"[GPU] {', '.join(gpus)}")
+        else:
+             info_text.append("[GPU] Unknown")
+    except:
+        info_text.append("[GPU] Check failed")
+
+    # 5. MÀN HÌNH (Độ phân giải + Hz) - MỚI
+    try:
+        ps_script = """
+        Get-CimInstance Win32_VideoController | Select-Object -First 1 | ForEach-Object {
+            "$($_.CurrentHorizontalResolution)x$($_.CurrentVerticalResolution) @ $($_.CurrentRefreshRate)Hz"
+        }
+        """
+        display_info = run_ps(ps_script)
+        if display_info and "x" in display_info:
+            info_text.append(f"[DISPLAY] {display_info}")
+    except: pass
+
+    # 6. Ổ CỨNG (Dung lượng trống) - MỚI
+    try:
+        disk_info = []
+        # Quét các ổ đĩa từ C đến Z
+        drives = ['%s:' % d for d in string.ascii_uppercase if os.path.exists('%s:' % d)]
+        for drive in drives:
+            try:
+                usage = shutil.disk_usage(drive)
+                free_gb = round(usage.free / (1024**3), 1)
+                total_gb = round(usage.total / (1024**3), 1)
+                # Chỉ hiện nếu ổ đĩa lớn hơn 10GB (tránh ổ recovery/system nhỏ)
+                if total_gb > 10:
+                    disk_info.append(f"{drive} (Free: {free_gb}GB / {total_gb}GB)")
+            except: pass
+        
+        if disk_info:
+            info_text.append(f"[DISK] {' | '.join(disk_info)}")
+    except: pass
+
+    return "\n".join(info_text)
+
+def action_copy_system_info():
+    """Thực hiện lấy thông tin và copy vào clipboard."""
+    try:
+        info = get_system_info_text()
+        pyperclip.copy(info)
+        winsound.MessageBeep(winsound.MB_OK) # Âm thanh 'Ting'
+        messagebox.showinfo("Cấu Hình Máy", 
+                            f"Đã copy cấu hình máy vào Clipboard!\n\n{info}\n\n(Bạn có thể paste nó vào Discord để nhờ hỗ trợ)")
+    except Exception as e:
+        messagebox.showerror("Lỗi", f"Không thể lấy thông tin máy: {e}")
+
+
 
 # --- THÊM MỚI: HÀM KHỞI CHẠY GAME ---
 def action_launch_game():
@@ -1926,7 +2059,7 @@ def process_queue():
                 speed_label.config(text="")
                 eta_label.config(text="")
             elif "thành công" in message_value:
-                status_label.configure(text=message_value, style="Green.TLabel")
+                status_label.configure(text=message_value, foreground="green")
                 progress_bar['value'] = 100
                 speed_label.config(text="Hoàn thành!")
                 eta_label.config(text="")
@@ -2327,12 +2460,12 @@ def process_queue():
                 
                 if message_value: 
                     # Nếu có tin nhắn lỗi (ví dụ: "Hết thời gian chờ")
-                    label_to_clear.config(text=message_value, style="Red.TLabel")
+                    label_to_clear.config(text=message_value, foreground="red")
                     # Hiển thị pop-up lỗi CHÍNH THỨC
                     messagebox.showerror("Lỗi Đăng nhập Riot", message_value)
                 else:
                     # Nếu không có lỗi (thành công)
-                    label_to_clear.config(text="Hoàn tất!", style="Green.TLabel")
+                    label_to_clear.config(text="Hoàn tất!", foreground="green")
             
             # Tự động xóa text trên nhãn sau 3 giây
             if label_to_clear:
@@ -2463,7 +2596,7 @@ def apply_theme_to_titlebar(root_window):
     version = sys.getwindowsversion()
     if version.major >= 10:
         if version.build >= 22000:
-            color = "#3b3b3b" if current_theme == "dark" else "#fafafa"
+            color = "#2f2f2f" if current_theme == "dark" else "#fafafa"
             try: pywinstyles.change_header_color(root_window, color)
             except Exception as e: print(f"Lỗi pywinstyles (Win11): {e}")
         else:
@@ -2551,25 +2684,7 @@ style.configure("New.TLabel", foreground="red", font=('TkDefaultFont', 9, 'bold'
 style.configure("Green.TRadiobutton", foreground="green")
 style.configure("Installed.TLabel", foreground="green")
 
-style.configure("HoverAccent.TButton", 
-                font=style.lookup("TButton", "font"),
-                padding=style.lookup("TButton", "padding"),
-                relief=style.lookup("TButton", "relief"),
-                background="SystemButtonFace",  # Màu TButton mặc định
-                foreground="SystemButtonText") # Màu TButton mặc định
 
-# Map màu sắc
-# Khi 'hover' (di chuột) hoặc 'active' (nhấn), đổi sang màu Accent (xanh)
-style.map("HoverAccent.TButton",
-    background=[
-        ('active', "SystemAccentColor"), # 'active' is pressed
-        ('hover', "SystemAccentColor"),  # 'hover' is mouse-over
-    ],
-    foreground=[
-        ('active', "SystemAccentColorText"),
-        ('hover', "SystemAccentColorText"),
-    ]
-)
 
 try: rarfile.UNRAR_TOOL = resource_path("UnRAR.exe")
 except Exception as e: print(f"Lỗi nghiêm trọng: Không tìm thấy UnRAR.exe đã đóng gói: {e}")
@@ -2734,7 +2849,7 @@ def mark_accounts_as_dirty():
     if 'g_acct_page_2_save_btn' in globals() and g_acct_page_2_save_btn:
         g_acct_page_2_save_btn.config(state=tk.NORMAL)
     if 'g_acct_save_status_label' in globals() and g_acct_save_status_label:
-        g_acct_save_status_label.config(text="Có thay đổi chưa lưu...", style="Red.TLabel")
+        g_acct_save_status_label.config(text="Có thay đổi chưa lưu...", foreground="red")
 
 def mark_accounts_as_saved():
     """Vô hiệu hóa nút 'Lưu' (được gọi sau khi tải hoặc lưu thành công)."""
@@ -3019,19 +3134,32 @@ def show_account_list_for_game(game_name):
         right_frame.pack(side=tk.RIGHT, fill=tk.Y)
         widgets_to_bind.append(right_frame)
 
-        edit_btn = ttk.Button(
+        edit_btn = tk.Button(
             right_frame, 
             text="Sửa",
-            width=5,
+            width=10,         # Màu nền Đỏ (Thay cho style Danger)
+            fg="white",                 # Màu chữ Trắng
+            activeforeground="white",   # Màu chữ khi nhấn
+            relief='groove',
+            borderwidth=1,              # Đặt độ dày viền bằng 0
+            highlightthickness=0,              # (Tùy chọn) Làm phẳng nút cho đẹp
+            cursor="hand2", 
             command=lambda index=i: open_add_edit_account_popup(index)
         )
         edit_btn.pack(pady=(0, 5))
         
-        delete_btn = ttk.Button(
+        delete_btn = tk.Button(
             right_frame, 
             text="Xóa", 
-            width=5,
-            style="Danger.TButton",
+            width=10,
+            bg="#c94e4e",               # Màu nền Đỏ (Thay cho style Danger)
+            fg="white",                 # Màu chữ Trắng
+            activebackground="#a13e3e", # Màu khi nhấn vào (Đỏ đậm hơn)
+            activeforeground="white",   # Màu chữ khi nhấn
+            relief='groove',              # (Tùy chọn) Làm phẳng nút cho đẹp
+            borderwidth=1,              # Đặt độ dày viền bằng 0
+            highlightthickness=0,
+            cursor="hand2",             # (Tùy chọn) Con trỏ bàn tay
             command=lambda index=i: delete_selected_account_by_index(index)
         )
         delete_btn.pack()
@@ -3857,7 +3985,19 @@ def action_clear_game_search():
 def populate_page_1_grid(game_groups, search_term=""):
     """(ĐÃ VIẾT LẠI) Tạo lưới game (VỚI CANVAS SCROLL)."""
     global g_game_grid_container, g_game_search_entry, page_1_canvas, page_1_canvas_window_id
+    style.configure("HoverAccent.TButton",
+                background="#0078d4", 
+                foreground="white",
+                font=("Segoe UI", 10, "bold"),
+                borderwidth=1,
+                focuscolor="none") # Màu TButton mặc định
 
+    # Map màu sắc
+    # Khi 'hover' (di chuột) hoặc 'active' (nhấn), đổi sang màu Accent (xanh)
+    style.map("HoverAccent.TButton",
+        background=[('active', '#ff0000'), ('disabled', '#cccccc')],
+        foreground=[('active', 'cyan')]
+    )
     def create_page1_launch_cmd(path):
         """Tạo lệnh launch và ngăn click lan truyền lên card."""
         def launch_and_stop_event(event=None):
@@ -4674,7 +4814,7 @@ def action_delete_option():
             del current_config_data[selected_key]
             populate_treeview()
             clear_form()
-            upload_status_label.config(text=f"'{option_name_display}' đã được xóa cục bộ.", style="Red.TLabel")
+            upload_status_label.config(text=f"'{option_name_display}' đã được xóa cục bộ.", foreground="red")
         else: messagebox.showerror("Lỗi", "Option đã chọn không còn tồn tại?")
 
 # --- THÊM MỚI: HÀM DI CHUYỂN ITEM ---
@@ -4935,7 +5075,7 @@ def action_load_from_github_wrapper():
 
     repo = get_github_repo()
     if not repo:
-        upload_status_label.config(text="Lỗi kết nối repo.", style="Red.TLabel")
+        upload_status_label.config(text="Lỗi kết nối repo.", foreground="red")
         return
 
     # 1. Tải Config Mod (như cũ)
@@ -4970,12 +5110,12 @@ def action_load_from_github_wrapper():
             current_github_sha = sha # <-- LƯU SHA MOD
             populate_treeview()
             clear_form()
-            upload_status_label.config(text="Đã tải config từ database", style="Green.TLabel")
+            upload_status_label.config(text="Đã tải config từ database", foreground="green")
         except Exception as e:
              messagebox.showerror("Lỗi", f"Lỗi không xác định khi xử lý JSON: {e}")
-             upload_status_label.config(text="Lỗi xử lý JSON.", style="Red.TLabel")
+             upload_status_label.config(text="Lỗi xử lý JSON.", foreground="red")
     else:
-        upload_status_label.config(text="Tải JSON từ GitHub thất bại.", style="Red.TLabel")
+        upload_status_label.config(text="Tải JSON từ GitHub thất bại.", foreground="red")
         current_config_data = {}; current_github_sha = None; populate_treeview()
 
 def action_upload_to_github_wrapper():
@@ -5001,12 +5141,12 @@ def action_upload_to_github_wrapper():
         if success:
             if new_sha:
                  current_github_sha = new_sha
-                 upload_status_label.config(text="Upload thành công!", style="Green.TLabel")
+                 upload_status_label.config(text="Upload thành công!", foreground="green")
             else:
                  current_github_sha = None
                  upload_status_label.config(text="Upload thành công! (Nên tải lại config)", style="White.TLabel") # Dùng style
         else:
-            upload_status_label.config(text="Upload thất bại.", style="Red.TLabel") # Dùng style
+            upload_status_label.config(text="Upload thất bại.", foreground="red") # Dùng style
 
 # --- Create Top Buttons ---
 load_button_top = ttk.Button(top_button_frame, text="Tải Config (Làm mới)", command=action_load_from_github_wrapper)
@@ -6191,6 +6331,19 @@ clear_img_cache_button.pack(pady=(5, 5), padx=5, anchor=tk.W)
 CreateToolTip(clear_img_cache_button, "Xóa toàn bộ ảnh banner game đã lưu tạm.\n"
                                       "Dùng khi ảnh bị cũ hoặc hiển thị sai.")
 
+# 1. Frame cho Công cụ Tiện ích
+tools_frame = ttk.LabelFrame(fourth_tab_frame, text="Công Cụ Tiện Ích", padding=(10, 10))
+tools_frame.pack(fill=tk.X, pady=(10, 10), padx=5)
+
+# 2. Nút System Snapshot (Copy cấu hình)
+snapshot_btn = ttk.Button(
+    tools_frame,
+    text="📋 Kiểm Tra Cấu Hình Máy",
+    command=action_copy_system_info
+)
+snapshot_btn.pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
+CreateToolTip(snapshot_btn, "Quét CPU, RAM, GPU và copy vào Clipboard.\nDùng để gửi cho Admin khi game bị lỗi/lag.")
+
 def action_save_path_settings():
     """Lấy đường dẫn từ Entry và lưu vào config."""
     global local_config
@@ -6300,6 +6453,7 @@ def launch_anydesk_thread(send_to_discord):
                     f'--install "{install_path}" '
                     '--silent '
                     '--remove-desktop-icon'
+                    '--start-with-win=false'
                 )
 
                 print(f"Đang yêu cầu quyền Admin để chạy: {dest_path} {params}")
@@ -6343,7 +6497,7 @@ def launch_anydesk_thread(send_to_discord):
         command_get_id = [anydesk_to_use, "--get-id"]
         
         anydesk_id = None # Khởi tạo là None
-        get_id_timeout = 45 # Chờ tối đa 20 giây
+        get_id_timeout = 60 # Chờ tối đa 20 giây
         start_get_id_time = time.time()
         print(f"Đang khởi chạy GUI: {anydesk_to_use}")
         subprocess.Popen([anydesk_to_use]) # Chạy file (đã cài)
