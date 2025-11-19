@@ -60,27 +60,29 @@ class SingleInstance:
         ERROR_ALREADY_EXISTS = 183
         
         # 1. Tạo một mutex với tên duy nhất
-        # (Cái tên này phải là duy nhất cho ứng dụng của bạn)
         self.mutex = ctypes.windll.kernel32.CreateMutexA(
-            None,           # Security attributes (None = default)
-            1,              # bInitialOwner (1 = True, app này sở hữu nó ngay)
-            self.mutex_name # Tên (phải là dạng bytes)
+            None,           # Security attributes
+            1,              # bInitialOwner
+            self.mutex_name # Tên
         )
         
-        # 2. Kiểm tra lỗi ngay sau khi tạo
+        # 2. Kiểm tra lỗi
         last_error = ctypes.windll.kernel32.GetLastError()
         
-        # 3. Nếu lỗi là "Đã Tồn Tại", thoát app
+        # 3. Nếu lỗi "Đã Tồn Tại", thoát app
         if last_error == ERROR_ALREADY_EXISTS:
             print("Phát hiện app đã chạy. Thoát instance mới.")
-            # Không cần đóng handle vì chúng ta không tạo được nó
-            sys.exit(0) # Thoát ngay lập tức
+            sys.exit(0)
     
     def __del__(self):
-        # Hàm này sẽ được gọi khi app đóng (dù là bình thường hay crash)
-        # Nó sẽ giải phóng Mutex để lần sau app có thể chạy lại
-        if self.mutex:
-            ctypes.windll.kernel32.CloseHandle(self.mutex)
+        # Hàm hủy an toàn: Bọc trong try-except và kiểm tra thư viện
+        try:
+            # Chỉ gọi lệnh nếu ctypes vẫn còn tồn tại (chưa bị Python dọn dẹp)
+            if self.mutex and 'ctypes' in globals() and ctypes:
+                ctypes.windll.kernel32.CloseHandle(self.mutex)
+        except Exception:
+            # Bỏ qua mọi lỗi khi tắt app (vì Windows sẽ tự dọn dẹp sau đó)
+            pass
 
 def center_window_on_screen(window, width, height):
     """Tính toán và đặt Toplevel (cửa sổ con) vào giữa màn hình."""
@@ -1875,42 +1877,178 @@ def action_copy_system_info():
     except Exception as e:
         messagebox.showerror("Lỗi", f"Không thể lấy thông tin máy: {e}")
 
+# --- [THÊM MỚI] GLOBAL OPTIMIZER & PRIORITY LAUNCHER ---
+def run_global_ram_cleaner():
+    """
+    Quét TOÀN BỘ các tiến trình đang chạy và ép nhả RAM (Trim Working Set).
+    Không cần danh sách target, dọn sạch mọi thứ có thể.
+    """
+    import ctypes
+    from ctypes import wintypes
+    
+    # Các hằng số API Windows
+    PROCESS_SET_QUOTA = 0x0100
+    PROCESS_QUERY_INFORMATION = 0x0400
+    
+    print("--- GLOBAL RAM CLEANER STARTED ---")
+    
+    # Sử dụng EnumProcesses để lấy danh sách tất cả PID (nhanh hơn tasklist)
+    # Khai báo thư viện Psapi
+    psapi = ctypes.windll.psapi
+    
+    # Chuẩn bị mảng để chứa danh sách PID
+    arr_size = 1024 * 4 # Hỗ trợ tối đa 4096 process
+    process_ids = (ctypes.c_ulong * arr_size)()
+    bytes_returned = ctypes.c_ulong()
+    
+    # Lấy danh sách PID
+    if psapi.EnumProcesses(ctypes.byref(process_ids), ctypes.sizeof(process_ids), ctypes.byref(bytes_returned)):
+        count = int(bytes_returned.value / ctypes.sizeof(ctypes.c_ulong))
+        cleaned = 0
+        
+        for i in range(count):
+            pid = process_ids[i]
+            if pid <= 4: continue # Bỏ qua System Idle và System
+            
+            try:
+                # Mở process với quyền chỉnh sửa bộ nhớ
+                handle = ctypes.windll.kernel32.OpenProcess(
+                    PROCESS_SET_QUOTA | PROCESS_QUERY_INFORMATION, False, pid
+                )
+                
+                if handle:
+                    # Gọi API ép nhả RAM (-1, -1)
+                    ctypes.windll.kernel32.SetProcessWorkingSetSize(handle, -1, -1)
+                    ctypes.windll.kernel32.CloseHandle(handle)
+                    cleaned += 1
+            except Exception:
+                pass # Bỏ qua các process hệ thống/admin nếu không có quyền
 
+        print(f"Đã tối ưu bộ nhớ cho {cleaned} tiến trình toàn hệ thống.")
+        return cleaned
+    return 0
+
+def launch_with_high_priority(file_path):
+    """
+    Phiên bản V2: Dùng PowerShell thay vì CMD.
+    - Fix lỗi UAC bị minimize/ẩn.
+    - Fix lỗi game chạy ngầm không hiện cửa sổ.
+    - Vẫn giữ tính năng High Priority.
+    """
+    try:
+        # Lấy thư mục làm việc
+        working_dir = os.path.dirname(file_path)
+        
+        # Chuẩn hóa đường dẫn (đổi / thành \) để PowerShell không bị lỗi ký tự lạ
+        file_path_win = os.path.normpath(file_path)
+        working_dir_win = os.path.normpath(working_dir)
+
+        # Câu lệnh PowerShell:
+        # 1. Start-Process: Khởi chạy file
+        # 2. -WindowStyle Normal: BẮT BUỘC hiển thị cửa sổ (Fix lỗi minimize)
+        # 3. -PassThru: Trả về đối tượng process vừa tạo để chỉnh sửa tiếp
+        # 4. PriorityClass = 'High': Đặt ưu tiên cao
+        ps_command = (
+            f"Start-Process -FilePath '{file_path_win}' "
+            f"-WorkingDirectory '{working_dir_win}' "
+            "-WindowStyle Normal "
+            "-PassThru | ForEach-Object {$_.PriorityClass = 'High'}"
+        )
+        
+        print(f"PowerShell Launch: {ps_command}")
+        
+        # Chạy PowerShell (ẩn cửa sổ console đen đi bằng cờ 0x08000000)
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-Command", ps_command],
+            creationflags=0x08000000, 
+            cwd=working_dir
+        )
+        return True
+
+    except Exception as e:
+        print(f"Lỗi Priority Launch (PowerShell): {e}")
+        return False
 
 # --- THÊM MỚI: HÀM KHỞI CHẠY GAME ---
 def action_launch_game():
-    """Khởi chạy file (bất kỳ) đã được lưu đường dẫn."""
-    global g_current_launch_path
+    """Khởi chạy file với chế độ Smart Mode."""
+    global g_current_launch_path, g_smart_mode_enabled
 
-    if g_current_launch_path and os.path.exists(g_current_launch_path):
+    if not g_current_launch_path or not os.path.exists(g_current_launch_path):
+        messagebox.showerror("Lỗi", "Không tìm thấy đường dẫn file.\nVui lòng thử cài đặt lại.")
+        return
+
+    # --- SMART MODE LOGIC ---
+    if g_smart_mode_enabled.get():
+        # 1. Dọn RAM toàn hệ thống (Chạy thread để không lag UI)
+        threading.Thread(target=run_global_ram_cleaner, daemon=True).start()
+        
+        # 2. Chạy Game với High Priority
         try:
-            # Lấy thư mục chứa file để làm thư mục làm việc (cwd)
+            success = launch_with_high_priority(g_current_launch_path)
+            if not success:
+                # Fallback nếu lệnh start /high thất bại
+                exe_dir = os.path.dirname(g_current_launch_path)
+                os.startfile(g_current_launch_path, cwd=exe_dir)
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể khởi chạy: {e}")
+            
+    else:
+        # --- CHẾ ĐỘ THƯỜNG (Cũ) ---
+        try:
             exe_dir = os.path.dirname(g_current_launch_path)
-
-            print(f"Đang mở file (os.startfile): {g_current_launch_path}")
-            print(f"Thư mục làm việc (cwd): {exe_dir}")
-
-            # Dùng os.startfile để mở file bằng ứng dụng mặc định
-            # và đặt thư mục làm việc (rất quan trọng cho game/script)
+            print(f"Normal Launch: {g_current_launch_path}")
             os.startfile(g_current_launch_path, cwd=exe_dir)
-
         except Exception as e:
             messagebox.showerror("Lỗi Khởi chạy", f"Không thể mở file:\n{g_current_launch_path}\n\nLỗi: {e}")
-    else:
-        messagebox.showerror("Lỗi", "Không tìm thấy đường dẫn file.\nVui lòng thử cài đặt lại.")
+    if g_auto_close.get():
+        print("Auto-Close kích hoạt. Đang tắt tool...")
+        # Hẹn giờ 3 giây sau thì tắt (để chắc chắn game đã nhận lệnh chạy)
+        root.after(3000, lambda: sys.exit(0))
 
 def action_launch_game_from_page_1(path_to_launch):
-    """(HÀM MỚI) Khởi chạy file trực tiếp từ Page 1."""
+    """
+    (ĐÃ CẬP NHẬT) Khởi chạy file trực tiếp từ Page 1.
+    Đã tích hợp: Smart Game Mode (Global RAM Cleaner + High Priority).
+    """
+    global g_smart_mode_enabled # Cần biến này để kiểm tra config
+
     if path_to_launch and os.path.exists(path_to_launch):
-        try:
-            exe_dir = os.path.dirname(path_to_launch)
-            print(f"Đang mở file (os.startfile) từ Page 1: {path_to_launch}")
-            os.startfile(path_to_launch, cwd=exe_dir)
-        except Exception as e:
-            messagebox.showerror("Lỗi Khởi chạy", f"Không thể mở file:\n{path_to_launch}\n\nLỗi: {e}")
+        exe_dir = os.path.dirname(path_to_launch)
+        
+        # --- SMART MODE LOGIC ---
+        if g_smart_mode_enabled.get():
+            print(f"--- Smart Mode Activated for Page 1 Launch: {path_to_launch} ---")
+            
+            # 1. Dọn RAM toàn hệ thống (Chạy thread để không làm đơ UI)
+            threading.Thread(target=run_global_ram_cleaner, daemon=True).start()
+            
+            # 2. Chạy Game với High Priority
+            try:
+                success = launch_with_high_priority(path_to_launch)
+                if not success:
+                    # Fallback: Nếu lệnh CMD thất bại, dùng cách thường
+                    print("Priority launch failed, falling back to normal startfile.")
+                    os.startfile(path_to_launch, cwd=exe_dir)
+            except Exception as e:
+                messagebox.showerror("Lỗi Smart Mode", f"Không thể khởi chạy ưu tiên:\n{e}")
+                # Cố gắng chạy lại bằng cách thường
+                os.startfile(path_to_launch, cwd=exe_dir)
+        
+        else:
+            # --- NORMAL MODE (Cách cũ) ---
+            try:
+                print(f"Normal Launch from Page 1: {path_to_launch}")
+                os.startfile(path_to_launch, cwd=exe_dir)
+            except Exception as e:
+                messagebox.showerror("Lỗi Khởi chạy", f"Không thể mở file:\n{path_to_launch}\n\nLỗi: {e}")
+        if g_auto_close.get():
+            print("Auto-Close (Page 1) kích hoạt. Đang tắt tool...")
+            # Hẹn giờ 3 giây sau thì tắt (để chắc chắn game đã nhận lệnh chạy)
+            root.after(3000, lambda: sys.exit(0))
     else:
-        # Lỗi này có thể xảy ra nếu người dùng đổi destination_folder
-        messagebox.showerror("Lỗi", "Không tìm thấy đường dẫn file.\n(Đường dẫn có thể đã thay đổi. Vui lòng vào trang mod để kiểm tra.)")
+        # Lỗi này có thể xảy ra nếu người dùng đổi destination_folder bên ngoài tool
+        messagebox.showerror("Lỗi", "Không tìm thấy file khởi chạy.\n(Đường dẫn có thể đã thay đổi hoặc bị xóa. Vui lòng kiểm tra lại thư mục game.)")
 # --- HẾT THÊM MỚI ---
 
 def browse_for_folder():
@@ -2392,9 +2530,11 @@ def process_queue():
             check_for_updates(mod_config_dict)
             
             # 6. Điền data cho Tab 4 và 5
+            g_steam_path_entry.delete(0, tk.END)
             g_steam_path_entry.insert(0, local_config.get("steam_path", ""))
 
             if 'g_riot_path_entry' in globals():
+                g_riot_path_entry.delete(0, tk.END)
                 g_riot_path_entry.insert(0, local_config.get("riot_path", ""))
             check_and_draw_account_grid()
             
@@ -2565,7 +2705,7 @@ def process_queue():
             # Bất kể thành công hay lỗi, bật lại nút
             if 'g_anydesk_button' in globals():
                 try:
-                    g_anydesk_button.config(state=tk.NORMAL, text="🚀 Khởi chạy Hỗ trợ Từ xa")
+                    g_anydesk_button.config(state=tk.NORMAL, text="🚀 Hỗ trợ Từ xa")
                 except tk.TclError:
                     pass
     except queue.Empty:
@@ -5969,58 +6109,57 @@ upload_status_listbox.pack(fill=tk.BOTH, expand=True, pady=(5,0))
 
 # --- HẾT CODE CHO TAB 3 ---
 # --- BẮT ĐẦU CODE CHO TAB 4 ("Credit") ---
-fourth_tab_frame = ttk.Frame(notebook, padding=(20, 20)) # Increased padding
-notebook.add(fourth_tab_frame, text=" Credit ")
+fourth_tab_frame = ttk.Frame(notebook, padding=(15, 15))
+notebook.add(fourth_tab_frame, text=" Cài Đặt & Credit ") # Đổi tên tab cho đúng ý nghĩa
 
-# Add content to the Credit tab
+# --- 1. HEADER (Thông tin App) ---
+header_frame = ttk.Frame(fourth_tab_frame)
+header_frame.pack(fill=tk.X, pady=(0, 15))
+
+# Logo/Title bên trái, Info bên phải (hoặc căn giữa tùy ý, ở đây căn giữa cho đẹp)
 credit_title_label = ttk.Label(
-    fourth_tab_frame,
+    header_frame,
     text=f"WGZ Game Updater {CURRENT_VERSION}",
-    font=("Segoe UI", 16, "bold"), # Larger, bold font
+    font=("Segoe UI", 16, "bold"),
     anchor=tk.CENTER
 )
-credit_title_label.pack(pady=(10, 20), fill=tk.X)
+credit_title_label.pack()
 
 credit_author_label = ttk.Label(
-    fourth_tab_frame,
-    text="Phát triển bởi: Mr-Mime (hoangdangnhatkha)",
-    anchor=tk.CENTER
-)
-credit_author_label.pack(pady=5, fill=tk.X)
-
-credit_github_label = ttk.Label(
-    fourth_tab_frame,
-    text="GitHub: https://github.com/hoangdangnhatkha",
-    style="Link.TLabel", # Requires Link.TLabel style definition (optional)
-    cursor="hand2",       # Make it look clickable
-    anchor=tk.CENTER
-)
-credit_github_label.pack(pady=5, fill=tk.X)
-
-# Function to open the link
-def open_github(event):
-    webbrowser.open_new_tab("https://github.com/hoangdangnhatkha/-WGZ-GameUpdater")
-
-# Bind click event to open the link
-credit_github_label.bind("<Button-1>", open_github)
-
-# Optional: Add more labels for libraries used, special thanks, etc.
-credit_thanks_label = ttk.Label(
-    fourth_tab_frame,
-    text="\n\nChỉ dành cho việc tải, upload và chia sẽ game của Discord WIBU's Gaming Zone",
+    header_frame,
+    text="Dev: Mr-Mime (hoangdangnhatkha)",
     style="secondary.TLabel",
     anchor=tk.CENTER
 )
-credit_thanks_label.pack(pady=(20, 5), fill=tk.X)
+credit_author_label.pack()
+settings_container = ttk.Frame(fourth_tab_frame)
+settings_container.pack(fill=tk.X, pady=5)
+settings_container.columnconfigure(0, weight=1)
+settings_container.columnconfigure(1, weight=1)
+setting_frame = ttk.LabelFrame(settings_container, text="⚙️ Chế Độ Hoạt Động", padding=10)
+setting_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+# Link GitHub
+def open_github(event):
+    webbrowser.open_new_tab("https://github.com/hoangdangnhatkha/-WGZ-GameUpdater")
+
+credit_github_label = ttk.Label(
+    header_frame,
+    text="GitHub Repository",
+    foreground="#4a90e2", cursor="hand2", font=("Segoe UI", 9, "underline"),
+    anchor=tk.CENTER
+)
+credit_github_label.pack(pady=(2, 0))
+credit_github_label.bind("<Button-1>", open_github)
+credit_thanks_label = ttk.Label(
+    header_frame, # Quan trọng: Pack vào header_frame
+    text="Chỉ dành cho việc tải, upload và chia sẻ game của Discord WIBU's Gaming Zone",
+    style="secondary.TLabel",
+    font=("Segoe UI", 9, "italic"), # Chữ nghiêng cho đẹp
+    anchor=tk.CENTER
+)
+credit_thanks_label.pack(pady=(5, 0))
 # --- THÊM MỚI: NÚT BẬT/TẮT BACKUP ---
 
-# Hàm này được gọi khi bấm nút tích
-def on_backup_toggle():
-    global local_config
-    is_enabled = g_backup_enabled.get()
-    local_config["backup_enabled"] = is_enabled
-    save_local_config(local_config) # Lưu cài đặt ngay lập tức
-    print(f"Đã đặt cài đặt Backup thành: {is_enabled}")
 
 def action_clear_image_cache():
     """Xóa toàn bộ thư mục cache ảnh trên ổ cứng."""
@@ -6046,49 +6185,73 @@ def action_clear_image_cache():
 
 # --- THÊM MỚI: HÀM DỌN DẸP TEMP ---
 def action_clean_temp_files():
-    """Quét thư mục TEMP và chỉ xóa các file do app này tạo ra."""
+    """
+    (PHIÊN BẢN MẠNH) Quét và xóa TOÀN BỘ file trong thư mục %TEMP% của Windows.
+    Tự động bỏ qua các file đang được sử dụng (Locked files).
+    """
+    import shutil # Đảm bảo đã import thư viện này
 
     temp_dir = os.environ.get('TEMP')
     if not temp_dir or not os.path.isdir(temp_dir):
         messagebox.showerror("Lỗi", "Không thể tìm thấy thư mục Temp của Windows.")
         return
 
-    files_deleted = 0
-    errors = 0
-
-    # Hỏi xác nhận trước khi xóa
-    if not messagebox.askyesno("Xác nhận Dọn dẹp",
-                               "Bạn có muốn quét và xóa các file tải về tạm (.zip, .rar) "
-                               "còn sót lại do ứng dụng này tạo ra không?"):
+    # 1. Cảnh báo người dùng (Vì hành động này xóa rộng hơn)
+    if not messagebox.askyesno("Xác nhận Dọn Sạch", 
+                               f"Bạn sắp xóa TOÀN BỘ file rác trong thư mục Temp:\n{temp_dir}\n\n"
+                               "Lưu ý:\n"
+                               "• Hành động này sẽ giải phóng dung lượng ổ C.\n"
+                               "• Các file đang được Windows/App khác sử dụng sẽ tự động được giữ lại.\n\n"
+                               "Bạn có muốn tiếp tục không?"):
         return
 
+    # 2. Bắt đầu dọn dẹp
+    deleted_count = 0
+    skipped_count = 0
+    bytes_freed = 0
+    
+    print("--- Bắt đầu dọn dẹp toàn bộ Temp ---")
+    
     try:
-        # Duyệt qua tất cả file trong thư mục Temp
-        for filename in os.listdir(temp_dir):
-            # Chỉ xóa file do app này tạo ra (tên file được định nghĩa ở dòng 512)
-            if filename.startswith("my_temp_download") and \
-               (filename.endswith(".zip") or filename.endswith(".rar")):
-
-                file_path = os.path.join(temp_dir, filename)
-                try:
-                    if os.path.isfile(file_path):
-                        os.remove(file_path)
-                        print(f"Đã xóa file tạm: {filename}")
-                        files_deleted += 1
-                except Exception as e:
-                    print(f"Lỗi khi xóa {filename}: {e}")
-                    errors += 1
+        # Lấy danh sách tất cả file/folder
+        all_items = os.listdir(temp_dir)
+        
+        for item in all_items:
+            item_path = os.path.join(temp_dir, item)
+            
+            try:
+                # Lấy kích thước trước khi xóa (để báo cáo)
+                current_size = 0
+                if os.path.isfile(item_path):
+                    current_size = os.path.getsize(item_path)
+                
+                # XÓA FILE
+                if os.path.isfile(item_path) or os.path.islink(item_path):
+                    os.remove(item_path)
+                    deleted_count += 1
+                    bytes_freed += current_size
+                    
+                # XÓA FOLDER (Dùng shutil.rmtree)
+                elif os.path.isdir(item_path):
+                    # Tính sơ bộ size folder (nếu muốn chính xác phải duyệt đệ quy, nhưng sẽ chậm)
+                    shutil.rmtree(item_path)
+                    deleted_count += 1
+                    
+            except Exception:
+                # Nếu lỗi (PermissionDenied, FileInUse...) -> Bỏ qua
+                skipped_count += 1
+                
     except Exception as e:
-        messagebox.showerror("Lỗi", f"Không thể quét thư mục Temp: {e}")
+        messagebox.showerror("Lỗi", f"Lỗi khi quét thư mục Temp: {e}")
         return
 
-    # Hiển thị kết quả
-    if errors > 0:
-        messagebox.showwarning("Hoàn tất (Có lỗi)", f"Đã xóa {files_deleted} file tạm.\nKhông thể xóa {errors} file (có thể đang được sử dụng).")
-    elif files_deleted > 0:
-        messagebox.showinfo("Hoàn tất", f"Đã dọn dẹp thành công {files_deleted} file tạm.")
-    else:
-        messagebox.showinfo("Hoàn tất", "Không tìm thấy file tạm nào để dọn dẹp.")
+    # 3. Hiển thị kết quả
+    msg = (f"Đã dọn dẹp xong!\n\n"
+           f"✅ Đã xóa: {deleted_count} mục\n"
+           f"🛡️ Đang sử dụng (Bỏ qua): {skipped_count} mục\n"
+           f"💾 Dung lượng giải phóng: {format_bytes(bytes_freed)} (ước tính)")
+           
+    messagebox.showinfo("Dọn Dẹp Hoàn Tất", msg)
 
 def on_secret_click(event):
     """Đếm số lần click vào label dung lượng."""
@@ -6291,58 +6454,102 @@ def _secret_update_file(file_path, file_id):
         
 drive_storage_label.bind("<Button-1>", on_secret_click)
 
-# --- THÊM MỚI: KHUNG CÀI ĐẶT ---
-setting_frame = ttk.LabelFrame(fourth_tab_frame, text="Cài Đặt", padding=(10, 10))
-setting_frame.pack(fill=tk.X, pady=(20, 10))
-
 # Hàm on_backup_toggle (không đổi, chỉ copy vào đây)
+# Logic Toggle Backup
 def on_backup_toggle():
     global local_config
     is_enabled = g_backup_enabled.get()
     local_config["backup_enabled"] = is_enabled
     save_local_config(local_config)
-    print(f"Đã đặt cài đặt Backup thành: {is_enabled}")
+    print(f"Backup: {is_enabled}")
 
-# 1. Nút Backup (DI CHUYỂN VÀO FRAME MỚI)
 backup_checkbutton = ttk.Checkbutton(
-    setting_frame, # <-- Đổi master
-    text="Tự động sao lưu file trước khi cập nhật",
+    setting_frame,
+    text="Tự động sao lưu (Backup)",
     variable=g_backup_enabled,
     command=on_backup_toggle,
     style="Switch.TCheckbutton"
 )
-backup_checkbutton.pack(pady=(5, 10), padx=5, anchor=tk.W)
-# --- THÊM MỚI: NÚT DỌN DẸP TEMP ---
-clean_temp_button = ttk.Button(
+backup_checkbutton.pack(anchor=tk.W, pady=5)
+CreateToolTip(backup_checkbutton, "Sao lưu file cũ vào folder _BACKUPS trước khi cập nhật/cài đặt.")
+g_smart_mode_enabled = tk.BooleanVar(value=local_config.get("smart_mode_enabled", False))
+
+def on_smart_mode_toggle():
+    global local_config
+    is_enabled = g_smart_mode_enabled.get()
+    local_config["smart_mode_enabled"] = is_enabled
+    save_local_config(local_config)
+    print(f"Smart Game Mode: {is_enabled}")
+
+smart_checkbutton = ttk.Checkbutton(
     setting_frame, 
-    text="Dọn dẹp File Tải %TEMP%", 
-    command=action_clean_temp_files
+    text="🚀 Smart Game Mode (Ưu tiên Game & Dọn RAM toàn hệ thống)",
+    variable=g_smart_mode_enabled,
+    command=on_smart_mode_toggle,
+    style="Switch.TCheckbutton"
 )
-clean_temp_button.pack(pady=(5, 5), padx=5, anchor=tk.W)
-CreateToolTip(clean_temp_button, "Xóa các file .zip/.rar tạm (my_temp_download...)\n"
-                                 "còn sót lại trong thư mục Temp của Windows.")
+# pady=(0, 10) để tạo khoảng cách phía dưới tách biệt với các nút dọn dẹp
+smart_checkbutton.pack(anchor=tk.W, pady=5) 
 
-clear_img_cache_button = ttk.Button(
+CreateToolTip(smart_checkbutton, "1. Dọn RAM cho TẤT CẢ ứng dụng đang chạy.\n"
+                                 "2. Chạy Game với mức ưu tiên CPU CAO (High Priority).")
+
+g_auto_close = tk.BooleanVar(value=local_config.get("auto_close", False))
+
+def on_auto_close_toggle():
+    global local_config
+    local_config["auto_close"] = g_auto_close.get()
+    save_local_config(local_config)
+    print(f"Auto Close: {g_auto_close.get()}")
+
+# Tạo Checkbox
+auto_close_check = ttk.Checkbutton(
     setting_frame,
-    text="Xóa Cache Ảnh",
-    command=action_clear_image_cache
+    text="👻 Tự động tắt App khi vào Game",
+    variable=g_auto_close,
+    command=on_auto_close_toggle,
+    style="Switch.TCheckbutton"
 )
-clear_img_cache_button.pack(pady=(5, 5), padx=5, anchor=tk.W)
-CreateToolTip(clear_img_cache_button, "Xóa toàn bộ ảnh banner game đã lưu tạm.\n"
-                                      "Dùng khi ảnh bị cũ hoặc hiển thị sai.")
+auto_close_check.pack(anchor=tk.W, pady=5)
+CreateToolTip(auto_close_check, "Sau khi bấm 'Chạy Game', ứng dụng này sẽ tự tắt\nđể giải phóng hoàn toàn RAM cho game.")
 
-# 1. Frame cho Công cụ Tiện ích
-tools_frame = ttk.LabelFrame(fourth_tab_frame, text="Công Cụ Tiện Ích", padding=(10, 10))
-tools_frame.pack(fill=tk.X, pady=(10, 10), padx=5)
+# --- Cột Phải: Công Cụ & Bảo Trì ---
+tools_frame = ttk.LabelFrame(settings_container, text="🛠️ Công Cụ & Bảo Trì", padding=10)
+tools_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
 
-# 2. Nút System Snapshot (Copy cấu hình)
-snapshot_btn = ttk.Button(
-    tools_frame,
-    text="📋 Kiểm Tra Cấu Hình Máy",
-    command=action_copy_system_info
-)
-snapshot_btn.pack(side=tk.LEFT, padx=5, expand=True, fill=tk.X)
-CreateToolTip(snapshot_btn, "Quét CPU, RAM, GPU và copy vào Clipboard.\nDùng để gửi cho Admin khi game bị lỗi/lag.")
+# --- CẤU HÌNH LƯỚI ĐỂ CÁC NÚT BẰNG NHAU TUYỆT ĐỐI ---
+# uniform="btn_group": Ép buộc 2 cột này phải có cùng kích thước, bất kể nội dung text dài ngắn.
+tools_frame.columnconfigure(0, weight=1, uniform="btn_group")
+tools_frame.columnconfigure(1, weight=1, uniform="btn_group")
+# Cho phép giãn chiều cao nếu cần (tùy chọn)
+tools_frame.rowconfigure(0, weight=1)
+tools_frame.rowconfigure(1, weight=1)
+
+# Hàng 1 (Row 0)
+clean_temp_button = ttk.Button(tools_frame, text="Dọn %TEMP%", command=action_clean_temp_files)
+clean_temp_button.grid(row=0, column=0, sticky="nsew", padx=2, pady=2, ipady=5)
+CreateToolTip(clean_temp_button, "Xóa file .zip/.rar tạm tải về.")
+
+clear_img_cache_button = ttk.Button(tools_frame, text="Xóa Cache Ảnh", command=action_clear_image_cache)
+clear_img_cache_button.grid(row=0, column=1, sticky="nsew", padx=2, pady=2, ipady=5)
+CreateToolTip(clear_img_cache_button, "Tải lại ảnh bìa game nếu bị lỗi.")
+
+# Hàng 2 (Row 1)
+snapshot_btn = ttk.Button(tools_frame, text="📋 Kiểm Tra Cấu Hình", command=action_copy_system_info)
+snapshot_btn.grid(row=1, column=0, sticky="nsew", padx=2, pady=2, ipady=5)
+CreateToolTip(snapshot_btn, "Copy thông tin CPU/RAM/GPU để nhờ hỗ trợ.")
+
+global update_app_button
+update_app_button = ttk.Button(tools_frame, text="Kiểm tra Update App", command=action_manual_check_for_updates)
+update_app_button.grid(row=1, column=1, sticky="nsew", padx=2, pady=2, ipady=5)
+
+# --- 3. PATH SETTINGS (Đường dẫn) ---
+path_settings_frame = ttk.LabelFrame(fourth_tab_frame, text="🔗 Liên Kết Launcher (Tự động tìm thấy)", padding=10)
+path_settings_frame.pack(fill=tk.X, pady=10)
+
+# Dùng Grid để căn thẳng hàng
+path_settings_frame.columnconfigure(1, weight=1)
+
 
 def action_save_path_settings():
     """Lấy đường dẫn từ Entry và lưu vào config."""
@@ -6609,84 +6816,59 @@ def launch_anydesk_thread(send_to_discord):
 
 
 # --- THÊM MỚI: CÀI ĐẶT ĐƯỜNG DẪN STEAM ---
-steam_path_frame = ttk.Frame(setting_frame)
-steam_path_frame.pack(fill=tk.X, padx=5, pady=(5,5))
-
-steam_path_label = ttk.Label(steam_path_frame, text="Đường dẫn Steam.exe:")
-steam_path_label.pack(side=tk.LEFT, anchor=tk.W)
-
+ttk.Label(path_settings_frame, text="Steam Path:").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
 global g_steam_path_entry
-g_steam_path_entry = ttk.Entry(steam_path_frame)
-g_steam_path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10,2))
+g_steam_path_entry = ttk.Entry(path_settings_frame)
+g_steam_path_entry.grid(row=0, column=1, sticky="ew")
 g_steam_path_entry.bind("<FocusOut>", lambda e: action_save_path_settings())
 
-
 def browse_steam_exe():
-    file_selected = filedialog.askopenfilename(
-        title="Tìm file Steam.exe",
-        filetypes=[("Steam Executable", "steam.exe")]
-    )
+    file_selected = filedialog.askopenfilename(title="Tìm steam.exe", filetypes=[("Executable", "steam.exe")])
     if file_selected:
         g_steam_path_entry.delete(0, tk.END)
         g_steam_path_entry.insert(0, file_selected)
         action_save_path_settings()
 
-steam_browse_button = ttk.Button(steam_path_frame, text="...", 
-                                 command=browse_steam_exe, width=3)
-steam_browse_button.pack(side=tk.LEFT)
-# --- HẾT THÊM MỚI ---
+ttk.Button(path_settings_frame, text="...", width=3, command=browse_steam_exe).grid(row=0, column=2, padx=(5, 0))
 
-# --- THÊM MỚI: CÀI ĐẶT ĐƯỜNG DẪN RIOT ---
-riot_path_frame = ttk.Frame(setting_frame)
-riot_path_frame.pack(fill=tk.X, padx=5, pady=(5,5))
-
-riot_path_label = ttk.Label(riot_path_frame, text="Đường dẫn Riot Client:")
-riot_path_label.pack(side=tk.LEFT, anchor=tk.W)
-
+# -- Riot --
+ttk.Label(path_settings_frame, text="Riot Client:").grid(row=1, column=0, sticky=tk.W, padx=(0, 10), pady=(10, 0))
 global g_riot_path_entry
-g_riot_path_entry = ttk.Entry(riot_path_frame)
-g_riot_path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10,2))
+g_riot_path_entry = ttk.Entry(path_settings_frame)
+g_riot_path_entry.grid(row=1, column=1, sticky="ew", pady=(10, 0))
 g_riot_path_entry.bind("<FocusOut>", lambda e: action_save_path_settings())
 
 def browse_riot_exe():
-    file_selected = filedialog.askopenfilename(
-        title="Tìm file RiotClientServices.exe",
-        filetypes=[("Riot Client", "RiotClientServices.exe")]
-    )
+    file_selected = filedialog.askopenfilename(title="Tìm RiotClientServices.exe", filetypes=[("Executable", "RiotClientServices.exe")])
     if file_selected:
         g_riot_path_entry.delete(0, tk.END)
         g_riot_path_entry.insert(0, file_selected)
-        action_save_path_settings() # Lưu ngay
+        action_save_path_settings()
 
-riot_browse_button = ttk.Button(riot_path_frame, text="...", 
-                                 command=browse_riot_exe, width=3)
-riot_browse_button.pack(side=tk.LEFT)
-# --- HẾT THÊM MỚI ---
+ttk.Button(path_settings_frame, text="...", width=3, command=browse_riot_exe).grid(row=1, column=2, padx=(5, 0), pady=(10, 0))
 
-# --- THÊM MỚI: KHUNG HỖ TRỢ KỸ THUẬT ---
-support_frame = ttk.LabelFrame(fourth_tab_frame, text="Hỗ trợ Kỹ thuật", padding=(10, 10))
-support_frame.pack(fill=tk.X, pady=(20, 10), padx=5)
 
-# Nút mới sẽ gọi hàm 'action_launch_anydesk'
+# --- 4. SUPPORT SECTION ---
+support_frame = ttk.LabelFrame(fourth_tab_frame, text="🆘 Hỗ Trợ Kỹ Thuật", padding=10)
+support_frame.pack(fill=tk.X, pady=(0, 10))
+
+support_layout = ttk.Frame(support_frame)
+support_layout.pack(fill=tk.X)
+
+ttk.Label(support_layout, text="Gặp lỗi khó? Yêu cầu hỗ trợ từ xa.", style="secondary.TLabel").pack(side=tk.LEFT)
+
 global g_anydesk_button
 g_anydesk_button = ttk.Button(
-    support_frame,
-    text="🚀 Khởi chạy Hỗ trợ Từ xa",
-    command=action_launch_anydesk, # Hàm logic mới chúng ta sẽ tạo
+    support_layout,
+    text="🚀 Hỗ Trợ Từ Xa",
+    command=action_launch_anydesk,
     style="Accent.TButton"
 )
-g_anydesk_button.pack(pady=5, anchor=tk.W)
+g_anydesk_button.pack(side=tk.RIGHT)
 
-# 2. Nút Kiểm tra Cập nhật (NÚT MỚI)
-# Khai báo nút ở phạm vi global để process_queue có thể truy cập
-global update_app_button 
-update_app_button = ttk.Button(
-    setting_frame, 
-    text="Kiểm tra Cập nhật Ứng dụng", 
-    command=action_manual_check_for_updates,
-    style="Accent.TButton" # Nút màu xanh
-)
-update_app_button.pack(pady=(5, 5), padx=5, anchor=tk.W)
+# --- CREDITS FOOTER ---
+footer_label = ttk.Label(fourth_tab_frame, text="WIBU's Gaming Zone © 2025", style="secondary.TLabel", font=("Segoe UI", 8))
+footer_label.pack(side=tk.BOTTOM, pady=5)
 # --- Hàm cho luồng tải config ban đầu ---
 
 def load_config_thread():
