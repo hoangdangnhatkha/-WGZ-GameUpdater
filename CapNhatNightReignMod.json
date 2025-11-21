@@ -80,5 +80,27 @@
         "delete_before_extract": [],
         "path_guide": "Giải nén bất cứ đâu",
         "launch_file": "Shape.of.Dreams.v1.0.9.9/_Shape of Dreams - LND Game Launcher.exe"
+    },
+    "8": {
+        "name": "Tải Game GodBreakers",
+        "url": "https://drive.google.com/uc?id=18hONgvaG0njWtz-Tw_Da08LjkRJXCkN4",
+        "version": "v20251031",
+        "game": "GodBreakers",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "delete_before_extract": [],
+        "path_guide": null,
+        "launch_file": null
+    },
+    "9": {
+        "name": "Tải Game The Spell Brigade",
+        "url": "https://drive.google.com/uc?id=1KtJiHYs7rrr5c2OeMqWcIQXpjJmYx3gI",
+        "version": "v0.13.0.6449",
+        "game": "The Spell Brigade",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "delete_before_extract": [],
+        "path_guide": null,
+        "launch_file": null
     }
 }
