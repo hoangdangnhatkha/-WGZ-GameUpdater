@@ -137,6 +137,7 @@ import gdown
 status_label_splash.config(text="Đang tải thư viện: Automation Tools...")
 splash.update()
 
+from google.auth.transport.requests import AuthorizedSession
 from tkinter import filedialog, messagebox, simpledialog # Added simpledialog
 import pyautogui
 import pygetwindow as gw
@@ -222,7 +223,7 @@ global g_mod_buttons
 g_mod_buttons = {}
 global g_current_selected_key
 g_current_selected_key = None
-CURRENT_VERSION = "1.2.7.1"
+CURRENT_VERSION = "1.2.7.2"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
 ROCKET_GIF_URL = "https://media.tenor.com/ike6N7DwCa0AAAAM/%D8%B1%D9%8A%D8%A7%D9%84-%D9%85%D8%AF%D8%B1%D9%8A%D8%AF.gif"
@@ -1555,6 +1556,93 @@ class QueueIO:
     def flush(self):
         pass
 
+def download_via_api_logic(file_id, dest_path):
+    """
+    Phiên bản Racing: Tải Direct Stream bằng AuthorizedSession (requests).
+    Tốc độ Max Speed (ngang trình duyệt/IDM) - Bypass Quota.
+    """
+    global drive_service
+    
+    # 1. Đảm bảo đã đăng nhập
+    if not drive_service:
+        try:
+            print("API: Đang thử tự động đăng nhập lại...")
+            try_auto_login_drive_thread()
+            time.sleep(2)
+        except: pass
+    
+    if not drive_service:
+        raise Exception("Cần đăng nhập Google Drive để tải file này.")
+
+    print(f"API: Đang khởi tạo luồng tải trực tiếp (Direct Stream) cho ID {file_id}...")
+
+    try:
+        # 2. Lấy Credentials mới nhất từ file token
+        token_path = resource_path('token.json')
+        if not os.path.exists(token_path):
+             raise Exception("Không tìm thấy token xác thực.")
+             
+        creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+        
+        # 3. Tạo phiên làm việc đã xác thực (Authorized Session)
+        # Đây là "Thẻ bài" giúp requests đi qua cửa VIP của Google
+        authed_session = AuthorizedSession(creds)
+        
+        # URL tải xuống trực tiếp của Drive API v3
+        download_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
+        
+        # 4. BẮT ĐẦU TẢI (Stream = True để không nạp RAM)
+        # Mở kết nối duy nhất và duy trì nó
+        with authed_session.get(download_url, stream=True) as response:
+            response.raise_for_status() # Kiểm tra lỗi (403/404...)
+            
+            # Lấy tổng kích thước file
+            total_size = int(response.headers.get('content-length', 0))
+            
+            # Mở file đích với bộ đệm lớn (1MB) để ổ cứng ghi mượt hơn
+            with open(dest_path, 'wb', buffering=1024*1024) as f:
+                start_time = time.time()
+                downloaded = 0
+                
+                # Chunk size cho stream: 128KB là chuẩn vàng của requests để đạt tốc độ cao
+                # (Không cần chunk quá lớn vì stream liên tục)
+                stream_chunk_size = 128 * 1024 
+                
+                last_update_time = time.time()
+                
+                for chunk in response.iter_content(chunk_size=stream_chunk_size):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+                        
+                        # Cập nhật UI (Giới hạn update mỗi 0.5s để không lag App)
+                        current_time = time.time()
+                        if current_time - last_update_time > 0.5:
+                            elapsed = current_time - start_time
+                            if elapsed > 0:
+                                percent = int(downloaded / total_size * 100) if total_size > 0 else 0
+                                speed_bps = downloaded / elapsed
+                                speed_str = format_bytes(speed_bps) + "/s"
+                                
+                                progress_queue.put(("progress", {
+                                    "percent": percent, 
+                                    "speed": f"Direct Speed: {speed_str}", 
+                                    "eta": "" 
+                                }))
+                            last_update_time = current_time
+
+        print(f"API: Tải thành công (Direct Stream) -> {dest_path}")
+        return True
+
+    except Exception as e:
+        error_msg = str(e)
+        if "403" in error_msg:
+             raise Exception("Lỗi 403: File bị Google chặn (Quota) hoặc không có quyền truy cập.")
+        elif "404" in error_msg:
+             raise Exception("Lỗi 404: File không tồn tại.")
+        
+        raise Exception(f"Lỗi tải Direct API: {e}")
+
 # --- Logic chính (Download/Extract) ---
 def download_and_extract_logic():
     # (Code hàm này không đổi so với phiên bản trước)
@@ -1589,21 +1677,82 @@ def download_and_extract_logic():
     temp_archive_path = None # Khởi tạo
 
     try:
+        target_path_to_use = None
+            
         if file_type == "exe":
+            # Đảm bảo target_exe_path đã được tính toán (dựa trên code cũ của bạn)
             sanitized_key = re.sub(r'[\\/*?:"<>|]', "", selected_key)
             sanitized_version = re.sub(r'[\\/*?:"<>|]', "", version)
-
             file_name = f"{sanitized_key}_{sanitized_version}.exe"
             target_exe_path = os.path.join(destination_folder, file_name)
+            target_path_to_use = target_exe_path
+        else:
+            # Nếu là zip/rar -> Tạo đường dẫn vào thư mục TEMP
+            temp_archive_path = os.path.join(os.environ['TEMP'], f"my_temp_download.{file_type}")
+            target_path_to_use = temp_archive_path
 
-            if os.path.exists(target_exe_path):
-                progress_queue.put(("status", "File đã tồn tại. Đang mở..."))
-                os.startfile(target_exe_path)
+        # Kiểm tra lần cuối
+        if not target_path_to_use:
+            raise Exception("Lỗi nội bộ: Không xác định được đường dẫn lưu file.")
+
+        # 2. Kiểm tra nếu file exe đã có thì mở luôn
+        if file_type == "exe" and os.path.exists(target_exe_path):
+            progress_queue.put(("status", "File đã tồn tại. Đang mở..."))
+            os.startfile(target_exe_path)
+            sys.stderr = original_stderr
+            progress_queue.put(("status", "ENABLE_BUTTONS"))
+            return 
+
+        # --- BẮT ĐẦU TẢI ---
+        progress_queue.put(("status", "Bắt đầu tải file..."))
+        
+        try:
+            # CÁCH 1: Thử dùng gdown (Nhanh)
+            print(f"Đang thử tải bằng gdown vào: {target_path_to_use}")
+            out = gdown.download(file_url, target_path_to_use, quiet=False, fuzzy=True)
+            
+            if not out: 
+                raise Exception("gdown download failed (None returned)")
+
+        except Exception as e_gdown:
+            print(f"gdown thất bại: {e_gdown}")
+            error_str = str(e_gdown).lower()
+            
+            # Nếu gặp lỗi Quota/Permission -> Chuyển sang API
+            if "too many users" in error_str or "denied" in error_str or "permission" in error_str or "failed" in error_str:
+                
+                progress_queue.put(("status", "Link quá tải. Chuyển sang tải bằng API Google..."))
+                
+                file_id = extract_gdrive_id_from_url(file_url)
+                if not file_id:
+                    raise Exception(f"Không lấy được ID từ link: {file_url}")
+                    
+                # CÁCH 2: Tải bằng API (Fix lỗi NoneType ở đây)
+                try:
+                    # target_path_to_use giờ đã chắc chắn là string hợp lệ
+                    download_via_api_logic(file_id, target_path_to_use)
+                except Exception as e_api:
+                    # CÁCH 3: Mở trình duyệt
+                    msg_err = ""
+                    if "Cần đăng nhập" in str(e_api):
+                        msg_err = "File quá tải. Vui lòng Đăng nhập Drive ở Tab 3 rồi thử lại."
+                    else:
+                        msg_err = f"Lỗi tải file API: {e_api}"
+                    
+                    progress_queue.put(("download_complete", {"success": False, "title": "Lỗi Tải", "message": msg_err + "\n\nApp sẽ mở trình duyệt để bạn tải thủ công."}))
+                    webbrowser.open(file_url)
+                    raise Exception("Đã chuyển hướng sang trình duyệt.")
             else:
-                progress_queue.put(("status", "Bắt đầu tải file..."))
-                gdown.download(file_url, target_exe_path, quiet=False)
-                progress_queue.put(("status", "Đã tải xong! Đang mở file..."))
-                os.startfile(target_exe_path)
+                raise e_gdown
+
+        # --- KẾT THÚC TẢI ---
+
+        if file_type == "exe":
+            progress_queue.put(("status", "Đã tải xong! Đang mở file..."))
+            os.startfile(target_exe_path)
+            sys.stderr = original_stderr
+            progress_queue.put(("status", "ENABLE_BUTTONS"))
+            return
 
         elif file_type == "zip" or file_type == "rar":
             temp_archive_path = os.path.join(os.environ['TEMP'], f"my_temp_download.{file_type}")
@@ -7671,6 +7820,52 @@ def action_launch_anydesk():
     # Chúng ta truyền `send_to_discord` (True/False) vào làm tham số
     threading.Thread(target=launch_anydesk_thread, args=(send_to_discord,), daemon=True).start()
 
+def apply_anydesk_connection_fix():
+    """
+    Sửa file config của AnyDesk để tắt 'Direct Connection' (Kết nối trực tiếp).
+    Giúp sửa lỗi Connecting/Disconnected liên tục.
+    """
+    try:
+        # AnyDesk lưu config ở %APPDATA%\AnyDesk\user.conf hoặc system.conf
+        appdata = os.getenv('APPDATA')
+        conf_dir = os.path.join(appdata, "AnyDesk")
+        
+        # Đảm bảo thư mục tồn tại
+        if not os.path.exists(conf_dir):
+            os.makedirs(conf_dir, exist_ok=True)
+            
+        # Chúng ta sẽ sửa file user.conf (file này ghi đè cài đặt hệ thống)
+        conf_file = os.path.join(conf_dir, "user.conf")
+        
+        print(f"Đang cấu hình AnyDesk tại: {conf_file}")
+        
+        lines = []
+        # 1. Đọc nội dung cũ nếu file tồn tại
+        if os.path.exists(conf_file):
+            try:
+                with open(conf_file, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
+            except Exception as e:
+                print(f"Lỗi đọc config cũ: {e}")
+
+        # 2. Xóa dòng cấu hình cũ (nếu có) để tránh trùng lặp
+        # Key cần tìm: ad.anynet.direct_connection
+        new_lines = [line for line in lines if "ad.anynet.direct_connection" not in line]
+        
+        # 3. Thêm dòng cấu hình mới (0 = Disable, 1 = Enable)
+        new_lines.append("ad.anynet.direct_connection=0\n")
+        
+        # 4. Ghi lại file
+        with open(conf_file, "w", encoding="utf-8") as f:
+            f.writelines(new_lines)
+            
+        print("--> Đã tắt 'Direct Connection' trong config thành công.")
+        return True
+
+    except Exception as e:
+        print(f"Lỗi khi sửa config AnyDesk: {e}")
+        return False
+
 def launch_anydesk_thread(send_to_discord):
     """
     (CHẠY NGẦM) 
@@ -7698,9 +7893,39 @@ def launch_anydesk_thread(send_to_discord):
             capture_output=True, text=True,
             creationflags=CREATE_NO_WINDOW
         )
-        print("Tắt tiến trình cũ hoàn tất.")
-        # --- HẾT THÊM MỚI ---
+        print("Đang đợi process tắt hoàn toàn...")
+        start_wait = time.time()
+        timeout = 20  # Chờ tối đa 10 giây
         
+        while True:
+            # Kiểm tra xem còn process nào tên AnyDesk không
+            # tasklist trả về danh sách process, nếu không có sẽ trả về "INFO: No tasks..."
+            check_p1 = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq AnyDesk.exe", "/NH"], 
+                capture_output=True, text=True, creationflags=CREATE_NO_WINDOW
+            )
+            check_p2 = subprocess.run(
+                ["tasklist", "/FI", "IMAGENAME eq AnyDeskService.exe", "/NH"], 
+                capture_output=True, text=True, creationflags=CREATE_NO_WINDOW
+            )
+            
+            # Nếu chuỗi "AnyDesk" không còn xuất hiện trong output -> Đã sạch
+            p1_gone = "AnyDesk.exe" not in check_p1.stdout
+            p2_gone = "AnyDeskService.exe" not in check_p2.stdout
+            
+            if p1_gone and p2_gone:
+                print("--> Đã xác nhận: AnyDesk tắt hoàn toàn.")
+                break
+            
+            # Kiểm tra timeout
+            if time.time() - start_wait > timeout:
+                print("Cảnh báo: Quá thời gian chờ tắt (20s). Vẫn tiếp tục chạy...")
+                break
+                
+            time.sleep(0.5) # Check lại mỗi 0.5s
+        
+        # --- [MỚI] 0.5. SỬA CONFIG ĐỂ TẮT DIRECT CONNECTION ---
+        apply_anydesk_connection_fix()
         # --- 1. KIỂM TRA PHIÊN BẢN ĐÃ CÀI ĐẶT ---
         installed_exe_path = r"C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
         anydesk_to_use = None # Biến sẽ lưu đường dẫn .exe để chạy
