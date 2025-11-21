@@ -1,19 +1,145 @@
 # Save this file as 'CapNhatNightReignMod_Ui.py'
-import gdown
-import zipfile
-import os
-import shutil
-import pyperclip
 import sys
+import os
 import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog # Added simpledialog
 import tkinter.ttk as ttk
+from PIL import Image, ImageTk
+from tkinterdnd2 import DND_FILES, TkinterDnD
+import ctypes
+
+# def enforce_admin_rights():
+#     """
+#     Kiểm tra xem App có chạy quyền Admin không.
+#     Nếu không -> Tự động khởi động lại App với quyền Admin (hiện bảng UAC).
+#     """
+#     try:
+#         # Kiểm tra quyền Admin hiện tại
+#         is_admin = ctypes.windll.shell32.IsUserAnAdmin()
+        
+#         if is_admin:
+#             print("App đã có quyền Admin")
+#             return True # Đã là Admin, chạy tiếp bình thường
+            
+#         else:
+#             # Nếu chưa là Admin, thực hiện khởi động lại với tham số 'runas'
+#             print("App chưa có quyền Admin. Đang yêu cầu cấp quyền...")
+            
+#             # Lấy đường dẫn file đang chạy
+#             if getattr(sys, 'frozen', False):
+#                 # Nếu đang chạy file .exe (đã đóng gói)
+#                 executable = sys.executable
+#                 params = ""
+#             else:
+#                 # Nếu đang chạy file .py (môi trường dev)
+#                 executable = sys.executable
+#                 params = " ".join([f'"{arg}"' for arg in sys.argv])
+            
+#             # Gọi lệnh ShellExecute của Windows với verb 'runas' để kích hoạt UAC
+#             ctypes.windll.shell32.ShellExecuteW(
+#                 None, 
+#                 "runas", 
+#                 executable, 
+#                 params, 
+#                 None, 
+#                 1 # SW_SHOWNORMAL
+#             )
+            
+#             # Tắt instance hiện tại (không phải Admin) để nhường chỗ cho instance mới
+#             sys.exit()
+            
+#     except Exception as e:
+#         print(f"Lỗi khi xin quyền Admin: {e}")
+#         # Nếu lỗi (ví dụ người dùng bấm No ở bảng UAC), có thể hiện thông báo hoặc cứ chạy tiếp
+#         messagebox.showerror("Cảnh Báo", "Ứng dụng cần quyền Admin để hoạt động ổn định (Ghi file, Overlay).\nVui lòng khởi động lại và chọn 'Run as Administrator'.")
+#         return False
+
+# enforce_admin_rights()
+
+def center_window_on_screen(window, width, height):
+    """Tính toán và đặt Toplevel (cửa sổ con) vào giữa màn hình."""
+    try:
+        # Lấy kích thước màn hình
+        screen_width = window.winfo_screenwidth()
+        screen_height = window.winfo_screenheight()
+
+        # Tính toán vị trí x, y để căn giữa
+        x = (screen_width // 2) - (width // 2)
+        y = (screen_height // 2) - (height // 2)
+
+        # Đặt kích thước VÀ vị trí cho cửa sổ
+        window.geometry(f'{width}x{height}+{x}+{y}')
+    except Exception as e:
+        print(f"Lỗi khi căn giữa cửa sổ: {e}")
+        # Fallback: nếu lỗi, chỉ đặt kích thước
+        window.geometry(f'{width}x{height}')
+# --- Cài đặt cửa sổ Giao diện (UI) ---
+root = TkinterDnD.Tk()
+root.withdraw()
+# --- SPLASH SCREEN (BEGIN) ---
+splash = tk.Toplevel(root)
+splash.title("Loading")
+
+# Kích thước splash screen
+splash_width = 350
+splash_height = 200
+
+center_window_on_screen(splash, splash_width, splash_height)
+
+# Xóa viền cửa sổ
+splash.overrideredirect(True) 
+
+# Thêm style cho splash (dùng màu nền tối)
+splash_style = ttk.Style()
+splash_style.configure("Splash.TFrame", background="#2b2b2b")
+splash_style.configure("Splash.TLabel", background="#2b2b2b", foreground="white", font=("Segoe UI", 10))
+splash_style.configure("Splash.Header.TLabel", background="#2b2b2b", foreground="white", font=("Segoe UI", 14, "bold"))
+
+# Dùng Frame để có thể thêm viền
+splash_frame = ttk.Frame(splash, style="Splash.TFrame", borderwidth=1, relief="solid")
+splash_frame.pack(fill=tk.BOTH, expand=True)
+
+ttk.Label(splash_frame, text="WGZ Game Updater", style="Splash.Header.TLabel").pack(pady=(20, 10))
+def resource_path(relative_path):
+    """ Lấy đường dẫn tuyệt đối, hoạt động cho cả .py và .exe """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
+# Thử tải logo cho splash (nếu lỗi thì bỏ qua)
+try:
+    # Giả sử bạn có file 'logo.png' trong resource
+    icon_path = resource_path("logo.png") 
+    splash_img = Image.open(icon_path).resize((50, 50), Image.Resampling.LANCZOS)
+    # Phải lưu lại, nếu không sẽ bị Python xóa mất
+    root.splash_logo_tk = ImageTk.PhotoImage(splash_img) 
+    ttk.Label(splash_frame, image=root.splash_logo_tk, style="Splash.TLabel").pack(pady=5)
+except Exception as e:
+    print(f"Không thể tải logo cho splash (bỏ qua): {e}")
+
+status_label_splash = ttk.Label(splash_frame, text="Đang khởi động core system...", style="Splash.TLabel")
+status_label_splash.pack(pady=10)
+splash.update()
+root.update_idletasks()
+
+
+status_label_splash.config(text="Đang tải thư viện: Google Drive & GitHub...")
+splash.update()
+
+import platform
+import shutil
+import zipfile
+import pyperclip
 import threading
 import queue
-import platform
+import gdown
+
+status_label_splash.config(text="Đang tải thư viện: Automation Tools...")
+splash.update()
+
+from tkinter import filedialog, messagebox, simpledialog # Added simpledialog
 import pyautogui
 import pygetwindow as gw
-import ctypes
 import re
 import io
 import requests
@@ -23,7 +149,6 @@ import winreg
 import winshell  # <-- THÊM MỚI
 import glob
 import pythoncom
-from PIL import Image, ImageTk
 import pywinstyles
 import sv_ttk
 import hashlib
@@ -35,22 +160,21 @@ import time
 import math
 from datetime import datetime
 import concurrent.futures
-from tkinterdnd2 import DND_FILES, TkinterDnD
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload, MediaIoBaseUpload
-from PIL import Image, ImageTk, ImageGrab # Thêm ImageGrab
+from PIL import Image, ImageTk, ImageGrab, ImageDraw
 import random # Đảm bảo đã có random
 import httplib2 
 from google_auth_httplib2 import AuthorizedHttp
-
 import webbrowser
 from packaging import version
 import subprocess
 import winsound
+
 
 # --- THÊM MỚI: LỚP ĐẢM BẢO CHẠY 1 LẦN (SINGLETON) ---
 class SingleInstance:
@@ -85,23 +209,7 @@ class SingleInstance:
             # Bỏ qua mọi lỗi khi tắt app (vì Windows sẽ tự dọn dẹp sau đó)
             pass
 
-def center_window_on_screen(window, width, height):
-    """Tính toán và đặt Toplevel (cửa sổ con) vào giữa màn hình."""
-    try:
-        # Lấy kích thước màn hình
-        screen_width = window.winfo_screenwidth()
-        screen_height = window.winfo_screenheight()
 
-        # Tính toán vị trí x, y để căn giữa
-        x = (screen_width // 2) - (width // 2)
-        y = (screen_height // 2) - (height // 2)
-
-        # Đặt kích thước VÀ vị trí cho cửa sổ
-        window.geometry(f'{width}x{height}+{x}+{y}')
-    except Exception as e:
-        print(f"Lỗi khi căn giữa cửa sổ: {e}")
-        # Fallback: nếu lỗi, chỉ đặt kích thước
-        window.geometry(f'{width}x{height}')
 
 scan_loading_window = None
 g_secret_click_count = 0
@@ -114,22 +222,16 @@ global g_mod_buttons
 g_mod_buttons = {}
 global g_current_selected_key
 g_current_selected_key = None
-CURRENT_VERSION = "1.2.7"
+CURRENT_VERSION = "1.2.7.1"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
 ROCKET_GIF_URL = "https://media.tenor.com/ike6N7DwCa0AAAAM/%D8%B1%D9%8A%D8%A7%D9%84-%D9%85%D8%AF%D8%B1%D9%8A%D8%AF.gif"
 g_rocket_frames = []
 g_rocket_raw_data = None
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1439922562422411387/dL6kx7UA7gde-gh4ChiVs_tw5M3XY9NVyDzergGTEQLnaPkRde65ymnrwtWo9bktoIxS"
-# --- Hàm để xử lý đường dẫn file khi đóng gói ---
-def resource_path(relative_path):
-    """ Lấy đường dẫn tuyệt đối, hoạt động cho cả .py và .exe """
-    try:
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base_path, relative_path)
-
+SHARINGAN_GIF_URL = "https://images-wixmp-ed30a86b8c4ca887773594c2.wixmp.com/f/f99cb04a-9bec-4af9-b6fd-74056aa8c204/dfmjhu4-2acb26b5-b9be-4384-81dd-9da6e6cfe711.gif?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1cm46YXBwOjdlMGQxODg5ODIyNjQzNzNhNWYwZDQxNWVhMGQyNmUwIiwiaXNzIjoidXJuOmFwcDo3ZTBkMTg4OTgyMjY0MzczYTVmMGQ0MTVlYTBkMjZlMCIsIm9iaiI6W1t7InBhdGgiOiIvZi9mOTljYjA0YS05YmVjLTRhZjktYjZmZC03NDA1NmFhOGMyMDQvZGZtamh1NC0yYWNiMjZiNS1iOWJlLTQzODQtODFkZC05ZGE2ZTZjZmU3MTEuZ2lmIn1dXSwiYXVkIjpbInVybjpzZXJ2aWNlOmZpbGUuZG93bmxvYWQiXX0.TiTaTm-v-Z_zw6Q3OQPFUSLdKQlVjWYMkIMEdwBQza8"
+CRACKED_GLASS_URL = "https://www.pngmart.com/files/19/Broken-Glass-Cracks-Transparent-PNG.png"
+UPLOAD_CHUNK_SIZE = 100 * 1024 * 1024
 def format_bytes(size_in_bytes):
     """Chuyển đổi bytes thành KB, MB, GB..."""
     if size_in_bytes < 1024:
@@ -434,6 +536,13 @@ def load_local_config():
                 config["steam_path"] = ""
             if "riot_path" not in config:
                 config["riot_path"] = ""
+            if "custom_games" not in config:
+                config["custom_games"] = {}
+            # [THÊM DÒNG NÀY] Lưu trữ ảnh thay thế cho game server
+            if "theme_overrides" not in config:
+                config["theme_overrides"] = {}
+            if "display_name_overrides" not in config:
+                config["display_name_overrides"] = {}
 
             return config
     except (FileNotFoundError, json.JSONDecodeError):
@@ -1346,7 +1455,7 @@ def upload_file_logic(file_path, status_listbox):
         
         # 2. Chuẩn bị media body và request
         # Đặt chunksize (ví dụ 1MB), rất quan trọng cho resumable upload
-        media = MediaFileUpload(file_path, chunksize=1024*1024*10, resumable=True)
+        media = MediaFileUpload(file_path, chunksize=UPLOAD_CHUNK_SIZE, resumable=True)
         request = None
         
         if files:
@@ -1579,12 +1688,13 @@ def download_and_extract_logic():
 
             progress_queue.put(("status", "Đã tải xong! Đang giải nén..."))
 
-            temp_dir = os.path.join(destination_folder, "temp_extraction_92837")
-            if os.path.isdir(temp_dir): shutil.rmtree(temp_dir)
-            os.makedirs(temp_dir, exist_ok=True)
+            
 
             archive_object = None
             if file_type == "zip":
+                temp_dir = os.path.join(destination_folder, "temp_extraction_92837")
+                if os.path.isdir(temp_dir): shutil.rmtree(temp_dir)
+                os.makedirs(temp_dir, exist_ok=True)
                 pwd_bytes = bytes(password, 'utf-8') if password else None
                 
                 # --- THAY ĐỔI: BÁO TRẠNG THÁI VÀ DÙNG extractall() ---
@@ -1599,83 +1709,201 @@ def download_and_extract_logic():
                 with zipfile.ZipFile(temp_archive_path) as zf:
                     print(f"Extracting ALL ZIP to '{temp_dir}'...")
                     zf.extractall(temp_dir, pwd=pwd_bytes)
-            elif file_type == "rar":
-                # --- GIỮ NGUYÊN CODE CÓ THANH TIẾN TRÌNH ---
-                print("--- DEBUG: Đang xử lý file RAR... ---")
                 
-                # Dùng 'with' để tự động đóng file
-                with rarfile.RarFile(temp_archive_path) as rf:
-                    rf.setpassword(password)
+                shutil.copytree(temp_dir, destination_folder, dirs_exist_ok=True)
+                shutil.rmtree(temp_dir)
+                
+            elif file_type == "rar":
+                print("--- Đang xử lý file RAR (Chế độ Direct Write - Fix Code 9) ---")
+                import re 
+                import stat
+
+                progress_queue.put(("status", "Đang chuẩn bị thư mục đích..."))
+                
+                # 1. Tìm UnRAR
+                unrar_path = getattr(rarfile, 'UNRAR_TOOL', 'UnRAR.exe')
+                if not os.path.exists(unrar_path) and os.path.exists("UnRAR.exe"):
+                    unrar_path = "UnRAR.exe"
+
+                # 2. XỬ LÝ QUYỀN HẠN TRƯỚC (Rất quan trọng để tránh Code 9)
+                # Quét thư mục đích và gỡ bỏ thuộc tính "Read-only" của các file cũ
+                # để UnRAR có thể ghi đè lên chúng mà không bị chặn.
+                def remove_readonly_recursive(directory):
+                    if not os.path.exists(directory): return
+                    for root_dir, dirs, files in os.walk(directory):
+                        for fname in files:
+                            full_path = os.path.join(root_dir, fname)
+                            try:
+                                # Lấy thuộc tính hiện tại
+                                file_atts = os.stat(full_path).st_mode
+                                if not (file_atts & stat.S_IWRITE):
+                                    # Nếu là Read-only, chuyển thành Writeable
+                                    os.chmod(full_path, stat.S_IWRITE)
+                            except: pass # Bỏ qua nếu file đang bị khóa bởi System
+
+                # Chạy hàm xử lý quyền (nhanh)
+                remove_readonly_recursive(destination_folder)
+
+                # 3. XỬ LÝ ĐƯỜNG DẪN DÀI (Long Path Fix)
+                # Thêm prefix \\?\ để Windows chấp nhận đường dẫn dài hơn 260 ký tự
+                abs_dest_path = os.path.abspath(destination_folder)
+                if not abs_dest_path.startswith("\\\\?\\"):
+                    extended_path = "\\\\?\\" + abs_dest_path
+                else:
+                    extended_path = abs_dest_path
+
+                # Tạo thư mục nếu chưa có
+                if not os.path.exists(destination_folder):
+                    os.makedirs(destination_folder, exist_ok=True)
+
+                progress_queue.put(("status", "Đang giải nén trực tiếp..."))
+
+                # 4. Cấu trúc lệnh giải nén TRỰC TIẾP
+                cmd = [
+                    unrar_path,
+                    "x",                # Extract with full path
+                    "-y",               # Yes to all (Overwrite automatically)
+                    "-o+",              # Force Overwrite
+                    "-kb",              # Keep broken files (giữ file nếu lỗi mạng, giúp debug)
+                ]
+
+                if password:
+                    cmd.append(f"-p{password}")
+                else:
+                    cmd.append("-p-")
+
+                cmd.append(temp_archive_path) # File nguồn
+                cmd.append(extended_path)     # Thư mục đích (Đã fix Long Path)
+
+                # 5. Chạy UnRAR
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    stdin=subprocess.DEVNULL,
+                    text=True,
+                    startupinfo=startupinfo,
+                    errors="replace"
+                )
+
+                # Theo dõi tiến trình
+                percent_pattern = re.compile(r"(\d{1,3})%")
+                current_percent = 0
+                
+                while True:
+                    output = process.stdout.readline()
+                    if output == '' and process.poll() is not None:
+                        break
+                    if output:
+                        # Debug: In lỗi ra nếu có dòng nào chứa 'Error'
+                        if "Error" in output or "Cannot" in output:
+                            print(f"UnRAR Log: {output.strip()}")
+
+                        match = percent_pattern.findall(output)
+                        if match:
+                            new_percent = int(match[-1])
+                            if new_percent > current_percent:
+                                current_percent = new_percent
+                                progress_queue.put(("progress", {
+                                    "percent": current_percent, 
+                                    "speed": f"Đang giải nén: {current_percent}%", 
+                                    "eta": ""
+                                }))
+
+                rc = process.poll()
+                
+                # Mã lỗi 0 = Thành công, 1 = Cảnh báo (vẫn OK)
+                if rc != 0 and rc != 1:
+                    err_msg = f"Lỗi giải nén RAR (Exit Code {rc})."
+                    if rc == 9:
+                        err_msg += "\nLỗi tạo file (Code 9). Kiểm tra: 1. Game đang mở? 2. Antivirus chặn file .dll?"
+                    elif rc == 3:
+                        err_msg += "\nLỗi CRC (File tải về bị hỏng/không khớp)."
+                    elif rc == 11:
+                        err_msg += "\nSai mật khẩu hoặc file hỏng."
                     
-                    # Lấy danh sách file
-                    file_list = rf.infolist()
-                    total_files = len(file_list)
-                    if total_files == 0:
-                         print("Cảnh báo: File RAR rỗng.")
-                    else:
-                        print(f"Extracting {total_files} files to '{temp_dir}'...")
-                        
-                        for i, member in enumerate(file_list):
-                            rf.extract(member, path=temp_dir)
-                            
-                            # Tính toán %
-                            percent = int((i + 1) * 100 / total_files)
-                            
-                            # Gửi tiến trình về queue
-                            progress_data = {
-                                "percent": percent,
-                                "speed": f"File {i+1}/{total_files}", 
-                                "eta": ""
-                            }
-                            progress_queue.put(("progress", progress_data))
+                    raise Exception(err_msg)
+
+                progress_queue.put(("progress", {"percent": 100, "speed": "Hoàn tất", "eta": ""}))
 
 
-            shutil.copytree(temp_dir, destination_folder, dirs_exist_ok=True)
-            shutil.rmtree(temp_dir)
+            
 
             if temp_archive_path and os.path.exists(temp_archive_path):
                  try: os.remove(temp_archive_path)
                  except OSError as e: print(f"Cảnh báo: Không thể xóa file tạm {temp_archive_path} sau khi thành công: {e}")
-        print("Giải nén hoàn tất. Đang kiểm tra file launcher...") # <-- LOG MỚI
 
-        # 1. Tìm file launch_file được cấu hình cho game này
-        found_launch_file = None
-        if 'download_options' in globals():
+                 
+        print("Giải nén hoàn tất. Đang quét tìm file launcher để lưu đường dẫn chính xác...")
+
+        # 1. Xác định tên file launcher cần tìm
+        target_launcher_name = None
+        
+        # Ưu tiên 1: Lấy từ config người dùng (nếu có)
+        if 'game_launchers' in local_config:
+            target_launcher_name = local_config['game_launchers'].get(g_current_game_name)
+
+        # Ưu tiên 2: Lấy từ JSON server
+        if not target_launcher_name and 'download_options' in globals():
             mod_list = download_options.get(g_current_game_name, [])
             for _key, mod_data in mod_list:
                 if mod_data.get("launch_file"):
-                    found_launch_file = mod_data.get("launch_file")
+                    target_launcher_name = mod_data.get("launch_file")
                     break
+        
+        # 2. Quét tìm file đó trong thư mục vừa giải nén
+        final_saved_path = destination_folder # Mặc định là folder gốc (fallback)
+        found_launcher = False
 
-        # 2. Kiểm tra xem 'destination_folder' CÓ CHỨA file đó không
-        path_contains_launcher = False
-        if found_launch_file and destination_folder and os.path.isdir(destination_folder):
-            full_file_path = os.path.join(destination_folder, found_launch_file)
+        if target_launcher_name:
+            print(f"Đang tìm file: {target_launcher_name}...")
+            # Dùng os.walk để tìm sâu trong tất cả thư mục con
+            for root_dir, dirs, files in os.walk(destination_folder):
+                if target_launcher_name in files:
+                    found_at_path = os.path.join(root_dir, target_launcher_name)
+                    
+                    # --> ĐÂY LÀ CỐT LÕI: Cập nhật đường dẫn thành thư mục con chứa file
+                    final_saved_path = root_dir 
+                    found_launcher = True
+                    
+                    print(f"--> TÌM THẤY Launcher tại: {found_at_path}")
+                    print(f"--> Đường dẫn game thực tế: {final_saved_path}")
+                    
+                    # Cập nhật biến toàn cục để nút "Chạy Game" sáng lên ngay
+                    global g_current_launch_path
+                    g_current_launch_path = found_at_path
+                    break
+        
+        if not found_launcher:
+            print("--> Không tìm thấy file launcher cụ thể, giữ nguyên đường dẫn gốc.")
 
-            # Thêm log để debug
-            print(f"Đang kiểm tra sự tồn tại của: {full_file_path}")
+        # 3. Lưu đường dẫn CHÍNH XÁC vào Config
+        if g_current_game_name:
+            if 'game_paths' not in local_config:
+                local_config['game_paths'] = {}
 
-            if os.path.exists(full_file_path) and os.path.isfile(full_file_path):
-                path_contains_launcher = True
-                print("--> TÌM THẤY file launcher!") # <-- LOG MỚI
-            else:
-                print("--> KHÔNG TÌM THẤY file launcher (có thể là mod phụ).") # <-- LOG MỚI
+            # Lưu path thực tế (thư mục con) thay vì destination_folder
+            local_config['game_paths'][g_current_game_name] = final_saved_path
+            
+            # Cập nhật last_used luôn để lần sau mở đúng chỗ này
+            local_config['last_used_folder'] = final_saved_path
 
-        # 3. Chỉ lưu 'game_path' nếu tìm thấy file launch
-        if 'game_paths' not in local_config:
-            local_config['game_paths'] = {}
+            save_local_config(local_config)
+            print(f"Đã lưu đường dẫn game chính xác: {final_saved_path}")
 
-        if path_contains_launcher:
-            # Nếu thư mục này là thư mục game HỢP LỆ -> LƯU
-            local_config['game_paths'][g_current_game_name] = destination_folder
-            print(f"Đã lưu đường dẫn game chính: {destination_folder}")
-        else:
-            # Nếu thư mục này KHÔNG chứa launcher -> KHÔNG LƯU
-            print(f"Đang tải mod vào thư mục phụ, không cập nhật đường dẫn game chính.")
-        option_label.configure(text="Đã Hoàn Thành " + mod_display_name, foreground="green") # Dùng tên
-        progress_queue.put(("status", "Cài đặt/Chạy thành công!"))
+        # --- KẾT THÚC CODE MỚI ---
 
-        progress_queue.put(("download_complete", {"success": True, "title": "Thành công", "message": f"Đã cài đặt '{mod_display_name}' thành công!"}))
+        option_label.configure(text="Đã Hoàn Thành " + mod_display_name, foreground="green") 
+        progress_queue.put(("status", "Cài đặt thành công!"))
+        
+        msg = f"Đã cài đặt '{mod_display_name}' thành công!"
+        if found_launcher:
+            msg += f"\n\nĐã tự động nhận diện thư mục game:\n{final_saved_path}"
+
+        progress_queue.put(("download_complete", {"success": True, "title": "Thành công", "message": msg}))
 
         new_version = g_all_mods_flat[selected_key]['version']
         if 'installed_versions' not in local_config: local_config['installed_versions'] = {}
@@ -2105,6 +2333,111 @@ def browse_for_folder():
         path_entry.delete(0, tk.END)
         path_entry.insert(0, folder_selected)
 
+def action_add_custom_game_popup():
+    """Mở cửa sổ thêm game ngoài."""
+    popup = tk.Toplevel(root)
+    popup.title("Thêm Game Ngoài")
+    center_window_on_screen(popup, 450, 300)
+    popup.transient(root)
+    popup.grab_set()
+    
+    frame = ttk.Frame(popup, padding=20)
+    frame.pack(fill=tk.BOTH, expand=True)
+
+    # 1. Đường dẫn Launcher (.exe)
+    ttk.Label(frame, text="File Khởi Chạy (.exe):").pack(anchor=tk.W)
+    path_frame = ttk.Frame(frame)
+    path_frame.pack(fill=tk.X, pady=(0, 10))
+
+    # 2. Tên Game
+    ttk.Label(frame, text="Tên Game:").pack(anchor=tk.W)
+    entry_name = ttk.Entry(frame)
+    entry_name.pack(fill=tk.X, pady=(0, 10))
+    
+    
+    
+    entry_path = ttk.Entry(path_frame)
+    entry_path.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    
+    def browse_exe():
+        f = filedialog.askopenfilename(filetypes=[("Executable", "*.exe"), ("All Files", "*.*")])
+        if f:
+            entry_path.delete(0, tk.END)
+            entry_path.insert(0, f)
+            # Tự động điền tên nếu chưa có
+            if not entry_name.get():
+                base = os.path.basename(f)
+                name = os.path.splitext(base)[0]
+                entry_name.insert(0, name)
+
+    ttk.Button(path_frame, text="...", width=3, command=browse_exe).pack(side=tk.LEFT, padx=(5, 0))
+    
+    # 3. URL Hình Ảnh
+    ttk.Label(frame, text="Link Ảnh Bìa (URL):").pack(anchor=tk.W)
+    entry_url = ttk.Entry(frame)
+    entry_url.pack(fill=tk.X, pady=(0, 10))
+    ttk.Label(frame, text="(Gợi ý: Lấy link ảnh từ SteamGridDB hoặc Google Images)", 
+              font=("Segoe UI", 8), foreground="gray").pack(anchor=tk.W)
+
+    # --- LOGIC LƯU ---
+    def save_custom_game():
+        name = entry_name.get().strip()
+        path = entry_path.get().strip()
+        url = entry_url.get().strip()
+        
+        if not name or not path or not url:
+            messagebox.showwarning("Thiếu thông tin", "Vui lòng điền đầy đủ thông tin.")
+            return
+            
+        if not os.path.exists(path):
+            messagebox.showerror("Lỗi", "File khởi chạy không tồn tại.")
+            return
+
+        # Tải và Lưu Ảnh vào ổ cứng
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            img_data = response.content
+            
+            # Tạo tên file an toàn
+            safe_name = "".join([c for c in name if c.isalnum() or c in (' ', '-', '_')]).strip()
+            img_filename = f"custom_{safe_name}.png"
+            
+            # Đảm bảo thư mục cache tồn tại
+            if not os.path.exists(g_cache_dir):
+                os.makedirs(g_cache_dir)
+                
+            local_img_path = os.path.join(g_cache_dir, img_filename)
+            
+            # Resize và Lưu (Để tiết kiệm dung lượng và load nhanh)
+            with Image.open(io.BytesIO(img_data)) as img:
+                # Resize về chuẩn 192x89 (nhỏ) hoặc 460x215 (lớn)
+                # Ở đây ta lưu bản lớn để dùng cho cả 2
+                img_resized = img.resize((460, 215), Image.Resampling.LANCZOS)
+                img_resized.save(local_img_path, "PNG")
+                
+            # Cập nhật Config
+            if 'custom_games' not in local_config:
+                local_config['custom_games'] = {}
+                
+            local_config['custom_games'][name] = {
+                "launch_path": path,
+                "image_local_path": local_img_path,
+                "original_url": url
+            }
+            
+            save_local_config(local_config)
+            messagebox.showinfo("Thành công", f"Đã thêm game '{name}'!")
+            popup.destroy()
+            
+            # Refresh Lưới Game
+            action_clear_game_search() 
+            
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể tải/lưu ảnh: {e}")
+
+    ttk.Button(frame, text="Thêm Game", command=save_custom_game, style="Accent.TButton").pack(pady=10)
+
 def action_set_game_path_from_page_2():
     """
     (ĐÃ SỬA) Mở dialog CHỌN FILE, lưu path VÀ LAUNCH FILE, và cập nhật UI.
@@ -2309,6 +2642,7 @@ def animate_chaos_explosion(container_frame):
     # --- [MỚI] HẸN GIỜ HIỆN NÚT RESET ---
     # Sau 1.5 giây (khi các mảnh vỡ đã bay đi bớt), hiện nút Reset
     root.after(1500, lambda: show_reset_ui_button(container_frame))
+
 
 # --- [PHIÊN BẢN FULL SCREEN + OPACITY] HIỆU ỨNG GIF MỜ ẢO ---
 def play_rocket_animation(target_widget=None):
@@ -2962,11 +3296,18 @@ def process_queue():
         # --- THÊM MỚI: XỬ LÝ KẾT QUẢ UPLOAD THEME ---
         elif message_type == "theme_upload_success":
             global g_game_theme_sha
+            # --- SỬA LỖI: Khai báo biến toàn cục danh sách kiểm tra ---
+            global g_master_game_list 
+            
             new_sha, new_game_name = message_value
             g_game_theme_sha = new_sha # Cập nhật SHA mới
 
             # Cập nhật cả 2 combobox
             game_list = sorted(list(g_game_themes.keys()))
+            
+            # --- SỬA LỖI: Cập nhật danh sách Master để bộ Validate không báo lỗi ---
+            g_master_game_list = game_list 
+            
             game_list_with_add = game_list + ["Thêm Game..."]
             g_admin_game_combobox['values'] = game_list_with_add
 
@@ -3049,51 +3390,10 @@ try:
 except Exception as e:
     print(f"Cảnh báo: Không thể tạo singleton mutex: {e}")
 
-# --- Cài đặt cửa sổ Giao diện (UI) ---
-root = TkinterDnD.Tk()
-root.withdraw()
-# --- SPLASH SCREEN (BEGIN) ---
-splash = tk.Toplevel(root)
-splash.title("Loading")
 
-# Kích thước splash screen
-splash_width = 350
-splash_height = 200
-
-center_window_on_screen(splash, splash_width, splash_height)
-
-# Xóa viền cửa sổ
-splash.overrideredirect(True) 
-
-# Thêm style cho splash (dùng màu nền tối)
-splash_style = ttk.Style()
-splash_style.configure("Splash.TFrame", background="#2b2b2b")
-splash_style.configure("Splash.TLabel", background="#2b2b2b", foreground="white", font=("Segoe UI", 10))
-splash_style.configure("Splash.Header.TLabel", background="#2b2b2b", foreground="white", font=("Segoe UI", 14, "bold"))
-
-# Dùng Frame để có thể thêm viền
-splash_frame = ttk.Frame(splash, style="Splash.TFrame", borderwidth=1, relief="solid")
-splash_frame.pack(fill=tk.BOTH, expand=True)
-
-ttk.Label(splash_frame, text="WGZ Game Updater", style="Splash.Header.TLabel").pack(pady=(20, 10))
-
-# Thử tải logo cho splash (nếu lỗi thì bỏ qua)
-try:
-    # Giả sử bạn có file 'logo.png' trong resource
-    icon_path = resource_path("logo.png") 
-    splash_img = Image.open(icon_path).resize((50, 50), Image.Resampling.LANCZOS)
-    # Phải lưu lại, nếu không sẽ bị Python xóa mất
-    root.splash_logo_tk = ImageTk.PhotoImage(splash_img) 
-    ttk.Label(splash_frame, image=root.splash_logo_tk, style="Splash.TLabel").pack(pady=5)
-except Exception as e:
-    print(f"Không thể tải logo cho splash (bỏ qua): {e}")
-
-ttk.Label(splash_frame, text="Đang khởi động, vui lòng chờ...", style="Splash.TLabel").pack(pady=10)
 
 # Bắt buộc Tkinter phải vẽ splash screen ngay lập tức
-splash.update()
 
-root.update_idletasks()
 app_width = 1050
 app_height = 900
 
@@ -4099,7 +4399,7 @@ def on_page_1_content_configure(event):
 def on_page_1_canvas_configure(event):
     """(SỬA) Căn giữa lưới game (g_game_grid_container) theo chiều ngang."""
     canvas_width = event.width
-    page_1_canvas.coords(page_1_canvas_window_id, canvas_width / 2 , 0)
+    page_1_canvas.coords(page_1_canvas_window_id, (canvas_width / 2) - 35 , 0)
 # --- Nội dung Tab 1 ---
 
 
@@ -4328,7 +4628,11 @@ def update_guide_text():
             selected_option_data = g_all_mods_flat[selected_key] 
 
             # 4. CẬP NHẬT HƯỚNG DẪN PATH
-            guide_text = selected_option_data.get("path_guide", "Không có hướng dẫn cho mod này.")
+            raw_guide = selected_option_data.get("path_guide")
+            if raw_guide:
+                guide_text = str(raw_guide) # Đảm bảo là string
+            else:
+                guide_text = "Không có hướng dẫn cho mod này."
             guide_text_widget.insert(tk.END, guide_text)
 
             # 5. KIỂM TRA FILE KHỞI CHẠY (LOGIC MỚI)
@@ -4421,245 +4725,358 @@ def action_clear_game_search():
     # (Lưu ý: 'download_options' là biến toàn cục)
     populate_page_1_grid(download_options, search_term="")
 
+def action_delete_custom_game(game_name):
+    """Xóa game custom khỏi danh sách."""
+    if messagebox.askyesno("Xóa Game", f"Bạn có chắc chắn muốn xóa game '{game_name}' khỏi danh sách không?\n(File game trên máy sẽ KHÔNG bị xóa)."):
+        try:
+            # Xóa khỏi config
+            if game_name in local_config['custom_games']:
+                del local_config['custom_games'][game_name]
+                save_local_config(local_config)
+                
+                # Làm mới lưới
+                action_clear_game_search()
+                messagebox.showinfo("Đã xóa", f"Đã xóa '{game_name}'.")
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể xóa: {e}")
+
+def action_change_game_image(game_name, is_custom):
+    """Đổi ảnh bìa cho game (Cả Custom và Server)."""
+    new_url = simpledialog.askstring("Đổi Ảnh", f"Nhập URL hình ảnh mới cho '{game_name}':")
+    
+    if not new_url: return
+    
+    try:
+        # 1. Tải ảnh về
+        response = requests.get(new_url, timeout=10)
+        response.raise_for_status()
+        img_data = response.content
+        
+        # 2. Tạo tên file cache an toàn
+        safe_name = "".join([c for c in game_name if c.isalnum() or c in (' ', '-', '_')]).strip()
+        img_filename = f"override_{safe_name}.png"
+        local_img_path = os.path.join(g_cache_dir, img_filename)
+        
+        # 3. Resize và Lưu
+        if not os.path.exists(g_cache_dir): os.makedirs(g_cache_dir)
+        
+        with Image.open(io.BytesIO(img_data)) as img:
+            # Lưu bản chất lượng cao (460x215)
+            img_resized = img.resize((460, 215), Image.Resampling.LANCZOS)
+            img_resized.save(local_img_path, "PNG")
+            
+        # 4. Lưu đường dẫn vào Config
+        if is_custom:
+            # Nếu là game custom, cập nhật trực tiếp vào custom_games
+            local_config['custom_games'][game_name]['image_local_path'] = local_img_path
+        else:
+            # Nếu là game server, lưu vào theme_overrides
+            if 'theme_overrides' not in local_config:
+                local_config['theme_overrides'] = {}
+            local_config['theme_overrides'][game_name] = local_img_path
+            
+        save_local_config(local_config)
+        
+        # 5. Xóa cache RAM cũ để nó load ảnh mới
+        keys_to_remove = [k for k in root.cached_images.keys() if safe_name in k or game_name in k]
+        for k in keys_to_remove:
+            del root.cached_images[k]
+
+        # 6. Làm mới giao diện
+        action_clear_game_search()
+        messagebox.showinfo("Thành công", "Đã cập nhật ảnh bìa!")
+
+    except Exception as e:
+        messagebox.showerror("Lỗi", f"Không thể tải ảnh: {e}")
+
+def action_rename_game(game_key):
+    """Đổi tên hiển thị của game (Alias)."""
+    # Lấy tên hiện tại (nếu đã đổi thì lấy tên đổi, chưa thì lấy tên gốc)
+    current_alias = local_config.get('display_name_overrides', {}).get(game_key, game_key)
+    
+    new_name = simpledialog.askstring("Đổi Tên", f"Nhập tên mới cho '{game_key}':", initialvalue=current_alias)
+    
+    if new_name is not None: # Nếu không bấm Cancel
+        if not new_name.strip() or new_name.strip() == game_key:
+            # Nếu để trống hoặc nhập trùng tên gốc -> Xóa Alias (Reset)
+            if game_key in local_config['display_name_overrides']:
+                del local_config['display_name_overrides'][game_key]
+        else:
+            # Lưu tên mới
+            local_config['display_name_overrides'][game_key] = new_name.strip()
+            
+        save_local_config(local_config)
+        action_clear_game_search() # Làm mới giao diện
+
+def action_remove_custom_image(game_key):
+    """Xóa ảnh custom để quay về ảnh gốc từ Server."""
+    if messagebox.askyesno("Khôi phục ảnh", f"Bạn muốn xóa ảnh tùy chỉnh của '{game_key}'\nvà quay lại dùng ảnh gốc từ Server?"):
+        try:
+            # Xóa khỏi config
+            if game_key in local_config['theme_overrides']:
+                del local_config['theme_overrides'][game_key]
+                save_local_config(local_config)
+            
+            # Xóa cache RAM để nó load lại ảnh gốc
+            # (Tìm các key cache chứa tên game và xóa)
+            safe_name = "".join([c for c in game_key if c.isalnum() or c in (' ', '-', '_')]).strip()
+            keys_to_del = [k for k in root.cached_images.keys() if safe_name in k]
+            for k in keys_to_del:
+                del root.cached_images[k]
+                
+            action_clear_game_search() # Làm mới giao diện
+            messagebox.showinfo("Thành công", "Đã khôi phục ảnh gốc.")
+            
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Lỗi khi xóa ảnh: {e}")
+
+def show_game_context_menu(event, game_key, is_custom):
+    """
+    Menu chuột phải thông minh:
+    - Luôn hiện: Đổi Ảnh, Đổi Tên.
+    - Nếu là Server Game + Có Ảnh Custom: Hiện nút 'Khôi phục ảnh gốc'.
+    - Nếu là Custom Game: Hiện nút 'Xóa Game'.
+    """
+    menu = tk.Menu(root, tearoff=0)
+    
+    # 1. Đổi Tên (Cho tất cả)
+    menu.add_command(label="✏️ Đổi Tên Game", command=lambda: action_rename_game(game_key))
+    
+    # 2. Đổi Ảnh (Cho tất cả)
+    menu.add_command(label="🖼️ Đổi Ảnh (URL)", command=lambda: action_change_game_image(game_key, is_custom))
+    
+    # 3. Khôi phục ảnh gốc (Chỉ cho Server Game đang dùng ảnh custom)
+    # Kiểm tra xem game này có trong danh sách override không
+    if not is_custom and game_key in local_config.get('theme_overrides', {}):
+        menu.add_command(label="↩️ Khôi phục Ảnh Gốc", command=lambda: action_remove_custom_image(game_key))
+
+    menu.add_separator()
+
+    # 4. Xóa Game (Chỉ cho Custom Game)
+    if is_custom:
+        menu.add_command(label="❌ Xóa Game Khỏi List", command=lambda: action_delete_custom_game(game_key))
+        
+    menu.post(event.x_root, event.y_root)
+
 # --- THÊM MỚI: CÁC HÀM ĐIỀU HƯỚNG MỚI ---
 def populate_page_1_grid(game_groups, search_term=""):
-    """(ĐÃ VIẾT LẠI) Tạo lưới game (VỚI CANVAS SCROLL)."""
+    """(ĐÃ NÂNG CẤP) Hiển thị lưới game bao gồm cả Game Tùy Chỉnh."""
     global g_game_grid_container, g_game_search_entry, page_1_canvas, page_1_canvas_window_id
-    style.configure("HoverAccent.TButton",
-                background="#0078d4", 
-                foreground="white",
-                font=("Segoe UI", 10, "bold"),
-                borderwidth=1,
-                focuscolor="none") # Màu TButton mặc định
 
-    # Map màu sắc
-    # Khi 'hover' (di chuột) hoặc 'active' (nhấn), đổi sang màu Accent (xanh)
-    style.map("HoverAccent.TButton",
-        background=[('active', '#ff0000'), ('disabled', '#cccccc')],
-        foreground=[('active', 'cyan')]
-    )
+    style.configure("HoverAccent.TButton", background="#0078d4", foreground="white", font=("Segoe UI", 10, "bold"), borderwidth=1, focuscolor="none")
+    style.map("HoverAccent.TButton", background=[('active', '#ff0000'), ('disabled', '#cccccc')], foreground=[('active', 'cyan')])
+
     def create_page1_launch_cmd(path):
-        """Tạo lệnh launch và ngăn click lan truyền lên card."""
         def launch_and_stop_event(event=None):
             action_launch_game_from_page_1(path)
-            return "break" # Ngăn event click lan truyền lên card_frame
+            return "break" 
         return launch_and_stop_event
     
     try:
-        # Tìm widget có tên 'tab1_loading_frame' và xóa nó
         loading_frame = page_1_game_grid.nametowidget("tab1_loading_frame")
         if loading_frame:
             loading_frame.destroy()
-            root.update_idletasks() # <-- THÊM DÒNG NÀY
-    except KeyError:
-        pass
+            root.update_idletasks() 
+    except KeyError: pass
     
-
-    # 1. Tạo Thanh tìm kiếm (CHỈ 1 LẦN)
+    # --- 1. THANH TÌM KIẾM & NÚT THÊM GAME ---
     if g_game_search_entry is None:
+        # ... (Code logo cũ giữ nguyên) ...
         try:
             image_path = resource_path("logo.png")
-            my_image = Image.open(image_path)
-            my_image = my_image.resize((150, 150), Image.Resampling.LANCZOS)
+            my_image = Image.open(image_path).resize((150, 150), Image.Resampling.LANCZOS)
             tk_image = ImageTk.PhotoImage(my_image)
-            image_label = ttk.Label(page_1_game_grid, image=tk_image, anchor=tk.CENTER)
-            image_label.pack(pady=(10, 15))
+            ttk.Label(page_1_game_grid, image=tk_image, anchor=tk.CENTER).pack(pady=(10, 15))
             root.tk_image = tk_image
-        except Exception as e: 
-                print(f"Lỗi khi tải ảnh (bỏ qua): {e}")
+        except: pass
+
         search_frame = ttk.Frame(page_1_game_grid)
         search_frame.pack(fill=tk.X, pady=(0, 15), padx=50)
 
-        search_label = ttk.Label(search_frame, text="Tìm game:")
-        search_label.pack(side=tk.LEFT, padx=(0, 10))
+        ttk.Label(search_frame, text="Tìm game:").pack(side=tk.LEFT, padx=(0, 10))
 
         g_game_search_entry = ttk.Entry(search_frame)
         g_game_search_entry.pack(fill=tk.X, expand=True, side=tk.LEFT)
-
-        clear_search_button = ttk.Button(search_frame, text="X", 
-                                         command=action_clear_game_search, width=2)
-        clear_search_button.pack(side=tk.LEFT, padx=(5,0))
-
         g_game_search_entry.bind("<Return>", on_game_search)
 
-    # --- 2. TẠO CANVAS SCROLL (CHỈ 1 LẦN) ---
+        ttk.Button(search_frame, text="X", command=action_clear_game_search, width=3).pack(side=tk.LEFT, padx=(5,0))
+        
+        # [MỚI] Nút Thêm Game
+        add_game_btn = ttk.Button(search_frame, text="➕ Thêm Game", command=action_add_custom_game_popup)
+        add_game_btn.pack(side=tk.LEFT, padx=(10, 0))
+        CreateToolTip(add_game_btn, "Thêm game bên ngoài vào Launcher.\n(Cần file .exe và link ảnh).")
+
+    # --- 2. TẠO CANVAS (Giữ nguyên code cũ) ---
     if g_game_grid_container is None:
-        # Tạo frame chứa canvas + scrollbar
-        # Nó sẽ lấp đầy không gian còn lại (giữa search và credit)
         canvas_host_frame = ttk.Frame(page_1_game_grid)
         canvas_host_frame.pack(fill=tk.BOTH, expand=True, pady=5, padx=5)
-
         path_label_credit = ttk.Label(page_1_game_grid, text="by Mr-Mime 2025", style="secondary.TLabel")
         path_label_credit.pack(side=tk.BOTTOM, pady=(5, 5))
-        # Tạo Scrollbar
         page_1_scrollbar = ttk.Scrollbar(canvas_host_frame, orient="vertical")
-        # page_1_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # Tạo Canvas
         page_1_canvas = tk.Canvas(canvas_host_frame, borderwidth=0, highlightthickness=0, yscrollcommand=page_1_scrollbar.set)
         page_1_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         page_1_scrollbar.config(command=page_1_canvas.yview)
-
-        # Tạo g_game_grid_container BÊN TRONG canvas
         g_game_grid_container = ttk.Frame(page_1_canvas)
-
-        # Đặt container vào canvas
         page_1_canvas_window_id = page_1_canvas.create_window((0, 0), window=g_game_grid_container, anchor="n")
-
-        # Gắn (Bind) các sự kiện
         g_game_grid_container.bind("<Configure>", on_page_1_content_configure)
         page_1_canvas.bind("<Configure>", on_page_1_canvas_configure)
-
-        # Bind cuộn chuột cho canvas và frame bên trong
         page_1_canvas.bind("<MouseWheel>", on_mouse_wheel)
         g_game_grid_container.bind("<MouseWheel>", on_mouse_wheel)
-        # Cho Linux
         page_1_canvas.bind("<Button-4>", on_mouse_wheel)
         page_1_canvas.bind("<Button-5>", on_mouse_wheel)
         g_game_grid_container.bind("<Button-4>", on_mouse_wheel)
         g_game_grid_container.bind("<Button-5>", on_mouse_wheel)
-    # --- HẾT TẠO CANVAS ---
 
-    # 3. Xóa các card game CŨ
-    for widget in g_game_grid_container.winfo_children():
-        widget.destroy()
+    for widget in g_game_grid_container.winfo_children(): widget.destroy()
 
-    # 4. Tải Icon (Cache)
-    if not hasattr(root, 'cached_game_icons_small'):
-        root.cached_game_icons_small = {}
+    if not hasattr(root, 'cached_game_icons_small'): root.cached_game_icons_small = {}
 
-    # 5. LỌC danh sách game
-    sorted_game_names = sorted(game_groups.keys())
-
+    # --- 3. HỢP NHẤT DANH SÁCH GAME ---
+    # A. Game từ Server (GitHub)
+    server_games = sorted(game_groups.keys())
+    custom_games_data = local_config.get('custom_games', {})
+    # [MỚI] Lấy danh sách override
+    theme_overrides = local_config.get('theme_overrides', {})
+    
+    custom_game_names = sorted(custom_games_data.keys())
+    all_game_names = custom_game_names + server_games 
+    
     if search_term:
         search_term = search_term.lower()
-        filtered_names = [name for name in sorted_game_names if search_term in name.lower()]
+        filtered_names = [name for name in all_game_names if search_term in name.lower()]
     else:
-        filtered_names = sorted_game_names
+        filtered_names = all_game_names
 
-    # 6. Vẽ lưới game (Code này giữ nguyên, chỉ đổi 'sorted_game_names' -> 'filtered_names')
+    # 4. VẼ LƯỚI
     MAX_COLS = 4
     col = 0
     row = 0
 
-    for game_name in filtered_names: # <-- Dùng danh sách đã lọc
-
-        # (Code lấy icon không đổi)
-        image_url = g_game_themes.get(game_name)
+    for game_name in filtered_names:
+        is_custom = game_name in custom_games_data
         icon_img = None
+        full_path_to_launch = None
         
-        if image_url:
-            # Hàm này đã tự động cache, ta không cần kiểm tra
-            icon_img = load_image_from_url(image_url, size=(192, 89))
+        # --- XỬ LÝ HÌNH ẢNH (LOGIC MỚI) ---
+        
+        # 1. Kiểm tra xem có ảnh Override (Ưu tiên cao nhất cho Server Game) không
+        override_path = theme_overrides.get(game_name)
+        
+        local_img_path_to_load = None
+        
+        if is_custom:
+            # Game Custom: Lấy path từ config của nó
+            local_img_path_to_load = custom_games_data[game_name].get("image_local_path")
+        elif override_path and os.path.exists(override_path):
+            # Game Server: Nếu có override thì dùng
+            local_img_path_to_load = override_path
             
+        # Nếu có đường dẫn file local (Custom hoặc Override), tải nó
+        if local_img_path_to_load and os.path.exists(local_img_path_to_load):
+            try:
+                cache_key = f"local_{local_img_path_to_load}"
+                if cache_key in root.cached_images:
+                    icon_img = root.cached_images[cache_key]
+                else:
+                    with Image.open(local_img_path_to_load) as img:
+                        img_resized = img.resize((192, 89), Image.Resampling.LANCZOS)
+                        icon_img = ImageTk.PhotoImage(img_resized)
+                        root.cached_images[cache_key] = icon_img
+            except: pass
+
+        # Nếu vẫn chưa có ảnh (Server Game chưa override), tải từ URL Server
+        if not icon_img and not is_custom:
+            image_url = g_game_themes.get(game_name)
+            if image_url:
+                icon_img = load_image_from_url(image_url, size=(192, 89))
+        
+        # Fallback icon mặc định
         if not icon_img:
-            # Tải icon mặc định (cũng sẽ được cache tự động)
             icon_img = root.default_game_icon_small
 
-        # (Code tạo Card Frame không đổi)
+        # --- XỬ LÝ ĐƯỜNG DẪN (Giữ nguyên) ---
+        if is_custom:
+            full_path_to_launch = custom_games_data[game_name].get("launch_path")
+        else:
+            current_global_path = local_config.get("game_paths", {}).get(game_name, "")
+            found_launch_file = None
+            if 'game_launchers' in local_config:
+                found_launch_file = local_config['game_launchers'].get(game_name)
+            if not found_launch_file:
+                mod_list = game_groups.get(game_name, [])
+                for _key, mod_data in mod_list:
+                    if mod_data.get("launch_file"):
+                        found_launch_file = mod_data.get("launch_file")
+                        break
+            if found_launch_file and current_global_path and os.path.isdir(current_global_path):
+                full_path = os.path.join(current_global_path, found_launch_file)
+                if os.path.exists(full_path) and os.path.isfile(full_path):
+                    full_path_to_launch = full_path
+
+        # --- VẼ CARD ---
         card_frame = ttk.Frame(g_game_grid_container, style="Card.TFrame", cursor="hand2")
         card_frame.grid(row=row, column=col, padx=10, pady=10, sticky="ew")
         card_frame.columnconfigure(0, weight=1)
 
-        # (Code tạo Label ảnh không đổi)
         img_label = ttk.Label(card_frame, image=icon_img, cursor="hand2")
         img_label.grid(row=0, column=0, pady=(10, 5), padx=10)
 
-        # (Code tạo Label tên không đổi)
-        name_label = ttk.Label(card_frame, text=game_name, anchor=tk.CENTER, cursor="hand2", font=("Segoe UI", 10, "bold"))
+        display_name = local_config.get('display_name_overrides', {}).get(game_name, game_name)
+        if is_custom:
+            display_name = f"★ {display_name}"
+        name_label = ttk.Label(card_frame, text=display_name, anchor=tk.CENTER, cursor="hand2", font=("Segoe UI", 10, "bold"))
         name_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky="ew")
 
-        # 1. Lấy đường dẫn global đã lưu
-        current_global_path = local_config.get("game_paths", {}).get(game_name, "")
-
-        # 2. Tìm file "launch_file" (ƯU TIÊN: User Config -> SAU ĐÓ: Server JSON)
-        found_launch_file = None
-        
-        # 2a. Kiểm tra trong config local trước (File do người dùng chọn)
-        if 'game_launchers' in local_config:
-            found_launch_file = local_config['game_launchers'].get(game_name)
-
-        # 2b. Nếu user chưa đặt, mới tìm trong JSON (Mặc định)
-        if not found_launch_file:
-            mod_list = game_groups.get(game_name, [])
-            for _key, mod_data in mod_list:
-                if mod_data.get("launch_file"):
-                    found_launch_file = mod_data.get("launch_file")
-                    break # Lấy file đầu tiên tìm thấy
-
-        full_path_to_launch = None # Biến lưu đường dẫn đầy đủ
-
-        # 3. Kiểm tra xem file có tồn tại ở đường dẫn global không
-        if found_launch_file and current_global_path and os.path.isdir(current_global_path):
-            full_path = os.path.join(current_global_path, found_launch_file)
-
-            if os.path.exists(full_path) and os.path.isfile(full_path):
-                full_path_to_launch = full_path # File hợp lệ, lưu lại
-
-        # --- (BEGIN) THAY ĐỔI: ĐỔI "Accent.TButton" thành "HoverAccent.TButton" ---
-        # 4. TẠO NÚT (LUÔN LUÔN)
-        btn_text = "❌ Chưa Cài Đặt"
+        # Nút Chạy (Logic cũ)
+        btn_text = "Chưa Cài Đặt"
         btn_state = tk.DISABLED
-        btn_style = "TButton" # Style thường (xám/mờ)
-        launch_cmd = None
-
-        # Nếu tìm thấy file hợp lệ: Đổi thành Chạy Game
+        btn_style = "TButton"
+        
         if full_path_to_launch:
             btn_text = "🚀 Chạy Game"
             btn_state = tk.NORMAL
-            btn_style = "HoverAccent.TButton" # Style xanh nổi bật
-
-        # 4. TẠO NÚT VỚI CẤU HÌNH ĐÃ CHỌN
-        launch_button_page1 = ttk.Button(
-            card_frame, 
-            text=btn_text,
-            state=btn_state,
-            style=btn_style 
-        )
-        launch_button_page1.grid(row=2, column=0, pady=(0, 10), padx=10, sticky="ew")
-        
-        # 5. GẮN LỆNH CLICK (Nếu có)
-        if full_path_to_launch:
-            # --- [SỬA TẠI ĐÂY] ---
-            # Thay vì truyền 'b=launch_button_page1', ta truyền 't=card_frame'
-            # Để hiệu ứng phủ lên toàn bộ thẻ game
-            launch_cmd = lambda e, p=full_path_to_launch, t=img_label: action_launch_game_from_page_1(p, t)
+            btn_style = "HoverAccent.TButton"
             
-            # Gắn vào sự kiện click chuột trái
-            launch_button_page1.bind("<Button-1>", launch_cmd)
+        launch_button_page1 = ttk.Button(card_frame, text=btn_text, state=btn_state, style=btn_style)
+        launch_button_page1.grid(row=2, column=0, pady=(0, 10), padx=10, sticky="ew")
+
+        # --- BINDING EVENTS (CLICK CHUỘT TRÁI - CŨ) ---
+        if full_path_to_launch:
+            click_cmd = lambda e, p=full_path_to_launch, t=img_label: action_launch_game_from_page_1(p, t)
+            launch_button_page1.bind("<Button-1>", click_cmd)
+        
+        if is_custom:
+             if full_path_to_launch:
+                card_cmd = lambda e, p=full_path_to_launch, t=img_label: action_launch_game_from_page_1(p, t)
+                card_frame.bind("<Button-1>", card_cmd)
+                img_label.bind("<Button-1>", card_cmd)
+                name_label.bind("<Button-1>", card_cmd)
+        else:
+            nav_cmd = lambda event, g=game_name: show_page_2_for_game(g)
+            card_frame.bind("<Button-1>", nav_cmd)
+            img_label.bind("<Button-1>", nav_cmd)
+            name_label.bind("<Button-1>", nav_cmd)
+
+        # --- [MỚI] BINDING CHUỘT PHẢI (CONTEXT MENU) ---
+        # Sử dụng lambda với default argument (g=game_name, c=is_custom) để bắt đúng giá trị trong vòng lặp
+        right_click_cmd = lambda e, g=game_name, c=is_custom: show_game_context_menu(e, g, c)
     
-        # 6. GẮN SỰ KIỆN CUỘN (LUÔN LUÔN)
-        launch_button_page1.bind("<MouseWheel>", on_mouse_wheel)
-        launch_button_page1.bind("<Button-4>", on_mouse_wheel)
-        launch_button_page1.bind("<Button-5>", on_mouse_wheel)
-        # --- (END) THAY ĐỔI ---
+        card_frame.bind("<Button-3>", right_click_cmd)
+        img_label.bind("<Button-3>", right_click_cmd)
+        name_label.bind("<Button-3>", right_click_cmd)
+        # (Không bind nút chạy game để tránh bấm nhầm)
 
-        # (Code tạo lệnh Click không đổi)
-        cmd = lambda event, g=game_name: show_page_2_for_game(g)
-
-        # (Code Bind sự kiện không đổi)
-        card_frame.bind("<Button-1>", cmd)
-        img_label.bind("<Button-1>", cmd)
-        name_label.bind("<Button-1>", cmd)
-
-        # --- THÊM MỚI: Bind cuộn chuột cho card (QUAN TRỌNG) ---
-        card_frame.bind("<MouseWheel>", on_mouse_wheel)
-        img_label.bind("<MouseWheel>", on_mouse_wheel)
-        name_label.bind("<MouseWheel>", on_mouse_wheel)
-        card_frame.bind("<Button-4>", on_mouse_wheel)
-        img_label.bind("<Button-4>", on_mouse_wheel)
-        name_label.bind("<Button-4>", on_mouse_wheel)
-        card_frame.bind("<Button-5>", on_mouse_wheel)
-        img_label.bind("<Button-5>", on_mouse_wheel)
-        name_label.bind("<Button-5>", on_mouse_wheel)
-        # --- HẾT THÊM MỚI ---
+        # Scroll bind
+        for w in [card_frame, img_label, name_label, launch_button_page1]:
+            w.bind("<MouseWheel>", on_mouse_wheel)
+            w.bind("<Button-4>", on_mouse_wheel)
+            w.bind("<Button-5>", on_mouse_wheel)
 
         col += 1
         if col >= MAX_COLS:
             col = 0
             row += 1
 
-    # Cấu hình grid container
     for i in range(MAX_COLS): g_game_grid_container.columnconfigure(i, weight=0)
 
 
@@ -4692,26 +5109,57 @@ def show_page_2_for_game(game_name):
     # --- THÊM MỚI: LOGIC TẢI ẢNH (TRONG THREAD) ---
     def load_game_image_thread():
         """
-        (Chạy ngầm) Lấy ảnh đã được tải trước (preloaded) cho game đã chọn.
+        (Chạy ngầm) Lấy ảnh cho Trang 2 (Ưu tiên ảnh Local/Override).
         """
-        global g_game_image_label, g_game_themes
+        global g_game_image_label, g_game_themes, local_config
 
         icon_img = None
         
-        # 1. Lấy URL
-        image_url = g_game_themes.get(game_name)
+        # 1. Tải lại config để đảm bảo lấy được thay đổi mới nhất
+        current_config = load_local_config()
+        custom_games = current_config.get('custom_games', {})
+        theme_overrides = current_config.get('theme_overrides', {})
         
-        # 2. Lấy ảnh từ cache (dùng hàm load_image_from_url)
-        if image_url:
-            # Hàm này sẽ lấy ngay lập tức từ root.cached_images
-            # vì preload_all_images_thread đã chạy
-            icon_img = load_image_from_url(image_url, size=(460, 215))
+        # 2. Tìm đường dẫn ảnh trong máy (Local Path)
+        local_path = None
+        
+        if game_name in custom_games:
+            # Nếu là game Custom -> Lấy path từ config custom
+            local_path = custom_games[game_name].get("image_local_path")
+        elif game_name in theme_overrides:
+            # Nếu là game Server nhưng có Override -> Lấy path override
+            local_path = theme_overrides[game_name]
+            
+        # 3. Nếu có ảnh local -> Load từ ổ cứng
+        if local_path and os.path.exists(local_path):
+            try:
+                # Tạo key cache riêng cho ảnh to
+                cache_key = f"local_big_{local_path}"
+                
+                if cache_key in root.cached_images:
+                    icon_img = root.cached_images[cache_key]
+                else:
+                    with Image.open(local_path) as img:
+                        # Resize to cho Trang 2 (460x215)
+                        img_resized = img.resize((460, 215), Image.Resampling.LANCZOS)
+                        icon_img = ImageTk.PhotoImage(img_resized)
+                        root.cached_images[cache_key] = icon_img
+                        print(f"Đã load ảnh local cho Page 2: {game_name}")
+            except Exception as e:
+                print(f"Lỗi load ảnh local Page 2: {e}")
 
-        # 3. Nếu không có, dùng icon mặc định (cũng đã được preload)
+        # 4. Nếu chưa có ảnh (không có local), dùng URL từ Server
+        if not icon_img:
+            image_url = g_game_themes.get(game_name)
+            if image_url:
+                # Hàm này sẽ tự động cache
+                icon_img = load_image_from_url(image_url, size=(460, 215))
+
+        # 5. Nếu vẫn không có, dùng icon mặc định
         if not icon_img:
             icon_img = root.default_game_icon_large 
 
-        # 4. Gửi về queue để cập nhật UI
+        # 6. Gửi về queue để cập nhật UI
         progress_queue.put(("game_image_loaded", icon_img))
 
     # Bắt đầu tải ảnh ngầm (Việc này nhanh, giữ nguyên)
@@ -6293,7 +6741,7 @@ def single_file_upload_thread(local_path, file_info):
 
         # --- 2. Logic mới (Copy từ upload_file_logic) ---
         # Chuẩn bị media body (dùng chunk 5MB)
-        media = MediaFileUpload(local_path, chunksize=1024*1024*5, resumable=True)
+        media = MediaFileUpload(local_path, chunksize=UPLOAD_CHUNK_SIZE, resumable=True)
 
         # Chuẩn bị request (chỉ .update())
         request = drive_service.files().update(
@@ -7165,6 +7613,7 @@ CreateToolTip(open_data_btn, "Mở thư mục chứa settings.json và file log.
 notes_btn = ttk.Button(tools_frame, text="📝 Note Dán Màn Hình", command=action_toggle_notes)
 notes_btn.grid(row=3, column=0, sticky="nsew", padx=2, pady=2, ipady=5)
 CreateToolTip(notes_btn, "Hiện tờ giấy ghi chú trong suốt trên màn hình game.\nDùng để ghi mật khẩu, nhiệm vụ...")
+
 
 # --- 3. PATH SETTINGS (Đường dẫn) ---
 path_settings_frame = ttk.LabelFrame(fourth_tab_frame, text="🔗 Liên Kết Launcher (Tự động tìm thấy)", padding=10)
