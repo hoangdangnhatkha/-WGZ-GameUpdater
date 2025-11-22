@@ -100,5 +100,16 @@
     "delete_before_extract": [],
     "path_guide": null,
     "launch_file": "The.Spell.Brigade.v0.13.0.6449_LinkNeverDie.Com/_The Spell Brigade - LND Game Launcher.exe"
+  },
+  "10": {
+    "name": "Tải Game Wizard Of Lgend 2",
+    "url": "https://drive.google.com/uc?id=1moCNSRJ_MtDVerRAFOLe7-66AINA3ozp",
+    "version": "v1.1.0",
+    "game": "Wizard Of Legend 2",
+    "type": "rar",
+    "password": "linkneverdie.com",
+    "delete_before_extract": [],
+    "path_guide": null,
+    "launch_file": "Wizard.of.Legend.2.v1.1.0_LinkNeverDie.Com/_Wizard of Legend 2 - LND Game Launcher.exe"
   }
 }
