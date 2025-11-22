@@ -53,7 +53,38 @@ def enforce_admin_rights():
         messagebox.showerror("Cảnh Báo", "Ứng dụng cần quyền Admin để hoạt động ổn định (Ghi file, Overlay).\nVui lòng khởi động lại và chọn 'Run as Administrator'.")
         return False
 
+def prevent_system_sleep_and_boost_priority():
+    """
+    1. Ngăn Windows tự ngủ khi đang tải.
+    2. Tăng mức ưu tiên CPU để không bị bóp hiệu năng khi Minimize.
+    """
+    try:
+        # --- 1. CẤM NGỦ (Keep Awake) ---
+        # Báo cho Windows biết thread này đang làm việc quan trọng
+        # ES_SYSTEM_REQUIRED: Máy không được Sleep
+        # ES_DISPLAY_REQUIRED: Màn hình không được tắt (Tùy chọn, có thể bỏ nếu muốn tắt màn)
+        ctypes.windll.kernel32.SetThreadExecutionState(
+            ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+        )
+        print("System Power: Đã bật chế độ 'Không Ngủ'.")
+
+        # --- 2. TĂNG ƯU TIÊN (Boost Priority) ---
+        # Lấy Process ID hiện tại
+        app_process = ctypes.windll.kernel32.GetCurrentProcess()
+        
+        # Đặt mức ưu tiên là ABOVE_NORMAL (Cao hơn bình thường một chút)
+        # Lưu ý: Không nên dùng HIGH_PRIORITY vì có thể làm đơ chuột máy tính yếu.
+        ctypes.windll.kernel32.SetPriorityClass(app_process, ABOVE_NORMAL_PRIORITY_CLASS)
+        
+        print("System Priority: Đã tăng mức ưu tiên lên 'Above Normal'.")
+        
+    except Exception as e:
+        print(f"Không thể set quyền ưu tiên: {e}")
+
+
 enforce_admin_rights()
+
+prevent_system_sleep_and_boost_priority()
 
 def center_window_on_screen(window, width, height):
     """Tính toán và đặt Toplevel (cửa sổ con) vào giữa màn hình."""
@@ -253,7 +284,7 @@ global g_mod_buttons
 g_mod_buttons = {}
 global g_current_selected_key
 g_current_selected_key = None
-CURRENT_VERSION = "1.2.7.3"
+CURRENT_VERSION = "1.2.8"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
 ROCKET_GIF_URL = "https://media.tenor.com/ike6N7DwCa0AAAAM/%D8%B1%D9%8A%D8%A7%D9%84-%D9%85%D8%AF%D8%B1%D9%8A%D8%AF.gif"
@@ -3617,8 +3648,9 @@ def process_queue():
             anydesk_id = message_value
         # --- THÊM MỚI: XỬ LÝ HỒI ĐÁP CỦA ANYDESK ---
         elif message_type == "anydesk_error":
-            messagebox.showerror("Lỗi AnyDesk", 
-                                 f"Không thể khởi chạy AnyDesk:\n{message_value}",
+            # --- SỬA TIÊU ĐỀ Ở ĐÂY ---
+            messagebox.showerror("Lỗi RustDesk",  # <--- Đổi thành RustDesk
+                                 f"Thông báo:\n{message_value}",
                                  parent=root)
         
         elif message_type == "anydesk_done":
@@ -8011,73 +8043,36 @@ def action_save_path_settings():
         print(f"Lỗi khi lưu cài đặt đường dẫn: {e}")
 
 
-def action_launch_anydesk():
-    """
-    (ĐÃ SỬA) Dùng cửa sổ tùy chỉnh để có nút bấm theo ý muốn.
-    """
-    # 1. Tạo cửa sổ con (Popup)
-    confirm_win = tk.Toplevel(root)
-    confirm_win.title("Lựa chọn Chế độ")
+def action_launch_rustdesk():
+    """Hỏi tên và chạy RustDesk."""
     
-    # Kích thước và căn giữa
-    win_w, win_h = 420, 180
-    center_window_on_screen(confirm_win, win_w, win_h)
+    # 1. HỎI XÁC NHẬN
+    message = (
+        "Bạn có muốn gửi yêu cầu hỗ trợ đến Discord không?\n"
+        "(Sẽ gửi ID RustDesk và Tên của bạn để Admin kết nối)"
+    )
+    send_to_discord = messagebox.askyesno("Hỗ trợ RustDesk", message, parent=root)
+
+    discord_name = "Ẩn danh"
+
+    # 2. HỎI TÊN DISCORD
+    if send_to_discord:
+        import getpass
+        pc_user = getpass.getuser()
+        discord_name = simpledialog.askstring(
+            "Nhập tên", 
+            "Nhập tên của mi:",
+            initialvalue=pc_user,
+            parent=root
+        )
+        if not discord_name: discord_name = f"{pc_user} (PC)"
+
+    # 3. KHÓA NÚT VÀ CHẠY
+    if 'g_anydesk_button' in globals():
+        g_anydesk_button.config(state=tk.DISABLED, text="Đang mở RustDesk...")
     
-    confirm_win.transient(root) # Luôn nổi trên app chính
-    confirm_win.grab_set()      # Chặn tương tác với app chính cho đến khi chọn xong
-    
-    # Tạo khung nội dung đẹp
-    main_frame = ttk.Frame(confirm_win, padding=20)
-    main_frame.pack(fill=tk.BOTH, expand=True)
-
-    # 2. Label thông báo
-    msg_text = (
-        "Bạn muốn mở AnyDesk theo chế độ nào?\n\n"
-        "• Gửi ID: Tự động gửi ID của bạn lên Discord để Admin vào hỗ trợ.\n"
-        "• Chỉ mở: Chỉ mở phần mềm AnyDesk lên thôi."
-    )
-    lbl = ttk.Label(
-        main_frame, 
-        text=msg_text, 
-        wraplength=380, 
-        justify=tk.LEFT,
-        font=("Segoe UI", 10)
-    )
-    lbl.pack(pady=(0, 20))
-
-    # 3. Hàm xử lý chọn lựa
-    def make_choice(send_discord):
-        confirm_win.destroy() # Đóng cửa sổ hỏi
-        
-        # Cập nhật giao diện nút chính
-        if 'g_anydesk_button' in globals():
-            try:
-                g_anydesk_button.config(state=tk.DISABLED, text="Đang khởi động...")
-            except: pass
-        
-        # Bắt đầu Thread với lựa chọn của user
-        threading.Thread(target=launch_anydesk_thread, args=(send_discord,), daemon=True).start()
-
-    # 4. Nút bấm tùy chỉnh (Custom Buttons)
-    btn_frame = ttk.Frame(main_frame)
-    btn_frame.pack(fill=tk.X)
-
-    # --- NÚT 1: TƯƠNG ĐƯƠNG "YES" ---
-    btn_yes = ttk.Button(
-        btn_frame,
-        text="✅ Gửi ID Hỗ Trợ",   # <-- SỬA TÊN NÚT Ở ĐÂY
-        style="Accent.TButton",   # Màu xanh nổi bật
-        command=lambda: make_choice(True)
-    )
-    btn_yes.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5))
-
-    # --- NÚT 2: TƯƠNG ĐƯƠNG "NO" ---
-    btn_no = ttk.Button(
-        btn_frame,
-        text="❌ Chỉ mở App",     # <-- SỬA TÊN NÚT Ở ĐÂY
-        command=lambda: make_choice(False)
-    )
-    btn_no.pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=(5, 0))
+    # Gọi Thread mới
+    threading.Thread(target=launch_rustdesk_thread, args=(send_to_discord, discord_name), daemon=True).start()
 
 def apply_anydesk_connection_fix():
     """
@@ -8125,256 +8120,143 @@ def apply_anydesk_connection_fix():
         print(f"Lỗi khi sửa config AnyDesk: {e}")
         return False
 
-def launch_anydesk_thread(send_to_discord):
+def launch_rustdesk_thread(send_to_discord, discord_name):
     """
-    (CHẠY NGẦM) 
-    Logic hoàn chỉnh, đã sửa lỗi "lần đầu chạy":
-    0. TẮT tất cả tiến trình AnyDesk cũ.
-    1. Kiểm tra xem AnyDesk đã cài đặt chưa.
-    2. Nếu có, dùng file đã cài để lấy ID.
-    3. Nếu không, CHẠY QUY TRÌNH CÀI ĐẶT (UAC).
-    4. Sau khi cài đặt, CHỜ SERVICE SẴN SÀNG và lấy ID.
+    (RUSTDESK ALL-IN-ONE)
+    1. Tự động cài đặt ngầm (Silent Install) nếu chưa có.
+    2. Chờ cửa sổ GUI hiện lên.
+    3. Lấy ID từ Config (Bỏ qua số 0).
     """
-    anydesk_id = None
-    # Di chuyển cờ này lên đầu hàm để dùng chung
     CREATE_NO_WINDOW = 0x08000000 
+    rustdesk_id = None
+    temp_password = "WGZSupport2025" 
+    installed_path = r"C:\Program Files\RustDesk\RustDesk.exe"
     
     try:
-        # --- 0. KIỂM TRA SƠ BỘ: CÓ ĐANG CHẠY KHÔNG? ---
-        print("Đang kiểm tra trạng thái AnyDesk...")
-        
-        # Kiểm tra process Client
-        check_p1_start = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq AnyDesk.exe", "/NH"], 
-            capture_output=True, text=True, creationflags=CREATE_NO_WINDOW
-        )
-        # Kiểm tra process Service
-        check_p2_start = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq AnyDeskService.exe", "/NH"], 
-            capture_output=True, text=True, creationflags=CREATE_NO_WINDOW
-        )
-        
-        # Nếu tên file xuất hiện trong kết quả tasklist nghĩa là nó đang chạy
-        is_running = ("AnyDesk.exe" in check_p1_start.stdout) or ("AnyDeskService.exe" in check_p2_start.stdout)
+        # 1. Tìm file Portable gốc (để dùng làm bộ cài)
+        portable_path = resource_path("RustDesk.exe")
+        if not os.path.exists(portable_path):
+            portable_path = os.path.join(os.getcwd(), "RustDesk.exe")
+            if not os.path.exists(portable_path):
+                raise FileNotFoundError("Thiếu file 'RustDesk.exe' gốc.")
 
-        if is_running:
-            print("--> Phát hiện AnyDesk đang chạy. Tiến hành tắt...")
-            
-            # --- BƯỚC TẮT (CHỈ CHẠY KHI CẦN THIẾT) ---
-            subprocess.run(["taskkill", "/F", "/IM", "AnyDesk.exe"], capture_output=True, creationflags=CREATE_NO_WINDOW)
-            subprocess.run(["taskkill", "/F", "/IM", "AnyDeskService.exe"], capture_output=True, creationflags=CREATE_NO_WINDOW)
-            
-            # Vòng lặp chờ tắt (Chỉ chạy khi vừa kill xong)
-            print("Đang đợi process tắt hoàn toàn...")
-            start_wait = time.time()
-            timeout = 10 
-            
-            while True:
-                check_p1 = subprocess.run(
-                    ["tasklist", "/FI", "IMAGENAME eq AnyDesk.exe", "/NH"], 
-                    capture_output=True, text=True, creationflags=CREATE_NO_WINDOW
-                )
-                check_p2 = subprocess.run(
-                    ["tasklist", "/FI", "IMAGENAME eq AnyDeskService.exe", "/NH"], 
-                    capture_output=True, text=True, creationflags=CREATE_NO_WINDOW
-                )
-                
-                p1_gone = "AnyDesk.exe" not in check_p1.stdout
-                p2_gone = "AnyDeskService.exe" not in check_p2.stdout
-                
-                if p1_gone and p2_gone:
-                    print("--> Đã xác nhận: AnyDesk tắt hoàn toàn.")
-                    break
-                
-                if time.time() - start_wait > timeout:
-                    print("Cảnh báo: Quá thời gian chờ tắt. Vẫn tiếp tục...")
-                    break
-                time.sleep(0.5)
+        # 2. QUY TRÌNH CÀI ĐẶT NGẦM
+        target_exe = portable_path # Mặc định dùng portable nếu cài lỗi
+        
+        if os.path.exists(installed_path):
+            print("Đã cài đặt. Sử dụng bản Installed.")
+            target_exe = installed_path
         else:
-            print("--> AnyDesk không chạy. Bỏ qua bước tắt và chờ đợi.")
-
-        # --- 0.5. SỬA CONFIG ---
-        apply_anydesk_connection_fix()
-        # --- 1. KIỂM TRA PHIÊN BẢN ĐÃ CÀI ĐẶT ---
-        installed_exe_path = r"C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
-        anydesk_to_use = None # Biến sẽ lưu đường dẫn .exe để chạy
-        
-        if os.path.exists(installed_exe_path):
-            print("Phát hiện AnyDesk đã được cài đặt. Sẽ dùng file này.")
-            anydesk_to_use = installed_exe_path
-        else:
-            # --- 2. LOGIC CÀI ĐẶT (VÌ CHƯA CÀI) ---
-            print("AnyDesk chưa được cài đặt. Bắt đầu quy trình cài đặt lần đầu.")
-            
-            # 2a. Sao chép file portable (giống như cũ)
-            source_path = resource_path("AnyDesk.exe")
-            if not os.path.exists(source_path):
-                raise FileNotFoundError("Không tìm thấy file 'AnyDesk.exe' đã đóng gói.")
-
-            temp_dir = os.environ.get('TEMP', os.getcwd())
-            dest_path = os.path.join(temp_dir, "AnyDesk_WGZ_Support.exe")
-            print(f"Đang copy AnyDesk từ {source_path} -> {dest_path}")
-            shutil.copy2(source_path, dest_path)
-            
-            # 2b. Chạy trình cài đặt (với UAC)
+            print("Chưa cài đặt. Đang CÀI ĐẶT NGẦM (Silent Install)...")
             try:
-                print("Đang yêu cầu quyền Admin (UAC) để cài đặt...")
-                progress_queue.put(("anydesk_installing", None)) # Gửi tin nhắn "Đang cài đặt..."
-
-                install_path = r"C:\Program Files (x86)\AnyDesk"
-                params = (
-                    f'--install "{install_path}" '
-                    '--silent '
-                    '--remove-desktop-icon'
-                    '--start-with-win=false'
-                )
-
-                print(f"Đang yêu cầu quyền Admin để chạy: {dest_path} {params}")
-                
+                # Kích hoạt UAC để cài đặt
                 ret = ctypes.windll.shell32.ShellExecuteW(
-                    None, "runas", dest_path, params, None, 1
+                    None, "runas", portable_path, "--install --silent", None, 1
                 )
-
-                if ret <= 32:
-                    if ret == 1223: # Lỗi "Đã hủy" (Bấm "No" trên UAC)
-                         raise Exception("Người dùng đã hủy cài đặt (bấm 'No' trên UAC).")
-                    else:
-                         raise Exception(f"Không thể khởi chạy trình cài đặt (Lỗi Windows: {ret}).")
-                
-                print("UAC đã được chấp nhận. Đang chờ cài đặt...")
-                
-                # 2c. Chờ cài đặt (tăng timeout lên 3 phút)
-                timeout = 180 
-                start_time = time.time()
-                while not os.path.exists(installed_exe_path):
-                    time.sleep(1)
-                    if time.time() - start_time > timeout:
-                        raise Exception("Hết thời gian chờ cài đặt (180s). Vui lòng xác nhận UAC.")
-
-                print("Cài đặt AnyDesk hoàn tất.")
-                
-                # 2d. Đặt file để sử dụng là file vừa cài đặt
-                anydesk_to_use = installed_exe_path
-                progress_queue.put(("anydesk_install_complete", None))
-
+                if ret > 32: # Lệnh chạy thành công
+                    # Chờ tối đa 20s xem file đã xuất hiện trong Program Files chưa
+                    for i in range(20):
+                        if os.path.exists(installed_path):
+                            print("Cài đặt thành công!")
+                            target_exe = installed_path
+                            break
+                        time.sleep(1)
             except Exception as e:
-                # Nếu cài đặt lỗi, báo cho người dùng
-                print(f"Lỗi khi tự động cài đặt AnyDesk: {e}")
-                progress_queue.put(("anydesk_error", f"Lỗi cài đặt tự động: {e}"))
-                progress_queue.put(("anydesk_done", None))
-                return # Thoát nếu cài đặt thất bại
-        
-        # --- BẮT ĐẦU SỬA: LOGIC LẤY ID (VỚI VÒNG LẶP CHỜ) ---
-        
-        print(f"Đang chờ AnyDesk Service sẵn sàng để lấy ID...")
-        command_get_id = [anydesk_to_use, "--get-id"]
-        
-        anydesk_id = None # Khởi tạo là None
-        get_id_timeout = 60 # Chờ tối đa 20 giây
-        start_get_id_time = time.time()
-        print(f"Đang khởi chạy GUI: {anydesk_to_use}")
-        subprocess.Popen([anydesk_to_use]) # Chạy file (đã cài)
-        while True:
+                print(f"Lỗi cài đặt: {e}. Quay về dùng Portable.")
+
+        # 3. KHỞI ĐỘNG APP
+        print(f"Khởi động: {target_exe}")
+        subprocess.Popen([target_exe])
+
+        # 4. CHỜ CỬA SỔ (GUI) HIỆN LÊN
+        print("⏳ Đang đợi giao diện RustDesk hiển thị...")
+        app_ready = False
+        for i in range(30): # Chờ 15s
+            windows = gw.getWindowsWithTitle('RustDesk')
+            for w in windows:
+                if "RustDesk" in w.title:
+                    app_ready = True
+                    break
+            if app_ready: 
+                print("✅ Giao diện đã hiện!")
+                break
+            time.sleep(0.5)
+
+        # 5. HÀM LẤY ID (Ưu tiên Config)
+        def get_valid_id():
+            # Check Config File
+            paths = [
+                os.path.join(os.getenv('APPDATA'), 'RustDesk', 'config'),
+                os.path.join(os.getenv('LOCALAPPDATA'), 'RustDesk', 'config')
+            ]
+            for d in paths:
+                for f in ['RustDesk.toml', 'RustDesk2.toml']:
+                    full = os.path.join(d, f)
+                    if os.path.exists(full):
+                        try:
+                            with open(full, 'r', encoding='utf-8') as file:
+                                match = re.search(r'id\s*=\s*[\'"]?(\d+)[\'"]?', file.read())
+                                if match:
+                                    fid = match.group(1)
+                                    if len(fid) > 6 and fid != "0": return fid
+                        except: pass
+            
+            # Fallback: Check CMD (chỉ chạy nếu App là portable hoặc đã có quyền)
             try:
-                # Chạy lệnh (với timeout 5s, vì ta lặp lại)
-                result = subprocess.run(
-                    command_get_id, 
-                    capture_output=True, 
-                    text=True, 
-                    timeout=5, # Timeout 5 giây cho mỗi lần thử
-                    creationflags=CREATE_NO_WINDOW
-                )
-                output_id = result.stdout.strip()
-                
-                # Kiểm tra xem ID có hợp lệ không
-                if output_id.isdigit() and output_id != "0":
-                    print(f"AnyDesk đã sẵn sàng! Lấy ID thành công: {output_id}")
-                    anydesk_id = output_id 
-                    break # <-- THOÁT VÒNG LẶP VÌ ĐÃ CÓ ID
-                else:
-                    # ID trả về là "0" hoặc rỗng, có nghĩa là service chưa sẵn sàng
-                    print(f"Service chưa sẵn sàng (ID trả về: '{output_id}'). Đang thử lại sau 1s...")
-            
-            except subprocess.TimeoutExpired:
-                print("Lệnh --get-id bị timeout. Đang thử lại...")
-            except Exception as e:
-                # Lỗi không mong muốn, có thể file hỏng
-                print(f"Lỗi nghiêm trọng khi chạy --get-id: {e}. Sẽ mở GUI cho người dùng tự đọc.")
-                progress_queue.put(("anydesk_manual_read_required", None))
-                break # Thoát vòng lặp, không thử nữa
+                proc = subprocess.run([target_exe, "--get-id"], 
+                    capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
+                val = proc.stdout.strip().replace(" ", "")
+                if val.isdigit() and len(val) > 6: return val
+            except: pass
+            return None
 
-            # Kiểm tra timeout của VÒNG LẶP
-            if time.time() - start_get_id_time > get_id_timeout:
-                print(f"Hết thời gian chờ {get_id_timeout}s. Không thể tự động lấy ID.")
-                progress_queue.put(("anydesk_manual_read_required", None))
-                break # Thoát vòng lặp
-
-            # Chờ 1 giây trước khi thử lại
-            time.sleep(1) 
-
-        # --- HẾT SỬA ---
-        
-        # 4. GỬI ID LÊN DISCORD (NẾU CÓ)
-        if anydesk_id:
-            
-            # --- BẮT ĐẦU SỬA: CHỈ GỬI NẾU USER ĐỒNG Ý ---
-            if send_to_discord and "YOUR_ID" not in DISCORD_WEBHOOK_URL:
-                 print("Đang gửi ID lên Discord (User đã đồng ý)...")
-                 
-                 # (ĐÂY LÀ CODE TẠO EMBED ĐÃ CHỌN Ở LẦN TRƯỚC)
-                 try:
-                    content_ping = "Một người dùng cần hỗ trợ!"
-                    embed = {
-                        "title": "🚀 Yêu Cầu Hỗ trợ AnyDesk Mới!",
-                        "color": 3447003, # Màu xanh
-                        "description": (
-                            f"**ID Người dùng:**\n"
-                            f"```{anydesk_id}```" 
-                        ),
-                        "footer": {
-                            "text": "Yêu cầu được gửi từ WGZ Game Updater"
-                        },
-                        "timestamp": datetime.utcnow().isoformat()
-                    }
-                    payload = { "content": content_ping, "embeds": [embed] }
-                    requests.post(DISCORD_WEBHOOK_URL, json=payload, timeout=10)
-                    
-                    # Gửi tin nhắn "Đã Gửi"
-                    progress_queue.put(("anydesk_id_sent_to_discord", anydesk_id))
-                    
-                 except Exception as e:
-                     print(f"Lỗi khi gửi lên Discord: {e}")
-                     # Nếu gửi lỗi, báo là "Chưa gửi"
-                     progress_queue.put(("anydesk_id_retrieved_locally", anydesk_id))
-                 # --- HẾT CODE EMBED ---
-            
+        # 6. VÒNG LẶP CHỜ MẠNG & ID
+        print("⏳ Đang chờ kết nối mạng để lấy ID...")
+        for i in range(20):
+            time.sleep(1)
+            rustdesk_id = get_valid_id()
+            if rustdesk_id:
+                print(f"✅ ID chuẩn: {rustdesk_id}")
+                break
             else:
-                # User bấm "No" hoặc URL không được cấu hình
-                if not send_to_discord:
-                    print("User đã chọn không gửi ID lên Discord. Bỏ qua.")
-                else:
-                    print("Webhook URL chưa được cấu hình, bỏ qua gửi.")
-                
-                # Gửi tin nhắn "Chưa Gửi"
-                progress_queue.put(("anydesk_id_retrieved_locally", anydesk_id))
-            # --- HẾT SỬA ---
-        
-        # 5. KHỞI CHẠY GUI CHO NGƯỜI DÙNG
-        
+                print(f"Đang chờ ID... {i+1}/20")
 
-        # 6. FOCUS CỬA SỔ
-        time.sleep(2) 
-        try:
-            windows = gw.getWindowsWithTitle('AnyDesk')
-            if windows:
-                window = windows[0]
-                if window.isMinimized: window.restore()
-                window.activate()
-        except Exception as e:
-            print(f"Lỗi khi focus cửa sổ AnyDesk: {e}")
-        
+        # 7. XỬ LÝ KẾT QUẢ
+        if rustdesk_id:
+            # Đặt pass
+            try:
+                subprocess.run([target_exe, "--password", temp_password], 
+                    capture_output=True, creationflags=CREATE_NO_WINDOW)
+            except: pass
+
+            # Gửi Discord
+            if send_to_discord and "YOUR_ID" not in DISCORD_WEBHOOK_URL:
+                try:
+                    content_ping = "@here 🆘 Yêu cầu hỗ trợ RustDesk (Installed)!"
+                    embed = {
+                        "title": "🚀 Hỗ trợ RustDesk",
+                        "color": 16728380,
+                        "fields": [
+                            { "name": "👤 User", "value": f"**{discord_name}**", "inline": True },
+                            { "name": "🆔 ID", "value": f"```{rustdesk_id}```", "inline": True },
+                            { "name": "🔑 Pass", "value": f"```{temp_password}```", "inline": True },
+                            { "name": "💻 Mode", "value": "Auto-Install & Ready", "inline": False }
+                        ],
+                        "footer": { "text": "WGZ Updater" }
+                    }
+                    requests.post(DISCORD_WEBHOOK_URL, json={
+                        "content": content_ping, "username": "Bot RustDesk", "embeds": [embed]
+                    }, timeout=5)
+                    progress_queue.put(("anydesk_id_sent_to_discord", rustdesk_id))
+                except:
+                    progress_queue.put(("anydesk_id_retrieved_locally", rustdesk_id))
+            else:
+                progress_queue.put(("anydesk_id_retrieved_locally", rustdesk_id))
+        else:
+            progress_queue.put(("anydesk_error", "Đã mở App nhưng mạng chậm (chưa có ID).\nVui lòng đọc thủ công."))
+
     except Exception as e:
-        print(f"Lỗi nghiêm trọng trong luồng AnyDesk: {e}")
+        print(f"Lỗi: {e}")
         progress_queue.put(("anydesk_error", str(e)))
     
     finally:
@@ -8426,11 +8308,12 @@ ttk.Label(support_layout, text="Gặp lỗi khó? Yêu cầu hỗ trợ từ xa.
 global g_anydesk_button
 g_anydesk_button = ttk.Button(
     support_layout,
-    text="🚀 Hỗ Trợ Từ Xa",
-    command=action_launch_anydesk,
+    text="🚀 Hỗ Trợ Từ Xa", # <--- Đổi tên hiển thị
+    command=action_launch_rustdesk,    # <--- Đổi hàm gọi
     style="Accent.TButton"
 )
 g_anydesk_button.pack(side=tk.RIGHT)
+CreateToolTip(g_anydesk_button, "Mở RustDesk để Admin điều khiển máy hỗ trợ sửa lỗi.")
 
 # --- CREDITS FOOTER ---
 footer_label = ttk.Label(fourth_tab_frame, text="WIBU's Gaming Zone © 2025", style="secondary.TLabel", font=("Segoe UI", 8))
