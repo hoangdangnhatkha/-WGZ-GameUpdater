@@ -7,53 +7,53 @@ from PIL import Image, ImageTk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 import ctypes
 
-# def enforce_admin_rights():
-#     """
-#     Kiểm tra xem App có chạy quyền Admin không.
-#     Nếu không -> Tự động khởi động lại App với quyền Admin (hiện bảng UAC).
-#     """
-#     try:
-#         # Kiểm tra quyền Admin hiện tại
-#         is_admin = ctypes.windll.shell32.IsUserAnAdmin()
+def enforce_admin_rights():
+    """
+    Kiểm tra xem App có chạy quyền Admin không.
+    Nếu không -> Tự động khởi động lại App với quyền Admin (hiện bảng UAC).
+    """
+    try:
+        # Kiểm tra quyền Admin hiện tại
+        is_admin = ctypes.windll.shell32.IsUserAnAdmin()
         
-#         if is_admin:
-#             print("App đã có quyền Admin")
-#             return True # Đã là Admin, chạy tiếp bình thường
+        if is_admin:
+            print("App đã có quyền Admin")
+            return True # Đã là Admin, chạy tiếp bình thường
             
-#         else:
-#             # Nếu chưa là Admin, thực hiện khởi động lại với tham số 'runas'
-#             print("App chưa có quyền Admin. Đang yêu cầu cấp quyền...")
+        else:
+            # Nếu chưa là Admin, thực hiện khởi động lại với tham số 'runas'
+            print("App chưa có quyền Admin. Đang yêu cầu cấp quyền...")
             
-#             # Lấy đường dẫn file đang chạy
-#             if getattr(sys, 'frozen', False):
-#                 # Nếu đang chạy file .exe (đã đóng gói)
-#                 executable = sys.executable
-#                 params = ""
-#             else:
-#                 # Nếu đang chạy file .py (môi trường dev)
-#                 executable = sys.executable
-#                 params = " ".join([f'"{arg}"' for arg in sys.argv])
+            # Lấy đường dẫn file đang chạy
+            if getattr(sys, 'frozen', False):
+                # Nếu đang chạy file .exe (đã đóng gói)
+                executable = sys.executable
+                params = ""
+            else:
+                # Nếu đang chạy file .py (môi trường dev)
+                executable = sys.executable
+                params = " ".join([f'"{arg}"' for arg in sys.argv])
             
-#             # Gọi lệnh ShellExecute của Windows với verb 'runas' để kích hoạt UAC
-#             ctypes.windll.shell32.ShellExecuteW(
-#                 None, 
-#                 "runas", 
-#                 executable, 
-#                 params, 
-#                 None, 
-#                 1 # SW_SHOWNORMAL
-#             )
+            # Gọi lệnh ShellExecute của Windows với verb 'runas' để kích hoạt UAC
+            ctypes.windll.shell32.ShellExecuteW(
+                None, 
+                "runas", 
+                executable, 
+                params, 
+                None, 
+                1 # SW_SHOWNORMAL
+            )
             
-#             # Tắt instance hiện tại (không phải Admin) để nhường chỗ cho instance mới
-#             sys.exit()
+            # Tắt instance hiện tại (không phải Admin) để nhường chỗ cho instance mới
+            sys.exit()
             
-#     except Exception as e:
-#         print(f"Lỗi khi xin quyền Admin: {e}")
-#         # Nếu lỗi (ví dụ người dùng bấm No ở bảng UAC), có thể hiện thông báo hoặc cứ chạy tiếp
-#         messagebox.showerror("Cảnh Báo", "Ứng dụng cần quyền Admin để hoạt động ổn định (Ghi file, Overlay).\nVui lòng khởi động lại và chọn 'Run as Administrator'.")
-#         return False
+    except Exception as e:
+        print(f"Lỗi khi xin quyền Admin: {e}")
+        # Nếu lỗi (ví dụ người dùng bấm No ở bảng UAC), có thể hiện thông báo hoặc cứ chạy tiếp
+        messagebox.showerror("Cảnh Báo", "Ứng dụng cần quyền Admin để hoạt động ổn định (Ghi file, Overlay).\nVui lòng khởi động lại và chọn 'Run as Administrator'.")
+        return False
 
-# enforce_admin_rights()
+enforce_admin_rights()
 
 def center_window_on_screen(window, width, height):
     """Tính toán và đặt Toplevel (cửa sổ con) vào giữa màn hình."""
@@ -72,6 +72,8 @@ def center_window_on_screen(window, width, height):
         print(f"Lỗi khi căn giữa cửa sổ: {e}")
         # Fallback: nếu lỗi, chỉ đặt kích thước
         window.geometry(f'{width}x{height}')
+
+
 # --- Cài đặt cửa sổ Giao diện (UI) ---
 root = TkinterDnD.Tk()
 root.withdraw()
@@ -126,6 +128,7 @@ root.update_idletasks()
 status_label_splash.config(text="Đang tải thư viện: Google Drive & GitHub...")
 splash.update()
 
+import io
 import platform
 import shutil
 import zipfile
@@ -176,7 +179,34 @@ from packaging import version
 import subprocess
 import winsound
 
+class ProgressStream(io.FileIO):
+    """
+    Một lớp bao bọc (Wrapper) cho file stream.
+    Nó tự động báo cáo tiến trình mỗi khi dữ liệu được đọc.
+    """
+    def __init__(self, path, callback, *args, **kwargs):
+        super().__init__(path, *args, **kwargs)
+        self.callback = callback
+        self.total_size = os.path.getsize(path)
+        self.uploaded_so_far = 0
+        self.last_callback_time = 0
 
+    def read(self, size=-1):
+        # Gọi hàm read gốc để lấy dữ liệu
+        data = super().read(size)
+        
+        if data:
+            self.uploaded_so_far += len(data)
+            
+            # Giới hạn cập nhật UI mỗi 0.1 giây để không làm lag App
+            # (Vẫn đủ nhanh để mắt thường thấy mượt)
+            current_time = time.time()
+            if current_time - self.last_callback_time > 0.1 or self.uploaded_so_far == self.total_size:
+                self.callback(self.uploaded_so_far, self.total_size)
+                self.last_callback_time = current_time
+                
+        return data
+    
 # --- THÊM MỚI: LỚP ĐẢM BẢO CHẠY 1 LẦN (SINGLETON) ---
 class SingleInstance:
     """Sử dụng Mutex của Windows để đảm bảo chỉ có 1 instance của app chạy."""
@@ -223,7 +253,7 @@ global g_mod_buttons
 g_mod_buttons = {}
 global g_current_selected_key
 g_current_selected_key = None
-CURRENT_VERSION = "1.2.7.2"
+CURRENT_VERSION = "1.2.7.3"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
 ROCKET_GIF_URL = "https://media.tenor.com/ike6N7DwCa0AAAAM/%D8%B1%D9%8A%D8%A7%D9%84-%D9%85%D8%AF%D8%B1%D9%8A%D8%AF.gif"
@@ -502,6 +532,57 @@ appdata_path = os.getenv('APPDATA')
 config_folder = os.path.join(appdata_path, APP_NAME)
 config_file_path = os.path.join(config_folder, 'settings.json')
 g_cache_dir = os.path.join(config_folder, "img_cache")
+
+def is_folder_excluded_from_defender(folder_path):
+    """
+    Kiểm tra xem folder_path (hoặc folder cha của nó) có nằm trong
+    Exclusion List của Windows Defender không.
+    YÊU CẦU: App phải chạy với quyền Admin.
+    """
+    import subprocess
+    
+    folder_path = os.path.abspath(folder_path).lower()
+    
+    try:
+        # Lệnh PowerShell để lấy danh sách ExclusionPath
+        cmd = ["powershell", "-NoProfile", "-Command", "Get-MpPreference | Select-Object -ExpandProperty ExclusionPath"]
+        
+        # Chạy lệnh và ẩn cửa sổ console (0x08000000)
+        process = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            creationflags=0x08000000,
+            encoding='utf-8', # Hoặc 'cp437' nếu lỗi font
+            errors='ignore'
+        )
+        
+        if process.returncode != 0:
+            print("Không thể đọc Defender Preference (Có thể thiếu quyền Admin).")
+            return False
+
+        # Lấy danh sách các đường dẫn đã loại trừ
+        excluded_paths = process.stdout.strip().splitlines()
+        
+        # Chuẩn hóa và so sánh
+        for excluded in excluded_paths:
+            if not excluded.strip(): continue
+            
+            clean_excluded = os.path.abspath(excluded.strip()).lower()
+            
+            # Logic kiểm tra:
+            # 1. Nếu folder đích CHÍNH LÀ folder loại trừ
+            # 2. Hoặc folder đích nằm BÊN TRONG một folder loại trừ
+            # (Dùng startswith để kiểm tra folder con)
+            if folder_path == clean_excluded or folder_path.startswith(clean_excluded + os.sep):
+                print(f"Phát hiện Exclusion hợp lệ: {clean_excluded}")
+                return True
+                
+        return False
+
+    except Exception as e:
+        print(f"Lỗi khi kiểm tra Defender: {e}")
+        return False
 
 # --- Logic cho việc lưu/tải file config local ---
 def load_local_config():
@@ -2094,6 +2175,20 @@ def download_and_extract_logic():
         sys.stderr = original_stderr
         progress_queue.put(("status", "ENABLE_BUTTONS"))
 
+def add_folder_to_defender_exclusion(folder_path):
+    """Tự động thêm folder vào Exclusion List (Cần Admin)"""
+    try:
+        folder_path = os.path.abspath(folder_path)
+        cmd = [
+            "powershell", 
+            "-Command", 
+            f"Add-MpPreference -ExclusionPath '{folder_path}'"
+        ]
+        subprocess.run(cmd, creationflags=0x08000000, check=True)
+        return True
+    except Exception as e:
+        print(f"Lỗi thêm Exclusion: {e}")
+        return False
 
 # --- Các hàm cho Nút bấm ---
 def start_download_thread():
@@ -2113,9 +2208,46 @@ def start_download_thread():
         messagebox.showerror("Lỗi", "Đường dẫn folder mod không hợp lệ.\nVui lòng chọn một thư mục tồn tại.")
         return # Dừng lại, không làm gì cả
 
-    # --- HẾT KIỂM TRA LỖI ---
+    # --- THÊM MỚI: KIỂM TRA WINDOWS DEFENDER ---
+    
+    if g_auto_add_exclusion.get() and sys.platform == "win32":
+        
+        # Kiểm tra quyền Admin (Cần Admin mới thêm được)
+        try:
+            is_admin = ctypes.windll.shell32.IsUserAnAdmin()
+        except:
+            is_admin = False
 
-    # (Code cũ không đổi)
+        if is_admin:
+            progress_queue.put(("status", "Đang kiểm tra Windows Defender..."))
+            
+            # Kiểm tra xem đã an toàn chưa (dùng hàm helper ở câu trả lời trước)
+            is_safe = is_folder_excluded_from_defender(destination_folder)
+            
+            if is_safe:
+                print("Folder đã nằm trong Exclusion. Bỏ qua bước thêm.")
+            else:
+                print("Folder chưa an toàn. Đang tự động thêm...")
+                # Tự động thêm (dùng hàm helper ở câu trả lời trước)
+                success = add_folder_to_defender_exclusion(destination_folder)
+                
+                if success:
+                    print(f"Đã thêm {destination_folder} vào Exclusion thành công.")
+                else:
+                    # Nếu thêm thất bại (dù là Admin), báo lỗi nhưng không chặn tải (hoặc tùy bạn chọn)
+                    messagebox.showwarning("Lỗi Defender", 
+                                           "Không thể tự động thêm vào Exclusion.\n"
+                                           "Vui lòng kiểm tra lại Defender hoặc thêm thủ công.")
+        else:
+            # Nếu tích checkbox mà KHÔNG chạy quyền Admin -> Báo lỗi và Dừng (hoặc hỏi tiếp tục)
+            msg = (
+                "Bạn đã chọn 'Tự động thêm vào Exclusion' nhưng App không chạy với quyền Admin.\n\n"
+                "Vui lòng khởi động lại App bằng 'Run as Administrator' để tính năng này hoạt động.\n"
+                "Hoặc bỏ tích checkbox để tiếp tục tải thường."
+            )
+            messagebox.showerror("Thiếu Quyền Admin", msg)
+            return # Dừng lại, không tải nữa
+        
     # Nếu tất cả kiểm tra đều qua:
     progress_bar['value'] = 0
     status_label.configure(text="Hãy chọn đường dẫn và bấm bắt đầu.", style="White.TLabel")
@@ -3544,7 +3676,7 @@ except Exception as e:
 # Bắt buộc Tkinter phải vẽ splash screen ngay lập tức
 
 app_width = 1050
-app_height = 900
+app_height = 950
 
 # Lấy kích thước màn hình
 screen_width = root.winfo_screenwidth()
@@ -5538,6 +5670,22 @@ path_label.pack(side=tk.LEFT, padx=(0, 10))
 path_entry = ttk.Entry(path_frame)
 path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
 path_entry.bind("<FocusOut>", lambda e: update_guide_text())
+
+# --- THÊM MỚI: CHECKBOX TỰ ĐỘNG EXCLUSION ---
+# Biến lưu trạng thái checkbox
+g_auto_add_exclusion = tk.BooleanVar(value=False) 
+
+# Tạo Checkbox
+defender_checkbox = ttk.Checkbutton(
+    page_2_mod_list, 
+    text="🛡️ Tự động thêm thư mục này vào Exclusion (để tránh bị xóa file)",
+    variable=g_auto_add_exclusion,
+    style="Switch.TCheckbutton" # Hoặc để trống nếu chưa định nghĩa style này
+)
+# Pack nó ngay trên button_frame
+defender_checkbox.pack(pady=(5, 0)) 
+CreateToolTip(defender_checkbox, "Nếu tích: App sẽ tự động thêm folder này vào danh sách loại trừ của Windows Defender\nnếu nó chưa nằm trong đó.")
+
 button_frame = ttk.Frame(page_2_mod_list)
 button_frame.pack(pady=15)
 browse_button = ttk.Button(button_frame, text="Tìm đường dẫn...", command=browse_for_folder)
@@ -6229,6 +6377,23 @@ drive_storage_label = ttk.Label(third_tab_frame, text="Dung lượng Drive: Đan
 # Biến này sẽ lưu danh sách các đường dẫn file đã kéo vào
 files_to_upload_list = []
 
+def action_browse_upload_files():
+    """Thay thế cho việc kéo thả file vào Tab 3."""
+    # Cho phép chọn nhiều file
+    file_paths = filedialog.askopenfilenames(title="Chọn file để upload lên Drive")
+    
+    if file_paths:
+        # Xóa danh sách cũ (giống logic kéo thả cũ)
+        files_to_upload_list.clear()
+        drop_target_listbox.delete(0, tk.END)
+        
+        for path in file_paths:
+            files_to_upload_list.append(path)
+            drop_target_listbox.insert(tk.END, os.path.basename(path))
+            
+        # Bật nút upload
+        upload_files_button.config(state=tk.NORMAL)
+
 def handle_drop_enter(event):
     # Thay đổi giao diện khi chuột kéo file vào
     drop_target_listbox.config(background="lightblue")
@@ -6790,7 +6955,7 @@ def handle_delete_click(report_window, file_info):
 g_single_update_window = None # Biến global để theo dõi popup
 
 def open_single_file_updater_popup(file_info):
-    """Mở popup kéo-thả để cập nhật 1 file cụ thể."""
+    """Mở popup chọn file để cập nhật (Dùng Nút bấm thay vì Kéo thả)."""
     global g_single_update_window, drive_service
 
     if g_single_update_window is not None:
@@ -6802,38 +6967,51 @@ def open_single_file_updater_popup(file_info):
         return
 
     target_name = file_info['name']
-    # Lấy đuôi file (ví dụ: .zip)
     target_ext = os.path.splitext(target_name)[1].lower() 
 
-    # Tạo cửa sổ Toplevel
+    # Tạo cửa sổ
     g_single_update_window = tk.Toplevel(root)
     g_single_update_window.title("Cập nhật File")
-    g_single_update_window.geometry("400x200")
+    center_window_on_screen(g_single_update_window, 400, 250) # Tăng chiều cao xíu
     g_single_update_window.transient(root)
     g_single_update_window.grab_set()
 
     main_frame = ttk.Frame(g_single_update_window, padding=10)
     main_frame.pack(fill=tk.BOTH, expand=True)
 
-    # Hiển thị thông tin
-    info_label = ttk.Label(main_frame, text=f"Đang cập nhật file:\n{target_name}", justify=tk.CENTER)
-    info_label.pack(pady=5)
+    # Info
+    ttk.Label(main_frame, text=f"Đang cập nhật file:\n{target_name}", justify=tk.CENTER).pack(pady=5)
+    ttk.Label(main_frame, text=f"(Yêu cầu file đuôi: {target_ext})", style="secondary.TLabel").pack(pady=5)
 
-    ext_label = ttk.Label(main_frame, text=f"(Chỉ chấp nhận file có đuôi: {target_ext})", style="secondary.TLabel")
-    ext_label.pack(pady=5)
+    # --- HÀM XỬ LÝ KHI BẤM NÚT ---
+    def on_browse_file():
+        # Mở dialog chọn file đúng đuôi
+        file_path = filedialog.askopenfilename(
+            title=f"Chọn file {target_ext} thay thế",
+            filetypes=[(f"{target_ext} file", f"*{target_ext}"), ("All files", "*.*")]
+        )
+        
+        if file_path:
+            # Kiểm tra đuôi lần nữa cho chắc
+            local_ext = os.path.splitext(file_path)[1].lower()
+            if local_ext != target_ext:
+                messagebox.showerror("Sai định dạng", 
+                    f"File bạn chọn có đuôi {local_ext}.\nBắt buộc phải là {target_ext}.")
+                return
 
-    # Khung kéo thả
-    drop_frame = ttk.LabelFrame(main_frame, text="Kéo file mới vào đây")
-    drop_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+            # Nếu đúng, đóng popup và chạy thread upload luôn
+            g_single_update_window.destroy()
+            
+            # Gọi thread upload (Hàm này bạn đã có sẵn trong code)
+            threading.Thread(target=single_file_upload_thread, 
+                             args=(file_path, file_info), 
+                             daemon=True).start()
 
-    drop_listbox = tk.Listbox(drop_frame, height=2)
-    drop_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+    # --- GIAO DIỆN NÚT BẤM ---
+    select_frame = ttk.LabelFrame(main_frame, text="Chọn file mới từ máy")
+    select_frame.pack(fill=tk.BOTH, expand=True, pady=10)
 
-    drop_listbox.drop_target_register(DND_FILES)
-
-    # Tạo hàm drop handler (dùng lambda để truyền tham số)
-    drop_handler_func = lambda e: handle_single_file_drop(e, file_info, target_ext, drop_listbox, g_single_update_window)
-    drop_listbox.dnd_bind('<<Drop>>', drop_handler_func)
+    ttk.Button(select_frame, text="📂 Chọn File...", command=on_browse_file, style="Accent.TButton").pack(fill=tk.X, padx=20, pady=20)
 
 def handle_single_file_drop(event, file_info, target_ext, drop_listbox, popup_window):
     """Xử lý khi file được thả vào popup cập nhật."""
@@ -6873,81 +7051,107 @@ def handle_single_file_drop(event, file_info, target_ext, drop_listbox, popup_wi
                      daemon=True).start()
 
 def single_file_upload_thread(local_path, file_info):
-    """(ĐÃ VIẾT LẠI) Upload 1 file và GỬI TIẾN TRÌNH."""
+    """
+    (SMOOTH & FAST) Upload tốc độ cao với thanh tiến trình cập nhật MƯỢT MÀ.
+    """
     target_id = file_info['id']
     target_name = file_info['name']
 
-    # 1. Gửi log VÀ reset thanh tiến trình
-    progress_queue.put(("drive_log", f"Bắt đầu cập nhật '{target_name}'..."))
-    progress_queue.put(("drive_upload_progress", {
-        "percent": 0, "status_text": f"Đang cập nhật {target_name}...", 
-        "speed_text": "", "eta_text": ""
-    }))
+    progress_queue.put(("drive_log", f"🚀 Upload '{target_name}' (Smooth Mode)..."))
+    
+    # --- HÀM CALLBACK ĐỂ CẬP NHẬT UI ---
+    # Hàm này sẽ được gọi liên tục bên trong ProgressStream
+    def update_progress_ui(current, total):
+        percent = int((current / total) * 100)
+        
+        # Tính tốc độ (đơn giản hóa để UI mượt)
+        # (Lưu ý: Tốc độ hiển thị ở đây là tốc độ ĐỌC Ổ CỨNG để đẩy lên RAM, 
+        # nó tương đương tốc độ mạng nếu mạng nhanh, hoặc nhanh hơn nếu mạng chậm)
+        
+        progress_queue.put(("drive_upload_progress", {
+            "percent": percent,
+            "status_text": f"🚀 Đang tải lên: {percent}% ({format_bytes(current)} / {format_bytes(total)})",
+            "speed_text": "Đang chạy...", # Có thể tính toán speed kỹ hơn nếu muốn
+            "eta_text": ""
+        }))
 
+    stream = None
     try:
         global drive_service
         file_size = os.path.getsize(local_path)
 
-        # --- 2. Logic mới (Copy từ upload_file_logic) ---
-        # Chuẩn bị media body (dùng chunk 5MB)
-        media = MediaFileUpload(local_path, chunksize=UPLOAD_CHUNK_SIZE, resumable=True)
+        # --- CẤU HÌNH CHUNK LỚN (GIỮ NGUYÊN ĐỂ TỐI ƯU TỐC ĐỘ) ---
+        # Dùng 256MB cho 8GB RAM
+        chunk_size = 256 * 1024 * 1024 
+        if file_size < chunk_size:
+            chunk_size = file_size
+        
+        # Đảm bảo chia hết cho 256KB
+        if chunk_size > 256 * 1024:
+            chunk_size = int(chunk_size / (256 * 1024)) * (256 * 1024)
 
-        # Chuẩn bị request (chỉ .update())
+        # --- KÍCH HOẠT PROGRESS STREAM ---
+        # Thay vì io.open thường, ta dùng class bọc của chúng ta.
+        # Quan trọng: Không dùng buffering lớn ở đây, để hàm read() được gọi thường xuyên hơn -> UI mượt hơn.
+        stream = ProgressStream(local_path, callback=update_progress_ui, mode='rb')
+
+        media = MediaIoBaseUpload(
+            stream,
+            mimetype='application/octet-stream',
+            chunksize=chunk_size,
+            resumable=True
+        )
+
         request = drive_service.files().update(
             fileId=target_id,
             media_body=media,
             fields='id'
         )
 
-        # 3. Thực thi upload bằng vòng lặp next_chunk()
+        # --- VÒNG LẶP UPLOAD ---
         response = None
-        start_time = time.time()
-
         while response is None:
-            status, response = request.next_chunk()
+            # chunk_status sẽ là None cho đến khi hết 1 chunk lớn (256MB)
+            # NHƯNG: ProgressStream vẫn đang âm thầm chạy và cập nhật UI ở nền
+            chunk_status, response = request.next_chunk()
+            
+            # (Không cần cập nhật UI ở đây nữa vì ProgressStream đã làm rồi)
 
-            if status:
-                bytes_uploaded = status.resumable_progress
-                percent = int(status.progress() * 100)
-
-                elapsed_time = time.time() - start_time
-                speed_bps = (bytes_uploaded / elapsed_time) if elapsed_time > 0 else 0
-
-                remaining_bytes = file_size - bytes_uploaded
-                eta_seconds = (remaining_bytes / speed_bps) if speed_bps > 0 else 0
-
-                # Gửi tiến trình về queue (dùng tin nhắn "drive_upload_progress")
-                progress_queue.put(("drive_upload_progress", {
-                    "percent": percent,
-                    "status_text": f"Đang cập nhật: {percent}%",
-                    "speed_text": f"{format_bytes(speed_bps)}/s",
-                    "eta_text": f"ETA: {format_time(eta_seconds)}"
-                }))
-
-        # 4. Xử lý khi hoàn thành
         if response:
-            print(f"Update thành công File ID: {target_id}")
-            progress_queue.put(("drive_log", f"Đã cập nhật '{target_name}' thành công!"))
+            print(f"Upload xong ID: {target_id}")
+            progress_queue.put(("drive_log", f"✅ Hoàn tất: '{target_name}'"))
             progress_queue.put(("refresh_drive_list", None))
-        # --- Hết logic mới ---
+            
+            # Set 100% lần cuối cho chắc chắn
+            progress_queue.put(("drive_upload_progress", {
+                "percent": 100, "status_text": "Hoàn tất!", "speed_text": "", "eta_text": ""
+            }))
 
     except HttpError as error:
-        print(f"Lỗi HttpError trong single_file_upload_thread: {error}")
-        progress_queue.put(("drive_log", f"LỖI (Http): {error} khi cập nhật '{target_name}'."))
-        progress_queue.put(("drive_upload_progress", {"status_text": "Lỗi!", "percent": 0}))
+        print(f"Lỗi HttpError: {error}")
+        progress_queue.put(("drive_log", f"❌ LỖI API: {error}"))
+        progress_queue.put(("drive_upload_progress", {"status_text": "Lỗi Mạng!", "percent": 0}))
     except Exception as e:
-        print(f"Lỗi Exception trong single_file_upload_thread: {e}")
-        progress_queue.put(("drive_log", f"LỖI: {e} khi cập nhật '{target_name}'."))
+        print(f"Lỗi Exception: {e}")
+        progress_queue.put(("drive_log", f"❌ LỖI: {e}"))
         progress_queue.put(("drive_upload_progress", {"status_text": "Lỗi!", "percent": 0}))
     finally:
-        # 5. Gửi tin nhắn reset (bất kể thành công hay thất bại)
-        progress_queue.put(("drive_upload_progress", {
+        if stream:
+            stream.close()
+        
+        root.after(2000, lambda: progress_queue.put(("drive_upload_progress", {
             "percent": 0, "status_text": "Sẵn sàng.", "speed_text": "", "eta_text": ""
-        }))
+        })))
+
 # Frame cho ô kéo thả
-drop_target_frame = ttk.LabelFrame(third_tab_frame, text="Kéo file vào đây để upload", padding=(10, 10))
+drop_target_frame = ttk.LabelFrame(third_tab_frame, text="File chờ upload", padding=(10, 10))
 drop_target_frame.pack(fill=tk.BOTH, expand=True, pady=5)
 
+# --- THÊM NÚT NÀY VÀO ---
+btn_browse_tab3 = ttk.Button(drop_target_frame, text="📂 Chọn File từ máy tính...", command=action_browse_upload_files)
+btn_browse_tab3.pack(fill=tk.X, pady=(0, 5)) # Nằm trên listbox
+
+# --- LISTBOX (GIỮ NGUYÊN để hiển thị danh sách) ---
 drop_target_listbox = tk.Listbox(drop_target_frame, height=10, selectmode=tk.EXTENDED)
 drop_target_listbox.pack(fill=tk.BOTH, expand=True)
 
@@ -7462,6 +7666,17 @@ def on_secret_click(event):
         g_secret_click_count = 0
         open_secret_uploader()
 
+def action_browse_secret_exe():
+    """Thay thế kéo thả cho Secret Uploader."""
+    file_path = filedialog.askopenfilename(
+        title="Chọn file .exe bản build mới",
+        filetypes=[("Executable", "*.exe")]
+    )
+    
+    if file_path:
+        secret_drop_listbox.delete(0, tk.END)
+        secret_drop_listbox.insert(tk.END, file_path)
+
 def open_secret_uploader():
     """Mở cửa sổ upload bí mật."""
     global secret_drop_listbox, secret_exe_id_entry, secret_zip_id_entry, secret_window
@@ -7478,7 +7693,7 @@ def open_secret_uploader():
     # 1. Khung kéo thả
     drop_frame = ttk.LabelFrame(main_frame, text="1. Kéo 1 file .exe (bản build mới) vào đây")
     drop_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-
+    ttk.Button(drop_frame, text="📂 Chọn File .exe", command=action_browse_secret_exe).pack(fill=tk.X, padx=5, pady=5)
     secret_drop_listbox = tk.Listbox(drop_frame, height=3)
     secret_drop_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
@@ -7798,27 +8013,71 @@ def action_save_path_settings():
 
 def action_launch_anydesk():
     """
-    (HÀM MỚI)
-    Hỏi xác nhận trước khi chạy thread.
+    (ĐÃ SỬA) Dùng cửa sổ tùy chỉnh để có nút bấm theo ý muốn.
     """
+    # 1. Tạo cửa sổ con (Popup)
+    confirm_win = tk.Toplevel(root)
+    confirm_win.title("Lựa chọn Chế độ")
     
-    # 1. HỎI XÁC NHẬN
-    message = (
-        "Bạn có muốn gửi yêu cầu hỗ trợ (tự động gửi ID) đến Discord không?\n\n"
-        "• Bấm 'Yes' để gửi ID.\n"
-        "• Bấm 'No' để chỉ mở AnyDesk"
-    )
-    # parent=root đảm bảo pop-up này nổi lên trên cửa sổ chính
-    send_to_discord = messagebox.askyesno("Xác nhận Hỗ trợ", message, parent=root)
+    # Kích thước và căn giữa
+    win_w, win_h = 420, 180
+    center_window_on_screen(confirm_win, win_w, win_h)
+    
+    confirm_win.transient(root) # Luôn nổi trên app chính
+    confirm_win.grab_set()      # Chặn tương tác với app chính cho đến khi chọn xong
+    
+    # Tạo khung nội dung đẹp
+    main_frame = ttk.Frame(confirm_win, padding=20)
+    main_frame.pack(fill=tk.BOTH, expand=True)
 
-    # 2. VÔ HIỆU HÓA NÚT
-    # (Chỉ vô hiệu hóa sau khi người dùng đã bấm, bất kể Yes hay No)
-    if 'g_anydesk_button' in globals():
-        g_anydesk_button.config(state=tk.DISABLED, text="Đang mở AnyDesk...")
-    
-    # 3. BẮT ĐẦU THREAD (với lựa chọn của user)
-    # Chúng ta truyền `send_to_discord` (True/False) vào làm tham số
-    threading.Thread(target=launch_anydesk_thread, args=(send_to_discord,), daemon=True).start()
+    # 2. Label thông báo
+    msg_text = (
+        "Bạn muốn mở AnyDesk theo chế độ nào?\n\n"
+        "• Gửi ID: Tự động gửi ID của bạn lên Discord để Admin vào hỗ trợ.\n"
+        "• Chỉ mở: Chỉ mở phần mềm AnyDesk lên thôi."
+    )
+    lbl = ttk.Label(
+        main_frame, 
+        text=msg_text, 
+        wraplength=380, 
+        justify=tk.LEFT,
+        font=("Segoe UI", 10)
+    )
+    lbl.pack(pady=(0, 20))
+
+    # 3. Hàm xử lý chọn lựa
+    def make_choice(send_discord):
+        confirm_win.destroy() # Đóng cửa sổ hỏi
+        
+        # Cập nhật giao diện nút chính
+        if 'g_anydesk_button' in globals():
+            try:
+                g_anydesk_button.config(state=tk.DISABLED, text="Đang khởi động...")
+            except: pass
+        
+        # Bắt đầu Thread với lựa chọn của user
+        threading.Thread(target=launch_anydesk_thread, args=(send_discord,), daemon=True).start()
+
+    # 4. Nút bấm tùy chỉnh (Custom Buttons)
+    btn_frame = ttk.Frame(main_frame)
+    btn_frame.pack(fill=tk.X)
+
+    # --- NÚT 1: TƯƠNG ĐƯƠNG "YES" ---
+    btn_yes = ttk.Button(
+        btn_frame,
+        text="✅ Gửi ID Hỗ Trợ",   # <-- SỬA TÊN NÚT Ở ĐÂY
+        style="Accent.TButton",   # Màu xanh nổi bật
+        command=lambda: make_choice(True)
+    )
+    btn_yes.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5))
+
+    # --- NÚT 2: TƯƠNG ĐƯƠNG "NO" ---
+    btn_no = ttk.Button(
+        btn_frame,
+        text="❌ Chỉ mở App",     # <-- SỬA TÊN NÚT Ở ĐÂY
+        command=lambda: make_choice(False)
+    )
+    btn_no.pack(side=tk.RIGHT, expand=True, fill=tk.X, padx=(5, 0))
 
 def apply_anydesk_connection_fix():
     """
@@ -7881,50 +8140,60 @@ def launch_anydesk_thread(send_to_discord):
     CREATE_NO_WINDOW = 0x08000000 
     
     try:
-        # --- 0. (THÊM MỚI) TẮT CÁC TIẾN TRÌNH ANYDESK CŨ ---
-        print("Đang tắt tất cả tiến trình AnyDesk đang chạy...")
-        subprocess.run(
-            ["taskkill", "/F", "/IM", "AnyDesk.exe"],
-            capture_output=True, text=True,
-            creationflags=CREATE_NO_WINDOW
-        )
-        subprocess.run(
-            ["taskkill", "/F", "/IM", "AnyDeskService.exe"],
-            capture_output=True, text=True,
-            creationflags=CREATE_NO_WINDOW
-        )
-        print("Đang đợi process tắt hoàn toàn...")
-        start_wait = time.time()
-        timeout = 20  # Chờ tối đa 10 giây
+        # --- 0. KIỂM TRA SƠ BỘ: CÓ ĐANG CHẠY KHÔNG? ---
+        print("Đang kiểm tra trạng thái AnyDesk...")
         
-        while True:
-            # Kiểm tra xem còn process nào tên AnyDesk không
-            # tasklist trả về danh sách process, nếu không có sẽ trả về "INFO: No tasks..."
-            check_p1 = subprocess.run(
-                ["tasklist", "/FI", "IMAGENAME eq AnyDesk.exe", "/NH"], 
-                capture_output=True, text=True, creationflags=CREATE_NO_WINDOW
-            )
-            check_p2 = subprocess.run(
-                ["tasklist", "/FI", "IMAGENAME eq AnyDeskService.exe", "/NH"], 
-                capture_output=True, text=True, creationflags=CREATE_NO_WINDOW
-            )
+        # Kiểm tra process Client
+        check_p1_start = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq AnyDesk.exe", "/NH"], 
+            capture_output=True, text=True, creationflags=CREATE_NO_WINDOW
+        )
+        # Kiểm tra process Service
+        check_p2_start = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq AnyDeskService.exe", "/NH"], 
+            capture_output=True, text=True, creationflags=CREATE_NO_WINDOW
+        )
+        
+        # Nếu tên file xuất hiện trong kết quả tasklist nghĩa là nó đang chạy
+        is_running = ("AnyDesk.exe" in check_p1_start.stdout) or ("AnyDeskService.exe" in check_p2_start.stdout)
+
+        if is_running:
+            print("--> Phát hiện AnyDesk đang chạy. Tiến hành tắt...")
             
-            # Nếu chuỗi "AnyDesk" không còn xuất hiện trong output -> Đã sạch
-            p1_gone = "AnyDesk.exe" not in check_p1.stdout
-            p2_gone = "AnyDeskService.exe" not in check_p2.stdout
+            # --- BƯỚC TẮT (CHỈ CHẠY KHI CẦN THIẾT) ---
+            subprocess.run(["taskkill", "/F", "/IM", "AnyDesk.exe"], capture_output=True, creationflags=CREATE_NO_WINDOW)
+            subprocess.run(["taskkill", "/F", "/IM", "AnyDeskService.exe"], capture_output=True, creationflags=CREATE_NO_WINDOW)
             
-            if p1_gone and p2_gone:
-                print("--> Đã xác nhận: AnyDesk tắt hoàn toàn.")
-                break
+            # Vòng lặp chờ tắt (Chỉ chạy khi vừa kill xong)
+            print("Đang đợi process tắt hoàn toàn...")
+            start_wait = time.time()
+            timeout = 10 
             
-            # Kiểm tra timeout
-            if time.time() - start_wait > timeout:
-                print("Cảnh báo: Quá thời gian chờ tắt (20s). Vẫn tiếp tục chạy...")
-                break
+            while True:
+                check_p1 = subprocess.run(
+                    ["tasklist", "/FI", "IMAGENAME eq AnyDesk.exe", "/NH"], 
+                    capture_output=True, text=True, creationflags=CREATE_NO_WINDOW
+                )
+                check_p2 = subprocess.run(
+                    ["tasklist", "/FI", "IMAGENAME eq AnyDeskService.exe", "/NH"], 
+                    capture_output=True, text=True, creationflags=CREATE_NO_WINDOW
+                )
                 
-            time.sleep(0.5) # Check lại mỗi 0.5s
-        
-        # --- [MỚI] 0.5. SỬA CONFIG ĐỂ TẮT DIRECT CONNECTION ---
+                p1_gone = "AnyDesk.exe" not in check_p1.stdout
+                p2_gone = "AnyDeskService.exe" not in check_p2.stdout
+                
+                if p1_gone and p2_gone:
+                    print("--> Đã xác nhận: AnyDesk tắt hoàn toàn.")
+                    break
+                
+                if time.time() - start_wait > timeout:
+                    print("Cảnh báo: Quá thời gian chờ tắt. Vẫn tiếp tục...")
+                    break
+                time.sleep(0.5)
+        else:
+            print("--> AnyDesk không chạy. Bỏ qua bước tắt và chờ đợi.")
+
+        # --- 0.5. SỬA CONFIG ---
         apply_anydesk_connection_fix()
         # --- 1. KIỂM TRA PHIÊN BẢN ĐÃ CÀI ĐẶT ---
         installed_exe_path = r"C:\Program Files (x86)\AnyDesk\AnyDesk.exe"
@@ -8094,7 +8363,7 @@ def launch_anydesk_thread(send_to_discord):
         
 
         # 6. FOCUS CỬA SỔ
-        time.sleep(5) 
+        time.sleep(2) 
         try:
             windows = gw.getWindowsWithTitle('AnyDesk')
             if windows:
