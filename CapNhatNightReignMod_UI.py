@@ -50,7 +50,7 @@ def enforce_admin_rights():
     except Exception as e:
         print(f"Lỗi khi xin quyền Admin: {e}")
         # Nếu lỗi (ví dụ người dùng bấm No ở bảng UAC), có thể hiện thông báo hoặc cứ chạy tiếp
-        messagebox.showerror("Cảnh Báo", "Ứng dụng cần quyền Admin để hoạt động ổn định (Ghi file, Overlay).\nVui lòng khởi động lại và chọn 'Run as Administrator'.")
+        custom_showerror("Cảnh Báo", "Ứng dụng cần quyền Admin để hoạt động ổn định (Ghi file, Overlay).\nVui lòng khởi động lại và chọn 'Run as Administrator'.")
         return False
 
 ES_CONTINUOUS = 0x80000000
@@ -109,7 +109,189 @@ def center_window_on_screen(window, width, height):
         # Fallback: nếu lỗi, chỉ đặt kích thước
         window.geometry(f'{width}x{height}')
 
+def _show_custom_dialog(title, message, dialog_type="info", parent=None):
+    """
+    Hàm lõi để hiển thị popup tùy chỉnh.
+    dialog_type: "info", "error", "warning", "yesno"
+    Trả về: True/False (cho yesno) hoặc None.
+    """
+    # 1. Biến lưu kết quả
+    result = [None]
+    
+    # 2. Tạo cửa sổ
+    dlg = tk.Toplevel(parent if parent else root)
+    dlg.title(title)
+    
+    # Kích thước & Căn giữa
+    w, h = 400, 200 # Kích thước mặc định rộng hơn xíu cho đẹp
+    center_window_on_screen(dlg, w, h)
+    
+    dlg.transient(parent if parent else root)
+    dlg.grab_set()
+    dlg.resizable(False, False)
+    
+    # Áp dụng Theme cho Titlebar
+    dlg.after(10, lambda: apply_theme_to_titlebar(dlg))
 
+    # 3. UI Nội dung
+    main_frame = ttk.Frame(dlg, padding=20)
+    main_frame.pack(fill=tk.BOTH, expand=True)
+
+    # Icon giả lập bằng Text (Hoặc bạn có thể load ảnh nếu muốn)
+    icon_text = "ℹ️"
+    icon_color = "white"
+    
+    if dialog_type == "error": 
+        icon_text = "❌"
+        icon_color = "#ff4d4d" # Đỏ
+    elif dialog_type == "warning":
+        icon_text = "⚠️"
+        icon_color = "#ffcc00" # Vàng
+    elif dialog_type == "yesno":
+        icon_text = "❓"
+        icon_color = "#4a90e2" # Xanh
+
+    # Header (Icon + Title rút gọn hoặc Loại)
+    header_frame = ttk.Frame(main_frame)
+    header_frame.pack(fill=tk.X, pady=(0, 10))
+    
+    lbl_icon = tk.Label(header_frame, text=icon_text, font=("Segoe UI", 20), bg=style.lookup("TFrame", "background"), fg=icon_color)
+    lbl_icon.pack(side=tk.LEFT, padx=(0, 10))
+    
+    # Nội dung tin nhắn
+    lbl_msg = ttk.Label(
+        main_frame, 
+        text=message, 
+        wraplength=350, 
+        justify=tk.LEFT, 
+        font=("Segoe UI", 10)
+    )
+    lbl_msg.pack(fill=tk.BOTH, expand=True)
+
+    # 4. Nút bấm
+    btn_frame = ttk.Frame(dlg, padding=10)
+    btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
+
+    def on_close(res):
+        result[0] = res
+        dlg.destroy()
+
+    # Cấu hình nút theo loại dialog
+    if dialog_type == "yesno":
+        # Nút YES (Accent)
+        btn_yes = ttk.Button(btn_frame, text="Có (Yes)", style="Accent.TButton", command=lambda: on_close(True))
+        btn_yes.pack(side=tk.RIGHT, padx=5)
+        # Nút NO (Thường)
+        btn_no = ttk.Button(btn_frame, text="Không (No)", command=lambda: on_close(False))
+        btn_no.pack(side=tk.RIGHT, padx=5)
+        
+    elif dialog_type == "error":
+        # Nút Đóng (Danger hoặc Accent tùy ý, ở đây dùng Danger cho lỗi)
+        btn_ok = ttk.Button(btn_frame, text="Đóng", style="Danger.TButton", command=lambda: on_close(None))
+        btn_ok.pack(side=tk.RIGHT)
+        
+    else: # info, warning
+        # Nút OK (Accent)
+        btn_ok = ttk.Button(btn_frame, text="OK", style="Accent.TButton", command=lambda: on_close(None))
+        btn_ok.pack(side=tk.RIGHT)
+
+    # Xử lý phím Enter/Esc
+    dlg.bind("<Return>", lambda e: on_close(True if dialog_type == "yesno" else None))
+    dlg.bind("<Escape>", lambda e: on_close(False if dialog_type == "yesno" else None))
+
+    # Chờ người dùng đóng
+    root.wait_window(dlg)
+    return result[0]
+
+# --- CÁC HÀM WRAPPER (Dùng để thay thế messagebox) ---
+
+def custom_showinfo(title, message, parent=None):
+    _show_custom_dialog(title, message, "info", parent)
+
+def custom_showwarning(title, message, parent=None):
+    _show_custom_dialog(title, message, "warning", parent)
+
+def custom_showerror(title, message, parent=None):
+    _show_custom_dialog(title, message, "error", parent)
+
+def custom_askyesno(title, message, parent=None):
+    return _show_custom_dialog(title, message, "yesno", parent)
+
+def custom_askstring(title, prompt, parent=None, show=None, initialvalue=None):
+    """
+    Thay thế hoàn toàn custom_askstring.
+    Hỗ trợ giao diện Dark Mode, Titlebar đen, và nút bấm Accent.
+    """
+    # 1. Biến lưu kết quả
+    result = [None]
+    
+    # 2. Tạo cửa sổ
+    dlg = tk.Toplevel(parent if parent else root)
+    dlg.title(title)
+    
+    # Kích thước & Căn giữa
+    w, h = 400, 180
+    center_window_on_screen(dlg, w, h)
+    
+    dlg.transient(parent if parent else root)
+    dlg.grab_set()
+    dlg.resizable(False, False)
+    
+    # --- ÁP DỤNG THEME CHO TITLEBAR ---
+    dlg.after(10, lambda: apply_theme_to_titlebar(dlg))
+    # ----------------------------------
+
+    # 3. UI Nội dung
+    main_frame = ttk.Frame(dlg, padding=20)
+    main_frame.pack(fill=tk.BOTH, expand=True)
+
+    # Label câu hỏi
+    lbl_prompt = ttk.Label(main_frame, text=prompt, wraplength=360, justify=tk.LEFT)
+    lbl_prompt.pack(fill=tk.X, pady=(0, 10))
+
+    # Ô nhập liệu (Entry)
+    entry = ttk.Entry(main_frame)
+    
+    # Xử lý hiển thị mật khẩu (dấu *)
+    if show:
+        entry.config(show=show)
+        
+    # Giá trị mặc định
+    if initialvalue:
+        entry.insert(0, initialvalue)
+        
+    entry.pack(fill=tk.X, pady=(0, 10))
+    entry.focus_force() # Focus ngay vào ô nhập
+
+    # 4. Nút bấm
+    btn_frame = ttk.Frame(dlg, padding=10)
+    btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
+
+    def on_ok():
+        val = entry.get()
+        result[0] = val # Lưu kết quả
+        dlg.destroy()
+
+    def on_cancel():
+        result[0] = None # Hủy bỏ
+        dlg.destroy()
+
+    # Nút OK (Accent)
+    btn_ok = ttk.Button(btn_frame, text="OK", style="Accent.TButton", command=on_ok)
+    btn_ok.pack(side=tk.RIGHT, padx=5)
+
+    # Nút Cancel
+    btn_cancel = ttk.Button(btn_frame, text="Hủy (Cancel)", command=on_cancel)
+    btn_cancel.pack(side=tk.RIGHT, padx=5)
+
+    # Phím tắt
+    dlg.bind("<Return>", lambda e: on_ok())
+    dlg.bind("<Escape>", lambda e: on_cancel())
+
+    # Chờ đóng cửa sổ
+    root.wait_window(dlg)
+    
+    return result[0]
 # --- Cài đặt cửa sổ Giao diện (UI) ---
 root = TkinterDnD.Tk()
 root.withdraw()
@@ -406,9 +588,9 @@ def check_for_updates(config_data):
                 "Đây là bản cập nhật bắt buộc. Ứng dụng sẽ tự động cập nhật ngay bây giờ."
             )
 
-            # --- SỬA: Thay 'messagebox.askyesno' bằng 'messagebox.showwarning' ---
+            # --- SỬA: Thay 'custom_askyesno' bằng 'custom_showwarning' ---
             # Người dùng chỉ có thể bấm "OK"
-            messagebox.showwarning("Chuẩn Bị Cập Nhật!", message)
+            custom_showwarning("Chuẩn Bị Cập Nhật!", message)
             
             # --- SỬA: Xóa 'if' - Chạy logic cập nhật ngay lập tức ---
             try:
@@ -423,7 +605,7 @@ def check_for_updates(config_data):
                 is_valid, reason = verify_file_hash(updater_exe_path, EXPECTED_UPDATER_HASH)
 
                 if not is_valid:
-                    messagebox.showerror("Lỗi An Ninh", f"Không thể chạy trình cập nhật. Lý do: {reason}.")
+                    custom_showerror("Lỗi An Ninh", f"Không thể chạy trình cập nhật. Lý do: {reason}.")
                     webbrowser.open_new_tab(url)
                     return True # Vẫn trả về True vì đã tìm thấy
 
@@ -434,7 +616,7 @@ def check_for_updates(config_data):
 
             except Exception as e:
                 # Nếu có lỗi khi chạy updater, mở link tải thủ công
-                messagebox.showerror("Lỗi Cập Nhật", f"Không thể chạy updater: {e}\nSẽ mở link tải thủ công.")
+                custom_showerror("Lỗi Cập Nhật", f"Không thể chạy updater: {e}\nSẽ mở link tải thủ công.")
                 webbrowser.open_new_tab(url)
             
             return True # Đã tìm thấy update
@@ -1153,7 +1335,7 @@ def load_accounts_from_drive_thread():
 
     except Exception as e:
         print(f"Lỗi nghiêm trọng khi tải/tạo config account: {e}")
-        messagebox.showerror("Lỗi Tải Account", f"Không thể tải file config account: {e}")
+        custom_showerror("Lỗi Tải Account", f"Không thể tải file config account: {e}")
         progress_queue.put(("accounts_load_failed", str(e)))
 
 def create_empty_account_file_on_drive():
@@ -1284,14 +1466,14 @@ def get_github_token():
         with open(token_path, 'r') as f:
             token = f.read().strip()
             if not token:
-                 messagebox.showerror("Lỗi Token", f"File '{GITHUB_TOKEN_FILE}' rỗng.")
+                 custom_showerror("Lỗi Token", f"File '{GITHUB_TOKEN_FILE}' rỗng.")
                  return None
             return token
     except FileNotFoundError:
-        messagebox.showerror("Lỗi Token", f"Không tìm thấy file '{GITHUB_TOKEN_FILE}'. Vui lòng tạo file này và dán Personal Access Token vào.")
+        custom_showerror("Lỗi Token", f"Không tìm thấy file '{GITHUB_TOKEN_FILE}'. Vui lòng tạo file này và dán Personal Access Token vào.")
         return None
     except Exception as e:
-         messagebox.showerror("Lỗi Token", f"Không thể đọc token: {e}")
+         custom_showerror("Lỗi Token", f"Không thể đọc token: {e}")
          return None
 
 def get_github_repo():
@@ -1308,10 +1490,10 @@ def get_github_repo():
         print("Kết nối GitHub repo thành công.")
         return repo
     except GithubException as e:
-        messagebox.showerror("Lỗi GitHub", f"Không thể kết nối hoặc tìm repo:\n{e.data.get('message', str(e))}")
+        custom_showerror("Lỗi GitHub", f"Không thể kết nối hoặc tìm repo:\n{e.data.get('message', str(e))}")
         return None
     except Exception as e:
-         messagebox.showerror("Lỗi GitHub", f"Lỗi không xác định khi kết nối GitHub: {e}")
+         custom_showerror("Lỗi GitHub", f"Lỗi không xác định khi kết nối GitHub: {e}")
          return None
 
 # Helper to format JSON nicely
@@ -1334,12 +1516,12 @@ def load_json_from_github_api(repo): # Đổi tên để tránh trùng lặp
         return content_str, contents.sha # Trả về string và SHA
     except GithubException as e:
         if e.status == 404:
-            messagebox.showerror("Lỗi GitHub", f"Không tìm thấy file '{GITHUB_FILE_PATH}' trên nhánh '{GITHUB_BRANCH}'.")
+            custom_showerror("Lỗi GitHub", f"Không tìm thấy file '{GITHUB_FILE_PATH}' trên nhánh '{GITHUB_BRANCH}'.")
         else:
-            messagebox.showerror("Lỗi GitHub", f"Không thể tải file JSON từ GitHub:\n{e.data.get('message', str(e))}")
+            custom_showerror("Lỗi GitHub", f"Không thể tải file JSON từ GitHub:\n{e.data.get('message', str(e))}")
         return None, None
     except Exception as e:
-         messagebox.showerror("Lỗi GitHub", f"Lỗi không xác định khi tải JSON: {e}")
+         custom_showerror("Lỗi GitHub", f"Lỗi không xác định khi tải JSON: {e}")
          return None, None
 
 # --- THÊM MỚI: HÀM TẢI THEME JSON ---
@@ -1355,12 +1537,12 @@ def load_theme_json_from_github_api(repo):
         return content_str, contents.sha
     except GithubException as e:
         if e.status == 404:
-            messagebox.showerror("Lỗi GitHub", f"Không tìm thấy file 'game_themes.json'.")
+            custom_showerror("Lỗi GitHub", f"Không tìm thấy file 'game_themes.json'.")
         else:
-            messagebox.showerror("Lỗi GitHub", f"Không thể tải file theme JSON: {e}")
+            custom_showerror("Lỗi GitHub", f"Không thể tải file theme JSON: {e}")
         return None, None
     except Exception as e:
-         messagebox.showerror("Lỗi GitHub", f"Lỗi không xác định khi tải theme JSON: {e}")
+         custom_showerror("Lỗi GitHub", f"Lỗi không xác định khi tải theme JSON: {e}")
          return None, None
 
 def upload_json_to_github(repo, config_dict_to_upload, current_sha): # Takes dictionary now
@@ -1381,7 +1563,7 @@ def upload_json_to_github(repo, config_dict_to_upload, current_sha): # Takes dic
             try:
                 current_obj = json.loads(current_content_str)
                 if current_obj == config_dict_to_upload:
-                    messagebox.showinfo("Thông báo", "Nội dung config không thay đổi. Bỏ qua upload.")
+                    custom_showinfo("Thông báo", "Nội dung config không thay đổi. Bỏ qua upload.")
                     needs_upload = False
                     # Return True and the original SHA since nothing changed
                     return True, current_sha
@@ -1404,21 +1586,21 @@ def upload_json_to_github(repo, config_dict_to_upload, current_sha): # Takes dic
                  updated_contents = repo.get_contents(GITHUB_FILE_PATH, ref=GITHUB_BRANCH)
                  new_file_sha = updated_contents.sha
                  print(f"New file SHA: {new_file_sha}")
-                 messagebox.showinfo("Thành công", "Đã cập nhật file JSON lên database thành công!")
+                 custom_showinfo("Thành công", "Đã cập nhật file JSON lên database thành công!")
                  return True, new_file_sha # Return success and the new file SHA
             except Exception as sha_error:
                  print(f"Lỗi khi lấy SHA mới của file sau update: {sha_error}")
-                 messagebox.showinfo("Thành công", "Đã cập nhật file JSON lên Database! (Không thể lấy SHA mới)")
+                 custom_showinfo("Thành công", "Đã cập nhật file JSON lên Database! (Không thể lấy SHA mới)")
                  return True, None # Indicate success but SHA is unknown
 
     except GithubException as e:
         if e.status == 409:
-             messagebox.showerror("Lỗi GitHub Upload (409)", "File trên GitHub đã bị thay đổi kể từ lần bạn tải về.\nVui lòng 'Tải Config (Làm mới)' để lấy phiên bản mới nhất trước khi upload.")
+             custom_showerror("Lỗi GitHub Upload (409)", "File trên GitHub đã bị thay đổi kể từ lần bạn tải về.\nVui lòng 'Tải Config (Làm mới)' để lấy phiên bản mới nhất trước khi upload.")
         else:
-            messagebox.showerror("Lỗi GitHub Upload", f"Không thể cập nhật file:\n{e.data.get('message', str(e))}")
+            custom_showerror("Lỗi GitHub Upload", f"Không thể cập nhật file:\n{e.data.get('message', str(e))}")
         return False, None
     except Exception as e:
-         messagebox.showerror("Lỗi GitHub Upload", f"Lỗi không xác định khi upload: {e}")
+         custom_showerror("Lỗi GitHub Upload", f"Lỗi không xác định khi upload: {e}")
          return False, None
 # --- Hết hàm GitHub ---
 
@@ -1463,12 +1645,12 @@ def upload_theme_json_to_github(repo, theme_dict_to_upload, current_sha):
 
     except GithubException as e:
         if e.status == 409:
-             messagebox.showerror("Lỗi GitHub Upload (409)", "File theme trên GitHub đã bị thay đổi.\nHãy 'Tải Config (Làm mới)' lại Tab 2.")
+             custom_showerror("Lỗi GitHub Upload (409)", "File theme trên GitHub đã bị thay đổi.\nHãy 'Tải Config (Làm mới)' lại Tab 2.")
         else:
-             messagebox.showerror("Lỗi GitHub Upload", f"Không thể cập nhật file theme:\n{e}")
+             custom_showerror("Lỗi GitHub Upload", f"Không thể cập nhật file theme:\n{e}")
         return False, None
     except Exception as e:
-         messagebox.showerror("Lỗi GitHub Upload", f"Lỗi không xác định khi upload theme: {e}")
+         custom_showerror("Lỗi GitHub Upload", f"Lỗi không xác định khi upload theme: {e}")
          return False, None
 
 # --- THÊM CÁC HÀM XỬ LÝ GOOGLE DRIVE ---
@@ -1492,7 +1674,7 @@ def authenticate_google_drive():
     creds_path = resource_path('credentials.json') # File bạn tải ở Bước 2
     
     if not os.path.exists(creds_path):
-        messagebox.showerror("Lỗi Thiết Lập", "Không tìm thấy file 'credentials.json'.\nVui lòng làm theo Bước 2 trong hướng dẫn.")
+        custom_showerror("Lỗi Thiết Lập", "Không tìm thấy file 'credentials.json'.\nVui lòng làm theo Bước 2 trong hướng dẫn.")
         return None
 
     if os.path.exists(token_path):
@@ -1511,7 +1693,7 @@ def authenticate_google_drive():
                 flow = InstalledAppFlow.from_client_secrets_file(creds_path, SCOPES)
                 creds = flow.run_local_server(port=0)
             except Exception as e:
-                messagebox.showerror("Lỗi Đăng Nhập", f"Không thể lấy thông tin xác thực: {e}")
+                custom_showerror("Lỗi Đăng Nhập", f"Không thể lấy thông tin xác thực: {e}")
                 return None
         
         # Lưu thông tin đăng nhập cho lần chạy sau
@@ -1533,7 +1715,7 @@ def authenticate_google_drive():
         drive_service = service # Lưu vào biến toàn cục
         return service
     except HttpError as error:
-        messagebox.showerror("Lỗi API", f"Lỗi khi xây dựng dịch vụ Drive: {error}")
+        custom_showerror("Lỗi API", f"Lỗi khi xây dựng dịch vụ Drive: {error}")
         drive_service = None
     return None
 
@@ -2236,12 +2418,12 @@ def start_download_thread():
 
     # Kiểm tra 1: Đã chọn mod chưa?
     if not selected_key or selected_key == "updater":
-        messagebox.showerror("Lỗi", "Vui lòng chọn một mod trong danh sách.")
+        custom_showerror("Lỗi", "Vui lòng chọn một mod trong danh sách.")
         return # Dừng lại, không làm gì cả
 
     # Kiểm tra 2: Đường dẫn có hợp lệ không?
     if not destination_folder or not os.path.isdir(destination_folder):
-        messagebox.showerror("Lỗi", "Đường dẫn folder mod không hợp lệ.\nVui lòng chọn một thư mục tồn tại.")
+        custom_showerror("Lỗi", "Đường dẫn folder mod không hợp lệ.\nVui lòng chọn một thư mục tồn tại.")
         return # Dừng lại, không làm gì cả
 
     # --- THÊM MỚI: KIỂM TRA WINDOWS DEFENDER ---
@@ -2271,7 +2453,7 @@ def start_download_thread():
                     print(f"Đã thêm {destination_folder} vào Exclusion thành công.")
                 else:
                     # Nếu thêm thất bại (dù là Admin), báo lỗi nhưng không chặn tải (hoặc tùy bạn chọn)
-                    messagebox.showwarning("Lỗi Defender", 
+                    custom_showwarning("Lỗi Defender", 
                                            "Không thể tự động thêm vào Exclusion.\n"
                                            "Vui lòng kiểm tra lại Defender hoặc thêm thủ công.")
         else:
@@ -2281,7 +2463,7 @@ def start_download_thread():
                 "Vui lòng khởi động lại App bằng 'Run as Administrator' để tính năng này hoạt động.\n"
                 "Hoặc bỏ tích checkbox để tiếp tục tải thường."
             )
-            messagebox.showerror("Thiếu Quyền Admin", msg)
+            custom_showerror("Thiếu Quyền Admin", msg)
             return # Dừng lại, không tải nữa
         
     # Nếu tất cả kiểm tra đều qua:
@@ -2419,11 +2601,11 @@ def action_flush_dns():
     try:
         # Chạy lệnh CMD ẩn (creationflags=0x08000000 để không hiện cửa sổ đen)
         subprocess.run(["ipconfig", "/flushdns"], shell=True, creationflags=0x08000000)
-        messagebox.showinfo("Thành công", 
+        custom_showinfo("Thành công", 
                             "Đã xóa bộ nhớ đệm DNS (Flush DNS)!\n\n"
                             "Nếu bạn gặp lỗi kết nối Drive/GitHub, hãy thử tải lại ngay bây giờ.")
     except Exception as e:
-        messagebox.showerror("Lỗi", f"Không thể thực hiện lệnh: {e}")
+        custom_showerror("Lỗi", f"Không thể thực hiện lệnh: {e}")
 
 def action_open_data_folder():
     """Mở thư mục AppData chứa config và cache."""
@@ -2432,9 +2614,9 @@ def action_open_data_folder():
         if os.path.exists(config_folder):
             os.startfile(config_folder)
         else:
-            messagebox.showwarning("Lỗi", "Thư mục dữ liệu chưa được tạo.")
+            custom_showwarning("Lỗi", "Thư mục dữ liệu chưa được tạo.")
     except Exception as e:
-        messagebox.showerror("Lỗi", f"Không thể mở thư mục: {e}")
+        custom_showerror("Lỗi", f"Không thể mở thư mục: {e}")
 
 def action_copy_system_info():
     """Thực hiện lấy thông tin và copy vào clipboard."""
@@ -2442,10 +2624,10 @@ def action_copy_system_info():
         info = get_system_info_text()
         pyperclip.copy(info)
         winsound.MessageBeep(winsound.MB_OK) # Âm thanh 'Ting'
-        messagebox.showinfo("Cấu Hình Máy", 
+        custom_showinfo("Cấu Hình Máy", 
                             f"Đã copy cấu hình máy vào Clipboard!\n\n{info}\n\n(Bạn có thể paste nó vào Discord để nhờ hỗ trợ)")
     except Exception as e:
-        messagebox.showerror("Lỗi", f"Không thể lấy thông tin máy: {e}")
+        custom_showerror("Lỗi", f"Không thể lấy thông tin máy: {e}")
 
 # --- [THÊM MỚI] GLOBAL OPTIMIZER & PRIORITY LAUNCHER ---
 def run_global_ram_cleaner():
@@ -2555,7 +2737,7 @@ def _perform_launch_tab2():
                 exe_dir = os.path.dirname(g_current_launch_path)
                 os.startfile(g_current_launch_path, cwd=exe_dir)
         except Exception as e:
-            messagebox.showerror("Lỗi", f"Không thể khởi chạy: {e}")
+            custom_showerror("Lỗi", f"Không thể khởi chạy: {e}")
             
     else:
         # --- NORMAL MODE ---
@@ -2563,7 +2745,7 @@ def _perform_launch_tab2():
             exe_dir = os.path.dirname(g_current_launch_path)
             os.startfile(g_current_launch_path, cwd=exe_dir)
         except Exception as e:
-            messagebox.showerror("Lỗi Khởi chạy", f"Lỗi: {e}")
+            custom_showerror("Lỗi Khởi chạy", f"Lỗi: {e}")
 
     # --- AUTO CLOSE ---
     if g_auto_close.get():
@@ -2582,7 +2764,7 @@ def action_launch_game():
     global g_chaos_effect_enabled # Cần biến này
 
     if not g_current_launch_path or not os.path.exists(g_current_launch_path):
-        messagebox.showerror("Lỗi", "Không tìm thấy đường dẫn file.")
+        custom_showerror("Lỗi", "Không tìm thấy đường dẫn file.")
         return
 
     # 1. Chạy hiệu ứng GIF trên ảnh bìa (Luôn chạy nếu có)
@@ -2611,14 +2793,14 @@ def _perform_launch_page1(path_to_launch):
             if not success:
                 os.startfile(path_to_launch, cwd=exe_dir)
         except Exception as e:
-            messagebox.showerror("Lỗi Smart Mode", f"Lỗi: {e}")
+            custom_showerror("Lỗi Smart Mode", f"Lỗi: {e}")
             os.startfile(path_to_launch, cwd=exe_dir)
     else:
         # --- NORMAL MODE ---
         try:
             os.startfile(path_to_launch, cwd=exe_dir)
         except Exception as e:
-            messagebox.showerror("Lỗi Khởi chạy", f"Lỗi: {e}")
+            custom_showerror("Lỗi Khởi chạy", f"Lỗi: {e}")
 
     # --- AUTO CLOSE ---
     if g_auto_close.get():
@@ -2636,7 +2818,7 @@ def action_launch_game_from_page_1(path_to_launch, btn_widget=None):
         root.after(2000, lambda: _perform_launch_page1(path_to_launch))
         
     else:
-        messagebox.showerror("Lỗi", "Không tìm thấy file khởi chạy.")
+        custom_showerror("Lỗi", "Không tìm thấy file khởi chạy.")
 # --- HẾT THÊM MỚI ---
 
 def browse_for_folder():
@@ -2703,11 +2885,11 @@ def action_add_custom_game_popup():
         url = entry_url.get().strip()
         
         if not name or not path or not url:
-            messagebox.showwarning("Thiếu thông tin", "Vui lòng điền đầy đủ thông tin.")
+            custom_showwarning("Thiếu thông tin", "Vui lòng điền đầy đủ thông tin.")
             return
             
         if not os.path.exists(path):
-            messagebox.showerror("Lỗi", "File khởi chạy không tồn tại.")
+            custom_showerror("Lỗi", "File khởi chạy không tồn tại.")
             return
 
         # Tải và Lưu Ảnh vào ổ cứng
@@ -2744,14 +2926,14 @@ def action_add_custom_game_popup():
             }
             
             save_local_config(local_config)
-            messagebox.showinfo("Thành công", f"Đã thêm game '{name}'!")
+            custom_showinfo("Thành công", f"Đã thêm game '{name}'!")
             popup.destroy()
             
             # Refresh Lưới Game
             action_clear_game_search() 
             
         except Exception as e:
-            messagebox.showerror("Lỗi", f"Không thể tải/lưu ảnh: {e}")
+            custom_showerror("Lỗi", f"Không thể tải/lưu ảnh: {e}")
 
     ttk.Button(frame, text="Thêm Game", command=save_custom_game, style="Accent.TButton").pack(pady=10)
 
@@ -2880,7 +3062,7 @@ def action_restore_ui(reset_btn_widget):
             
     except Exception as e:
         print(f"Lỗi khi khôi phục UI: {e}")
-        messagebox.showerror("Lỗi", "Không thể khôi phục giao diện. Vui lòng khởi động lại App.")
+        custom_showerror("Lỗi", "Không thể khôi phục giao diện. Vui lòng khởi động lại App.")
 
 # --- [CẬP NHẬT] HIỆU ỨNG CHAOS + NÚT RESET ---
 def animate_chaos_explosion(container_frame):
@@ -3291,7 +3473,7 @@ def process_queue():
                             message = f"Bạn có chắc chắn muốn XÓA VĨNH VIỄN file này\nkhỏi Google Drive không?\n\nFile: {fname}"
 
                             # 2. Hỏi xác nhận (chạy trong thread chính, an toàn)
-                            if messagebox.askyesno("Xác nhận Xóa", message):
+                            if custom_askyesno("Xác nhận Xóa", message):
                                 # 3. Chỉ bắt đầu thread nếu người dùng bấm "Yes"
                                 threading.Thread(target=action_delete_drive_file_thread, args=(fid, fname), daemon=True).start()
                             else:
@@ -3383,7 +3565,7 @@ def process_queue():
         elif message_type == "scan_failed":
             if scan_loading_window:
                 scan_loading_window.destroy()
-            messagebox.showerror("Lỗi Quét", f"Không thể hoàn thành quét: {message_value}")
+            custom_showerror("Lỗi Quét", f"Không thể hoàn thành quét: {message_value}")
         
         # --- THÊM MỚI: XỬ LÝ KẾT QUẢ KIỂM TRA CẬP NHẬT THỦ CÔNG ---
         elif message_type == "manual_update_check":
@@ -3392,7 +3574,7 @@ def process_queue():
 
             config_data = message_value
             if not config_data:
-                messagebox.showerror("Lỗi", "Không thể tải config. Kiểm tra lại mạng.")
+                custom_showerror("Lỗi", "Không thể tải config. Kiểm tra lại mạng.")
                 return
 
             # Chạy hàm check_for_updates và kiểm tra kết quả trả về
@@ -3400,12 +3582,12 @@ def process_queue():
 
             # Nếu hàm trả về False (không tìm thấy update), thì báo cho người dùng
             if not found_update:
-                messagebox.showinfo("Kiểm tra Cập nhật", "Bạn đang dùng phiên bản mới nhất!")
+                custom_showinfo("Kiểm tra Cập nhật", "Bạn đang dùng phiên bản mới nhất!")
 
         elif message_type == "manual_update_check_failed":
             if 'update_app_button' in globals():
                 update_app_button.config(state=tk.NORMAL, text="Kiểm tra Cập nhật")
-            messagebox.showerror("Lỗi", f"Không thể kiểm tra cập nhật: {message_value}")
+            custom_showerror("Lỗi", f"Không thể kiểm tra cập nhật: {message_value}")
 
         # --- THÊM MỚI: XỬ LÝ UPLOAD BÍ MẬT ---
         elif message_type == "secret_status":
@@ -3417,14 +3599,14 @@ def process_queue():
                 scan_loading_window.destroy()
             if secret_window:
                 secret_window.destroy() # Đóng cửa sổ bí mật
-            messagebox.showinfo("Hoàn tất", "Đã upload thành công cả 2 file!")
+            custom_showinfo("Hoàn tất", "Đã upload thành công cả 2 file!")
             action_refresh_drive_list() # Tự động làm mới lưới
 
         elif message_type == "secret_error":
             if scan_loading_window:
                 scan_loading_window.destroy()
             # Không đóng cửa sổ bí mật để user sửa lỗi
-            messagebox.showerror("Lỗi Upload Bí mật", f"Upload thất bại:\n{message_value}", parent=secret_window)
+            custom_showerror("Lỗi Upload Bí mật", f"Upload thất bại:\n{message_value}", parent=secret_window)
         # --- HẾT THÊM MỚI ---
         elif message_type == "steam_path_found":
             path = message_value
@@ -3551,7 +3733,7 @@ def process_queue():
                     # Nếu có tin nhắn lỗi (ví dụ: "Hết thời gian chờ")
                     label_to_clear.config(text=message_value, foreground="red")
                     # Hiển thị pop-up lỗi CHÍNH THỨC
-                    messagebox.showerror("Lỗi Đăng nhập Riot", message_value)
+                    custom_showerror("Lỗi Đăng nhập Riot", message_value)
                 else:
                     # Nếu không có lỗi (thành công)
                     label_to_clear.config(text="Hoàn tất!", foreground="green")
@@ -3578,10 +3760,10 @@ def process_queue():
             data = message_value
             if data["success"]:
                 # Hiển thị pop-up thành công
-                messagebox.showinfo(data["title"], data["message"])
+                custom_showinfo(data["title"], data["message"])
             else:
                 # Hiển thị pop-up lỗi
-                messagebox.showerror(data["title"], data["message"])
+                custom_showerror(data["title"], data["message"])
         elif message_type == "game_image_loaded":
             image_tk = message_value
             if image_tk:
@@ -3639,12 +3821,12 @@ def process_queue():
                 g_admin_game_combobox.set(new_game_name) # Tự động chọn game mới
 
         elif message_type == "theme_upload_failed":
-            messagebox.showerror("Lỗi Upload Theme", message_value, parent=g_theme_manager_window)
+            custom_showerror("Lỗi Upload Theme", message_value, parent=g_theme_manager_window)
             # Tải lại config (vì có thể local và remote đã lệch)
             action_load_from_github_wrapper()
         elif message_type == "anydesk_id_sent_to_discord":
             anydesk_id = message_value
-            messagebox.showinfo("Đã gửi Yêu cầu",
+            custom_showinfo("Đã gửi Yêu cầu",
                                 f"Đã tự động gửi ID ({anydesk_id}) của bạn đến Discord\n\n"
                                 "Vui lòng giữ cửa sổ AnyDesk mở và đợi kết nối.",
                                 parent=root)
@@ -3654,7 +3836,7 @@ def process_queue():
         # --- THÊM MỚI: XỬ LÝ HỒI ĐÁP CỦA ANYDESK ---
         elif message_type == "anydesk_error":
             # --- SỬA TIÊU ĐỀ Ở ĐÂY ---
-            messagebox.showerror("Lỗi RustDesk",  # <--- Đổi thành RustDesk
+            custom_showerror("Lỗi RustDesk",  # <--- Đổi thành RustDesk
                                  f"Thông báo:\n{message_value}",
                                  parent=root)
         
@@ -3677,7 +3859,7 @@ def on_closing():
     print(start_button.instate(['disabled']))
     if start_button.instate(['disabled']): # <--- Kiểm tra ở đây
         # Nếu đang tải, hỏi xác nhận
-        if messagebox.askyesno("Xác nhận thoát", "Đm dang tải file. m có chắc chắn muốn thoát? \n (Việc tải sẽ bị hủy và phải tải lại từ đầu)"):
+        if custom_askyesno("Xác nhận thoát", "Đm dang tải file. m có chắc chắn muốn thoát? \n (Việc tải sẽ bị hủy và phải tải lại từ đầu)"):
             # Nếu người dùng chọn "Yes", thoát chương trình
             root.destroy()
         # else: (Nếu chọn "No", không làm gì cả, cửa sổ tiếp tục)
@@ -4263,7 +4445,7 @@ def action_login_by_index(item_index):
         
     except Exception as e:
         print(f"--- DEBUG: LỖI NGHIÊM TRỌNG. Không thể lấy thông tin account: {e} ---") # DEBUG 3
-        messagebox.showerror("Lỗi", "Không thể lấy thông tin account này.")
+        custom_showerror("Lỗi", "Không thể lấy thông tin account này.")
         return
 
     # --- LOGIC ĐĂNG NHẬP (Giữ nguyên từ code cũ) ---
@@ -4271,7 +4453,7 @@ def action_login_by_index(item_index):
         print("--- DEBUG: 3a. Bắt đầu logic Steam ---")
         steam_path = local_config.get("steam_path", "")
         if not steam_path or not os.path.exists(steam_path):
-            messagebox.showerror("Lỗi", "Đường dẫn 'steam.exe' không hợp lệ.")
+            custom_showerror("Lỗi", "Đường dẫn 'steam.exe' không hợp lệ.")
             return
         
         print(f"Đang chạy Steam cho user: {username}")
@@ -4280,7 +4462,7 @@ def action_login_by_index(item_index):
             time.sleep(3) 
             subprocess.Popen([steam_path, "-login", username, password])
         except Exception as e:
-            messagebox.showerror("Lỗi", f"Không thể chạy Steam: {e}")
+            custom_showerror("Lỗi", f"Không thể chạy Steam: {e}")
 
     elif acc_type == "riot":
         # (Giữ lại các DEBUG print của bạn nếu muốn)
@@ -4291,12 +4473,12 @@ def action_login_by_index(item_index):
         # Bước kiểm tra đường dẫn (Giữ nguyên)
         if not riot_path:
             print("--- DEBUG: LỖI 5a. Riot Path BỊ RỖNG. Dừng lại. ---")
-            messagebox.showerror("Lỗi", "Đường dẫn Riot Client BỊ RỖNG.\nVui lòng vào Tab 'Credit' -> 'Cài Đặt' để thiết lập.")
+            custom_showerror("Lỗi", "Đường dẫn Riot Client BỊ RỖNG.\nVui lòng vào Tab 'Credit' -> 'Cài Đặt' để thiết lập.")
             return
             
         if not os.path.exists(riot_path):
             print(f"--- DEBUG: LỖI 5b. Path '{riot_path}' KHÔNG TỒN TẠI. Dừng lại. ---")
-            messagebox.showerror("Lỗi", f"Đường dẫn Riot Client KHÔNG TỒN TẠI:\n{riot_path}\n\nVui lòng kiểm tra lại.")
+            custom_showerror("Lỗi", f"Đường dẫn Riot Client KHÔNG TỒN TẠI:\n{riot_path}\n\nVui lòng kiểm tra lại.")
             return
 
         # --- SỬA: KHÔNG TẠO POP-UP, CHỈ SET LABEL ---
@@ -4339,7 +4521,7 @@ def delete_selected_account_by_index(item_index):
     except Exception:
         nickname = "Account đã chọn"
         
-    if messagebox.askyesno("Xác nhận Xóa", f"Bạn có chắc chắn muốn xóa '{nickname}'?"):
+    if custom_askyesno("Xác nhận Xóa", f"Bạn có chắc chắn muốn xóa '{nickname}'?"):
         try:
             g_user_accounts_data[g_acct_current_game].pop(item_index)
             
@@ -4353,7 +4535,7 @@ def delete_selected_account_by_index(item_index):
             populate_account_game_grid() # Refresh lưới (vì game có thể bị xóa)
             
         except Exception as e:
-            messagebox.showerror("Lỗi", f"Không thể xóa account: {e}")
+            custom_showerror("Lỗi", f"Không thể xóa account: {e}")
 
 
 
@@ -4378,7 +4560,7 @@ def open_add_edit_account_popup(edit_index):
         try:
             old_data = g_user_accounts_data[g_acct_current_game][edit_index]
         except:
-            messagebox.showerror("Lỗi", "Không thể tìm thấy dữ liệu account để sửa.")
+            custom_showerror("Lỗi", "Không thể tìm thấy dữ liệu account để sửa.")
             popup.destroy()
             return
     else:
@@ -4455,7 +4637,7 @@ def open_add_edit_account_popup(edit_index):
         selected_game = widgets["game"].get()
 
         if not selected_game:
-             messagebox.showwarning("Thiếu thông tin", "Bạn phải chọn một Game.", parent=popup)
+             custom_showwarning("Thiếu thông tin", "Bạn phải chọn một Game.", parent=popup)
              return
              
         account_type = selected_service.lower()
@@ -4470,7 +4652,7 @@ def open_add_edit_account_popup(edit_index):
         }
         
         if not new_data["nickname"] or not new_data["username"]:
-            messagebox.showwarning("Thiếu thông tin", "Nickname và Username là bắt buộc.", parent=popup)
+            custom_showwarning("Thiếu thông tin", "Nickname và Username là bắt buộc.", parent=popup)
             return
 
         if is_editing:
@@ -5045,7 +5227,7 @@ def action_clear_game_search():
 
 def action_delete_custom_game(game_name):
     """Xóa game custom khỏi danh sách."""
-    if messagebox.askyesno("Xóa Game", f"Bạn có chắc chắn muốn xóa game '{game_name}' khỏi danh sách không?\n(File game trên máy sẽ KHÔNG bị xóa)."):
+    if custom_askyesno("Xóa Game", f"Bạn có chắc chắn muốn xóa game '{game_name}' khỏi danh sách không?\n(File game trên máy sẽ KHÔNG bị xóa)."):
         try:
             # Xóa khỏi config
             if game_name in local_config['custom_games']:
@@ -5054,13 +5236,13 @@ def action_delete_custom_game(game_name):
                 
                 # Làm mới lưới
                 action_clear_game_search()
-                messagebox.showinfo("Đã xóa", f"Đã xóa '{game_name}'.")
+                custom_showinfo("Đã xóa", f"Đã xóa '{game_name}'.")
         except Exception as e:
-            messagebox.showerror("Lỗi", f"Không thể xóa: {e}")
+            custom_showerror("Lỗi", f"Không thể xóa: {e}")
 
 def action_change_game_image(game_name, is_custom):
     """Đổi ảnh bìa cho game (Cả Custom và Server)."""
-    new_url = simpledialog.askstring("Đổi Ảnh", f"Nhập URL hình ảnh mới cho '{game_name}':")
+    new_url = custom_askstring("Đổi Ảnh", f"Nhập URL hình ảnh mới cho '{game_name}':")
     
     if not new_url: return
     
@@ -5102,17 +5284,17 @@ def action_change_game_image(game_name, is_custom):
 
         # 6. Làm mới giao diện
         action_clear_game_search()
-        messagebox.showinfo("Thành công", "Đã cập nhật ảnh bìa!")
+        custom_showinfo("Thành công", "Đã cập nhật ảnh bìa!")
 
     except Exception as e:
-        messagebox.showerror("Lỗi", f"Không thể tải ảnh: {e}")
+        custom_showerror("Lỗi", f"Không thể tải ảnh: {e}")
 
 def action_rename_game(game_key):
     """Đổi tên hiển thị của game (Alias)."""
     # Lấy tên hiện tại (nếu đã đổi thì lấy tên đổi, chưa thì lấy tên gốc)
     current_alias = local_config.get('display_name_overrides', {}).get(game_key, game_key)
     
-    new_name = simpledialog.askstring("Đổi Tên", f"Nhập tên mới cho '{game_key}':", initialvalue=current_alias)
+    new_name = custom_askstring("Đổi Tên", f"Nhập tên mới cho '{game_key}':", initialvalue=current_alias)
     
     if new_name is not None: # Nếu không bấm Cancel
         if not new_name.strip() or new_name.strip() == game_key:
@@ -5128,7 +5310,7 @@ def action_rename_game(game_key):
 
 def action_remove_custom_image(game_key):
     """Xóa ảnh custom để quay về ảnh gốc từ Server."""
-    if messagebox.askyesno("Khôi phục ảnh", f"Bạn muốn xóa ảnh tùy chỉnh của '{game_key}'\nvà quay lại dùng ảnh gốc từ Server?"):
+    if custom_askyesno("Khôi phục ảnh", f"Bạn muốn xóa ảnh tùy chỉnh của '{game_key}'\nvà quay lại dùng ảnh gốc từ Server?"):
         try:
             # Xóa khỏi config
             if game_key in local_config['theme_overrides']:
@@ -5143,10 +5325,10 @@ def action_remove_custom_image(game_key):
                 del root.cached_images[k]
                 
             action_clear_game_search() # Làm mới giao diện
-            messagebox.showinfo("Thành công", "Đã khôi phục ảnh gốc.")
+            custom_showinfo("Thành công", "Đã khôi phục ảnh gốc.")
             
         except Exception as e:
-            messagebox.showerror("Lỗi", f"Lỗi khi xóa ảnh: {e}")
+            custom_showerror("Lỗi", f"Lỗi khi xóa ảnh: {e}")
 
 def show_game_context_menu(event, game_key, is_custom):
     """
@@ -5962,10 +6144,10 @@ def action_add_update_option():
     # 1. Lấy tất cả dữ liệu từ form (như cũ)
     option_name_display = form_widgets["Option Name:"].get().strip() # Đây là "name"
     if not option_name_display:
-        messagebox.showwarning("Thiếu tên", "Vui lòng nhập 'Option Name'.")
+        custom_showwarning("Thiếu tên", "Vui lòng nhập 'Option Name'.")
         return
     if option_name_display.lower() == "updater":
-        messagebox.showerror("Tên Bị Cấm", "Bạn không thể đặt tên 'updater'")
+        custom_showerror("Tên Bị Cấm", "Bạn không thể đặt tên 'updater'")
         return
 
     url_input = form_widgets["URL:"].get().strip()
@@ -5975,10 +6157,10 @@ def action_add_update_option():
 
     game_name = form_widgets["Game:"].get().strip()
     if not game_name:
-        messagebox.showerror("Thiếu Game", "Bạn phải chọn một Game từ dropdown.")
+        custom_showerror("Thiếu Game", "Bạn phải chọn một Game từ dropdown.")
         return
     if game_name == "Thêm Game...":
-        messagebox.showerror("Thiếu Game", 
+        custom_showerror("Thiếu Game", 
                             "Bạn đã chọn 'Thêm Game...' nhưng chưa thêm game nào.\n\n"
                             "Vui lòng chọn một game đã tồn tại, hoặc thêm game mới.")
         return
@@ -6018,7 +6200,7 @@ def action_add_update_option():
         # Kiểm tra xem tên này đã tồn tại chưa
         for k, v in current_config_data.items():
              if v.get("name") == option_name_display:
-                 messagebox.showwarning("Trùng Tên", f"Tên '{option_name_display}' đã tồn tại (với ID {k}).\nNếu bạn muốn SỬA nó, hãy click vào nó trong danh sách.")
+                 custom_showwarning("Trùng Tên", f"Tên '{option_name_display}' đã tồn tại (với ID {k}).\nNếu bạn muốn SỬA nó, hãy click vào nó trong danh sách.")
                  return
 
         # Tìm ID mới (số lớn nhất + 1)
@@ -6046,20 +6228,20 @@ def action_delete_option():
     global current_config_data
     selected_items = options_treeview.selection()
     if not selected_items:
-        messagebox.showwarning("Chưa chọn", "Vui lòng chọn một option trong danh sách để xóa.")
+        custom_showwarning("Chưa chọn", "Vui lòng chọn một option trong danh sách để xóa.")
         return
     selected_key = selected_items[0] # Đây là ID (ví dụ: "1")
 
     # --- SỬA: Lấy tên để hiển thị ---
     option_name_display = current_config_data.get(selected_key, {}).get("name", selected_key)
 
-    if messagebox.askyesno("Xác nhận xóa", f"Bạn có chắc chắn muốn xóa option '{option_name_display}' (ID: {selected_key})?"):
+    if custom_askyesno("Xác nhận xóa", f"Bạn có chắc chắn muốn xóa option '{option_name_display}' (ID: {selected_key})?"):
         if selected_key in current_config_data:
             del current_config_data[selected_key]
             populate_treeview()
             clear_form()
             upload_status_label.config(text=f"'{option_name_display}' đã được xóa cục bộ.", foreground="red")
-        else: messagebox.showerror("Lỗi", "Option đã chọn không còn tồn tại?")
+        else: custom_showerror("Lỗi", "Option đã chọn không còn tồn tại?")
 
 # --- THÊM MỚI: HÀM DI CHUYỂN ITEM ---
 def action_move_option(direction):
@@ -6068,7 +6250,7 @@ def action_move_option(direction):
 
     selected_items = options_treeview.selection()
     if not selected_items:
-        messagebox.showwarning("Chưa chọn", "Vui lòng chọn một option để di chuyển.")
+        custom_showwarning("Chưa chọn", "Vui lòng chọn một option để di chuyển.")
         return
 
     selected_key = selected_items[0] # Đây là ID (ví dụ: "2")
@@ -6163,7 +6345,7 @@ def on_game_combobox_validate(event):
                 return # Tìm thấy, thoát
 
         # Nếu không tìm thấy match nào, xóa nó
-        messagebox.showerror("Tên không hợp lệ", 
+        custom_showerror("Tên không hợp lệ", 
                              f"'{current_text}' không phải là một game hợp lệ.\n"
                              "Vui lòng chọn từ danh sách hoặc 'Thêm Game...'.",
                              parent=root)
@@ -6257,11 +6439,11 @@ def action_add_game_theme():
     url = g_theme_url_entry.get().strip()
 
     if not name or not url:
-        messagebox.showerror("Thiếu thông tin", "Vui lòng nhập cả Tên Game và URL.", parent=g_theme_manager_window)
+        custom_showerror("Thiếu thông tin", "Vui lòng nhập cả Tên Game và URL.", parent=g_theme_manager_window)
         return
 
     if name in g_game_themes:
-        messagebox.showerror("Trùng tên", "Tên game này đã tồn tại.", parent=g_theme_manager_window)
+        custom_showerror("Trùng tên", "Tên game này đã tồn tại.", parent=g_theme_manager_window)
         return
 
     # Thêm vào dict
@@ -6278,10 +6460,10 @@ def action_delete_game_theme():
     try:
         selected_game = g_theme_listbox.get(g_theme_listbox.curselection())
     except tk.TclError:
-        messagebox.showwarning("Chưa chọn", "Vui lòng chọn một game trong danh sách để xóa.", parent=g_theme_manager_window)
+        custom_showwarning("Chưa chọn", "Vui lòng chọn một game trong danh sách để xóa.", parent=g_theme_manager_window)
         return
 
-    if messagebox.askyesno("Xác nhận", f"Bạn có chắc chắn muốn xóa game theme '{selected_game}'?\n(Việc này không xóa các mod option.)", parent=g_theme_manager_window):
+    if custom_askyesno("Xác nhận", f"Bạn có chắc chắn muốn xóa game theme '{selected_game}'?\n(Việc này không xóa các mod option.)", parent=g_theme_manager_window):
         if selected_game in g_game_themes:
             del g_game_themes[selected_game]
             # Bắt đầu upload (không cần tên)
@@ -6340,7 +6522,7 @@ def action_load_from_github_wrapper():
             game_list_with_add = g_master_game_list + ["Thêm Game..."] 
             g_admin_game_combobox['values'] = game_list_with_add
         except Exception as e:
-             messagebox.showerror("Lỗi", f"Lỗi đọc file game_themes.json: {e}")
+             custom_showerror("Lỗi", f"Lỗi đọc file game_themes.json: {e}")
              g_game_themes = {}
              g_admin_game_combobox['values'] = ["Thêm Game..."]
     else:
@@ -6356,7 +6538,7 @@ def action_load_from_github_wrapper():
             clear_form()
             upload_status_label.config(text="Đã tải config từ database", foreground="green")
         except Exception as e:
-             messagebox.showerror("Lỗi", f"Lỗi không xác định khi xử lý JSON: {e}")
+             custom_showerror("Lỗi", f"Lỗi không xác định khi xử lý JSON: {e}")
              upload_status_label.config(text="Lỗi xử lý JSON.", foreground="red")
     else:
         upload_status_label.config(text="Tải JSON từ GitHub thất bại.", foreground="red")
@@ -6365,19 +6547,19 @@ def action_load_from_github_wrapper():
 def action_upload_to_github_wrapper():
     global current_github_sha
     if not current_config_data:
-         messagebox.showwarning("Chưa có dữ liệu", "Không có dữ liệu config để upload.")
+         custom_showwarning("Chưa có dữ liệu", "Không có dữ liệu config để upload.")
          return
     if current_github_sha is None:
-        messagebox.showwarning("Thiếu SHA", "Vui lòng 'Tải Config' trước khi upload.")
+        custom_showwarning("Thiếu SHA", "Vui lòng 'Tải Config' trước khi upload.")
         return
     repo = get_github_repo()
     if not repo: return
-    if messagebox.askyesno("Xác nhận Cập Nhật", "Bạn có chắc chắn muốn ghi đè file config bằng dữ liệu hiện tại?"):
-        entered_pin = simpledialog.askstring("Xác nhận PIN", "Nhập mã PIN quản trị:", show='*')
+    if custom_askyesno("Xác nhận Cập Nhật", "Bạn có chắc chắn muốn ghi đè file config bằng dữ liệu hiện tại?"):
+        entered_pin = custom_askstring("Xác nhận PIN", "Nhập mã PIN quản trị:", show='*')
         correct_pin = "2408" # Mã PIN cứng
 
         if entered_pin != correct_pin:
-            messagebox.showerror("Sai PIN", "Mã PIN không chính xác. Đã hủy upload.")
+            custom_showerror("Sai PIN", "Mã PIN không chính xác. Đã hủy upload.")
             return # Dừng nếu PIN sai
         upload_status_label.config(text="Đang upload lên GitHub...", style="White.TLabel")
         root.update_idletasks()
@@ -6498,11 +6680,11 @@ def try_auto_login_drive_thread():
         progress_queue.put(("accounts_load_failed", str(e)))
 
 def action_drive_login():
-    entered_pin = simpledialog.askstring("Xác nhận PIN", "Nhập mã PIN quản trị:", show='*')
+    entered_pin = custom_askstring("Xác nhận PIN", "Nhập mã PIN quản trị:", show='*')
     correct_pin = "2408" # Mã PIN cứng
 
     if entered_pin != correct_pin:
-        messagebox.showerror("Sai PIN", "Mã PIN không chính xác. Đã hủy upload.")
+        custom_showerror("Sai PIN", "Mã PIN không chính xác. Đã hủy upload.")
         return # Dừng nếu PIN sai
     # Gọi hàm xác thực
     drive_auth_button.config(text="Đang đăng nhập...", state=tk.DISABLED)
@@ -6523,11 +6705,11 @@ def action_drive_login():
 def action_start_upload_all():
     # Bắt đầu upload tất cả các file trong danh sách
     if not drive_service:
-        messagebox.showwarning("Chưa Đăng Nhập", "Vui lòng đăng nhập Google Drive trước.")
+        custom_showwarning("Chưa Đăng Nhập", "Vui lòng đăng nhập Google Drive trước.")
         return
         
     if not files_to_upload_list:
-        messagebox.showinfo("Không có file", "Vui lòng kéo file vào ô bên trên trước.")
+        custom_showinfo("Không có file", "Vui lòng kéo file vào ô bên trên trước.")
         return
 
     # Xóa log cũ
@@ -6619,13 +6801,13 @@ def action_delete_drive_file_thread(file_id, file_name):
     
     # --- THÊM MỚI: KIỂM TRA, KHÔNG CHO XÓA FILE JSON ---
     if file_name.lower().endswith(".json"):
-        messagebox.showerror("Không thể Xóa", f"Không được phép xóa file này\nFile: {file_name}")
+        custom_showerror("Không thể Xóa", f"Không được phép xóa file này\nFile: {file_name}")
         progress_queue.put(("drive_log", f"Đã chặn thao tác xóa file JSON: {file_name}"))
         return # Dừng hàm ngay lập tức
     # --- HẾT THÊM MỚI ---
 
     if not drive_service:
-        messagebox.showerror("Lỗi", "Chưa đăng nhập Google Drive.")
+        custom_showerror("Lỗi", "Chưa đăng nhập Google Drive.")
         return
     
     try:
@@ -6637,10 +6819,10 @@ def action_delete_drive_file_thread(file_id, file_name):
         progress_queue.put(("refresh_drive_list", None)) # <-- Yêu cầu tải lại lưới
 
     except HttpError as error:
-        messagebox.showerror("Lỗi Xóa", f"Lỗi khi xóa file: {error}")
+        custom_showerror("Lỗi Xóa", f"Lỗi khi xóa file: {error}")
         progress_queue.put(("drive_log", f"Lỗi khi xóa {file_name}."))
     except Exception as e:
-        messagebox.showerror("Lỗi Xóa", f"Lỗi không xác định: {e}")
+        custom_showerror("Lỗi Xóa", f"Lỗi không xác định: {e}")
         progress_queue.put(("drive_log", f"Lỗi khi xóa {file_name}."))
 # --- Giao diện cho Tab 3 ---
 
@@ -6650,7 +6832,7 @@ def action_start_scan():
     global scan_loading_window, drive_service
 
     if not drive_service:
-        messagebox.showerror("Lỗi", "Vui lòng đăng nhập Google Drive trước.")
+        custom_showerror("Lỗi", "Vui lòng đăng nhập Google Drive trước.")
         return
 
     # Hiển thị cửa sổ "Đang tải"
@@ -6878,14 +7060,14 @@ def action_quick_add_option(file_name, file_id):
 
     # --- TỰ ĐỘNG TẢI CONFIG NẾU CHƯA CÓ ---
     if current_github_sha is None:
-        messagebox.showinfo("Thông báo", 
+        custom_showinfo("Thông báo", 
                             "Đây là lần 'Tạo Nhanh' đầu tiên.\n"
                             "Ứng dụng sẽ tự động tải config từ GitHub trước...")
 
         action_load_from_github_wrapper() 
 
         if current_github_sha is None:
-            messagebox.showerror("Lỗi", "Tải config từ GitHub thất bại.\nKhông thể 'Tạo Nhanh'. Vui lòng thử lại.")
+            custom_showerror("Lỗi", "Tải config từ GitHub thất bại.\nKhông thể 'Tạo Nhanh'. Vui lòng thử lại.")
             return
     # --- HẾT TẢI TỰ ĐỘNG ---
 
@@ -6924,7 +7106,7 @@ def action_quick_add_option(file_name, file_id):
 
     if existing_id:
         # --- CHẾ ĐỘ UPDATE ---
-        if not messagebox.askyesno("Xác nhận Ghi đè", 
+        if not custom_askyesno("Xác nhận Ghi đè", 
             f"Tên '{base_name}' đã tồn tại (ID: {existing_id}).\n"
             "Bạn có muốn ghi đè URL/Type (giữ Version cũ) không?"):
             return
@@ -6961,7 +7143,7 @@ def action_quick_add_option(file_name, file_id):
         print(f"Lỗi khi làm mới treeview (nền): {e}")
 
     # 7. Thông báo
-    messagebox.showinfo("Đã Thêm Nhanh", 
+    custom_showinfo("Đã Thêm Nhanh", 
         f"Đã thêm/cập nhật '{base_name}' (ID: {target_key}) vào config.\n\n"
         "VUI LÒNG:\n"
         "1. Chuyển qua Tab 2.\n"
@@ -6981,7 +7163,7 @@ def handle_delete_click(report_window, file_info):
     # Chúng ta sao chép logic xác nhận an toàn (từ thread chính) ở đây
     message = f"Bạn có chắc chắn muốn XÓA VĨNH VIỄN file này\nkhỏi Google Drive không?\n\nFile: {file_info['name']}"
 
-    if messagebox.askyesno("Xác nhận Xóa (Từ Trợ lý AI)", message):
+    if custom_askyesno("Xác nhận Xóa (Từ Trợ lý AI)", message):
         # Chỉ bắt đầu thread nếu người dùng bấm "Yes"
         threading.Thread(target=action_delete_drive_file_thread, 
                          args=(file_info['id'], file_info['name']), 
@@ -7000,7 +7182,7 @@ def open_single_file_updater_popup(file_info):
         except: pass
 
     if not drive_service:
-        messagebox.showerror("Lỗi", "Chưa đăng nhập Google Drive.")
+        custom_showerror("Lỗi", "Chưa đăng nhập Google Drive.")
         return
 
     target_name = file_info['name']
@@ -7032,7 +7214,7 @@ def open_single_file_updater_popup(file_info):
             # Kiểm tra đuôi lần nữa cho chắc
             local_ext = os.path.splitext(file_path)[1].lower()
             if local_ext != target_ext:
-                messagebox.showerror("Sai định dạng", 
+                custom_showerror("Sai định dạng", 
                     f"File bạn chọn có đuôi {local_ext}.\nBắt buộc phải là {target_ext}.")
                 return
 
@@ -7068,7 +7250,7 @@ def handle_single_file_drop(event, file_info, target_ext, drop_listbox, popup_wi
     dropped_ext = os.path.splitext(local_file_path)[1].lower()
     if dropped_ext != target_ext:
         drop_listbox.insert(tk.END, f"Lỗi: File phải có đuôi {target_ext}. (File bạn thả là {dropped_ext})")
-        messagebox.showerror("Sai định dạng file",
+        custom_showerror("Sai định dạng file",
                              f"Bạn đang cố cập nhật file '{file_info['name']}' (đuôi {target_ext}).\n\n"
                              f"File bạn vừa thả vào có đuôi {dropped_ext}.\n\n"
                              "Vui lòng thả file có cùng định dạng.",
@@ -7325,10 +7507,10 @@ def action_clear_image_cache():
     """Xóa toàn bộ thư mục cache ảnh trên ổ cứng."""
     global g_cache_dir
     if not os.path.isdir(g_cache_dir):
-        messagebox.showinfo("Hoàn tất", "Không tìm thấy thư mục cache ảnh (đã sạch).")
+        custom_showinfo("Hoàn tất", "Không tìm thấy thư mục cache ảnh (đã sạch).")
         return
 
-    if messagebox.askyesno("Xác nhận Xóa Cache",
+    if custom_askyesno("Xác nhận Xóa Cache",
                            "Bạn có chắc chắn muốn xóa toàn bộ cache ảnh?\n"
                            "(Lần khởi động sau sẽ phải tải lại tất cả ảnh.)"):
         try:
@@ -7339,9 +7521,9 @@ def action_clear_image_cache():
             # Xóa cache RAM
             root.cached_images.clear()
             
-            messagebox.showinfo("Hoàn tất", "Đã xóa toàn bộ cache ảnh thành công.")
+            custom_showinfo("Hoàn tất", "Đã xóa toàn bộ cache ảnh thành công.")
         except Exception as e:
-            messagebox.showerror("Lỗi", f"Không thể xóa thư mục cache: {e}")
+            custom_showerror("Lỗi", f"Không thể xóa thư mục cache: {e}")
 
 # --- [TÍNH NĂNG] SỔ TAY GHI CHÚ (CLICK-THROUGH SWITCH) ---
 g_notes_window = None
@@ -7544,7 +7726,7 @@ def action_toggle_crosshair():
         WS_EX_LAYERED = 0x00080000
         WS_EX_TRANSPARENT = 0x00000020 # Cờ quan trọng nhất: Click xuyên qua
     except ImportError:
-        messagebox.showerror("Lỗi", "Tính năng này yêu cầu thư viện ctypes (Windows).")
+        custom_showerror("Lỗi", "Tính năng này yêu cầu thư viện ctypes (Windows).")
         return
 
     # Nếu đang bật -> Tắt đi
@@ -7624,11 +7806,11 @@ def action_clean_temp_files():
 
     temp_dir = os.environ.get('TEMP')
     if not temp_dir or not os.path.isdir(temp_dir):
-        messagebox.showerror("Lỗi", "Không thể tìm thấy thư mục Temp của Windows.")
+        custom_showerror("Lỗi", "Không thể tìm thấy thư mục Temp của Windows.")
         return
 
     # 1. Cảnh báo người dùng (Vì hành động này xóa rộng hơn)
-    if not messagebox.askyesno("Xác nhận Dọn Sạch", 
+    if not custom_askyesno("Xác nhận Dọn Sạch", 
                                f"Bạn sắp xóa TOÀN BỘ file rác trong thư mục Temp:\n{temp_dir}\n\n"
                                "Lưu ý:\n"
                                "• Hành động này sẽ giải phóng dung lượng ổ C.\n"
@@ -7673,7 +7855,7 @@ def action_clean_temp_files():
                 skipped_count += 1
                 
     except Exception as e:
-        messagebox.showerror("Lỗi", f"Lỗi khi quét thư mục Temp: {e}")
+        custom_showerror("Lỗi", f"Lỗi khi quét thư mục Temp: {e}")
         return
 
     # 3. Hiển thị kết quả
@@ -7682,7 +7864,7 @@ def action_clean_temp_files():
            f"🛡️ Đang sử dụng (Bỏ qua): {skipped_count} mục\n"
            f"💾 Dung lượng giải phóng: {format_bytes(bytes_freed)} (ước tính)")
            
-    messagebox.showinfo("Dọn Dẹp Hoàn Tất", msg)
+    custom_showinfo("Dọn Dẹp Hoàn Tất", msg)
 
 def on_secret_click(event):
     """Đếm số lần click vào label dung lượng."""
@@ -7697,7 +7879,7 @@ def on_secret_click(event):
 
     if g_secret_click_count == 3:
         if not drive_service:
-            messagebox.showwarning("Chưa đăng nhập", "Bạn phải đăng nhập Google Drive trước.")
+            custom_showwarning("Chưa đăng nhập", "Bạn phải đăng nhập Google Drive trước.")
             return
         print("Đã kích hoạt tính năng bí mật!")
         g_secret_click_count = 0
@@ -7720,6 +7902,7 @@ def open_secret_uploader():
 
     secret_window = tk.Toplevel(root)
     secret_window.title("Secret Updater Config")
+    secret_window.after(10, lambda: apply_theme_to_titlebar(secret_window))
     center_window_on_screen(secret_window, 500, 350)
     secret_window.transient(root)
     secret_window.grab_set()
@@ -7779,7 +7962,7 @@ def start_secret_upload():
     try:
         file_path = secret_drop_listbox.get(0)
     except tk.TclError:
-        messagebox.showerror("Lỗi", "Chưa kéo file .exe vào.", parent=secret_window)
+        custom_showerror("Lỗi", "Chưa kéo file .exe vào.", parent=secret_window)
         return
 
     exe_id = secret_exe_id_entry.get().strip()
@@ -7793,11 +7976,11 @@ def start_secret_upload():
     print("Đã lưu secret File IDs vào settings.json")
 
     if not file_path or not exe_id or not zip_id:
-        messagebox.showerror("Lỗi", "Vui lòng kéo file và điền cả 2 File ID.", parent=secret_window)
+        custom_showerror("Lỗi", "Vui lòng kéo file và điền cả 2 File ID.", parent=secret_window)
         return
 
     if not file_path.endswith(".exe"):
-        messagebox.showerror("Lỗi", "File kéo vào phải là file .exe.", parent=secret_window)
+        custom_showerror("Lỗi", "File kéo vào phải là file .exe.", parent=secret_window)
         return
 
     # Hiển thị cửa sổ "Đang tải"
@@ -8128,9 +8311,9 @@ def action_launch_rustdesk():
     if send_to_discord:
         import getpass
         pc_user = getpass.getuser()
-        discord_name = simpledialog.askstring(
+        discord_name = custom_askstring(
             "Xác nhận danh tính", 
-            "Nhập tên của bạn để Admin biết ai đang gọi:",
+            "Nhập tên để còn biết ai chứ mày: ",
             initialvalue=pc_user,
             parent=root
         )
