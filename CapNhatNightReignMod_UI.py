@@ -53,6 +53,11 @@ def enforce_admin_rights():
         messagebox.showerror("Cảnh Báo", "Ứng dụng cần quyền Admin để hoạt động ổn định (Ghi file, Overlay).\nVui lòng khởi động lại và chọn 'Run as Administrator'.")
         return False
 
+ES_CONTINUOUS = 0x80000000
+ES_SYSTEM_REQUIRED = 0x00000001
+ES_DISPLAY_REQUIRED = 0x00000002
+ABOVE_NORMAL_PRIORITY_CLASS = 0x00008000
+
 def prevent_system_sleep_and_boost_priority():
     """
     1. Ngăn Windows tự ngủ khi đang tải.
@@ -284,7 +289,7 @@ global g_mod_buttons
 g_mod_buttons = {}
 global g_current_selected_key
 g_current_selected_key = None
-CURRENT_VERSION = "1.2.8"
+CURRENT_VERSION = "1.2.9"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
 ROCKET_GIF_URL = "https://media.tenor.com/ike6N7DwCa0AAAAM/%D8%B1%D9%8A%D8%A7%D9%84-%D9%85%D8%AF%D8%B1%D9%8A%D8%AF.gif"
@@ -8044,34 +8049,98 @@ def action_save_path_settings():
 
 
 def action_launch_rustdesk():
-    """Hỏi tên và chạy RustDesk."""
-    
-    # 1. HỎI XÁC NHẬN
-    message = (
-        "Bạn có muốn gửi yêu cầu hỗ trợ đến Discord không?\n"
-        "(Sẽ gửi ID RustDesk và Tên của bạn để Admin kết nối)"
-    )
-    send_to_discord = messagebox.askyesno("Hỗ trợ RustDesk", message, parent=root)
+    """
+    Hiển thị hộp thoại tùy chỉnh (Custom Dialog) để chọn chế độ chạy RustDesk.
+    Có áp dụng Theme cho Titlebar.
+    """
+    # 1. Tạo biến lưu kết quả
+    selection_result = [None] 
 
+    # 2. Tạo cửa sổ Dialog
+    dialog = tk.Toplevel(root)
+    dialog.title("Tùy chọn Hỗ trợ")
+    
+    # --- [MỚI] ÁP DỤNG THEME CHO TITLE BAR ---
+    # Gọi hàm apply_theme_to_titlebar cho cửa sổ con này
+    # Dùng .after(10) để đảm bảo cửa sổ đã khởi tạo xong trước khi tô màu
+    dialog.after(10, lambda: apply_theme_to_titlebar(dialog))
+    # -----------------------------------------
+    
+    # Kích thước và căn giữa
+    dialog_width = 320
+    dialog_height = 180
+    center_window_on_screen(dialog, dialog_width, dialog_height)
+    
+    dialog.transient(root) 
+    dialog.grab_set()      
+    dialog.resizable(False, False)
+
+    # Frame nội dung
+    frame = ttk.Frame(dialog, padding=20)
+    frame.pack(fill=tk.BOTH, expand=True)
+
+    # Tiêu đề
+    lbl = ttk.Label(
+        frame, 
+        text="Bạn muốn khởi động RustDesk như thế nào?", 
+        wraplength=280, 
+        justify=tk.CENTER,
+        font=("Segoe UI", 10)
+    )
+    lbl.pack(pady=(0, 15))
+
+    # --- Hàm xử lý chọn ---
+    def on_choose_discord():
+        selection_result[0] = True
+        dialog.destroy() 
+
+    def on_choose_local():
+        selection_result[0] = False
+        dialog.destroy() 
+
+    # --- Nút bấm ---
+    btn_discord = ttk.Button(
+        frame, 
+        text="🚀 Gửi ID lên Discord (Nhờ Admin)", 
+        command=on_choose_discord, 
+        style="Accent.TButton"
+    )
+    btn_discord.pack(fill=tk.X, pady=5)
+
+    btn_local = ttk.Button(
+        frame, 
+        text="📂 Chỉ mở RustDesk (Không gửi)", 
+        command=on_choose_local
+    )
+    btn_local.pack(fill=tk.X, pady=5)
+
+    # --- CHỜ NGƯỜI DÙNG CHỌN ---
+    root.wait_window(dialog)
+
+    # 3. Xử lý kết quả
+    if selection_result[0] is None:
+        return
+
+    send_to_discord = selection_result[0]
     discord_name = "Ẩn danh"
 
-    # 2. HỎI TÊN DISCORD
+    # 4. Nếu chọn Gửi Discord -> Mới hỏi tên
     if send_to_discord:
         import getpass
         pc_user = getpass.getuser()
         discord_name = simpledialog.askstring(
-            "Nhập tên", 
-            "Nhập tên của mi:",
+            "Xác nhận danh tính", 
+            "Nhập tên của bạn để Admin biết ai đang gọi:",
             initialvalue=pc_user,
             parent=root
         )
-        if not discord_name: discord_name = f"{pc_user} (PC)"
+        if not discord_name: 
+            return 
 
-    # 3. KHÓA NÚT VÀ CHẠY
+    # 5. Bắt đầu chạy Thread
     if 'g_anydesk_button' in globals():
         g_anydesk_button.config(state=tk.DISABLED, text="Đang mở RustDesk...")
     
-    # Gọi Thread mới
     threading.Thread(target=launch_rustdesk_thread, args=(send_to_discord, discord_name), daemon=True).start()
 
 def apply_anydesk_connection_fix():
@@ -8122,72 +8191,161 @@ def apply_anydesk_connection_fix():
 
 def launch_rustdesk_thread(send_to_discord, discord_name):
     """
-    (RUSTDESK ALL-IN-ONE)
-    1. Tự động cài đặt ngầm (Silent Install) nếu chưa có.
-    2. Chờ cửa sổ GUI hiện lên.
-    3. Lấy ID từ Config (Bỏ qua số 0).
+    (RUSTDESK FULL: AUTO INSTALL + SERVICE FIX)
+    1. Kiểm tra nếu chưa cài -> Tự động cài vào Program Files.
+    2. Cài đặt và Bật Service để lấy ID/Pass ổn định.
+    3. Dùng cơ chế 'Fire and Forget' để tránh treo App.
     """
     CREATE_NO_WINDOW = 0x08000000 
     rustdesk_id = None
     temp_password = "WGZSupport2025" 
-    installed_path = r"C:\Program Files\RustDesk\RustDesk.exe"
     
-    try:
-        # 1. Tìm file Portable gốc (để dùng làm bộ cài)
-        portable_path = resource_path("RustDesk.exe")
-        if not os.path.exists(portable_path):
-            portable_path = os.path.join(os.getcwd(), "RustDesk.exe")
-            if not os.path.exists(portable_path):
-                raise FileNotFoundError("Thiếu file 'RustDesk.exe' gốc.")
-
-        # 2. QUY TRÌNH CÀI ĐẶT NGẦM
-        target_exe = portable_path # Mặc định dùng portable nếu cài lỗi
-        
-        if os.path.exists(installed_path):
-            print("Đã cài đặt. Sử dụng bản Installed.")
-            target_exe = installed_path
-        else:
-            print("Chưa cài đặt. Đang CÀI ĐẶT NGẦM (Silent Install)...")
+    # Định nghĩa các đường dẫn
+    program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+    installed_dir = os.path.join(program_files, "RustDesk")
+    installed_exe = os.path.join(installed_dir, "RustDesk.exe")
+    
+    # --- HÀM HELPER: CHẠY LỆNH AN TOÀN ---
+    def run_command_safe(cmd_list, wait_time=5):
+        """Chạy lệnh với timeout để tránh treo App."""
+        try:
+            print(f"Executing: {' '.join(cmd_list)}")
+            process = subprocess.Popen(
+                cmd_list, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.PIPE,
+                text=True,
+                creationflags=CREATE_NO_WINDOW
+            )
             try:
-                # Kích hoạt UAC để cài đặt
-                ret = ctypes.windll.shell32.ShellExecuteW(
-                    None, "runas", portable_path, "--install --silent", None, 1
-                )
-                if ret > 32: # Lệnh chạy thành công
-                    # Chờ tối đa 20s xem file đã xuất hiện trong Program Files chưa
-                    for i in range(20):
-                        if os.path.exists(installed_path):
-                            print("Cài đặt thành công!")
-                            target_exe = installed_path
-                            break
-                        time.sleep(1)
-            except Exception as e:
-                print(f"Lỗi cài đặt: {e}. Quay về dùng Portable.")
+                stdout, stderr = process.communicate(timeout=wait_time)
+                return True
+            except subprocess.TimeoutExpired:
+                print(f"Lệnh tốn quá {wait_time}s (có thể đang chạy ngầm). Bỏ qua...")
+                return True 
+        except Exception as e:
+            print(f"Lỗi lệnh: {e}")
+            return False
+    # -------------------------------------
 
-        # 3. KHỞI ĐỘNG APP
-        print(f"Khởi động: {target_exe}")
+    try:
+        # --- BƯỚC 1: TẮT RUSTDESK CŨ ---
+        print("Đang đóng RustDesk cũ...")
+        run_command_safe(["taskkill", "/F", "/IM", "RustDesk.exe"], wait_time=2)
+        time.sleep(1)
+
+        # --- BƯỚC 2: TÌM FILE GỐC (PORTABLE) ---
+        portable_exe = resource_path("RustDesk.exe")
+        if not os.path.exists(portable_exe):
+            portable_exe = "RustDesk.exe" 
+        
+        if not os.path.exists(portable_exe) and not os.path.exists(installed_exe):
+             progress_queue.put(("anydesk_error", "Không tìm thấy file RustDesk.exe gốc để cài đặt."))
+             return
+
+        # --- BƯỚC 3: KIỂM TRA & CÀI ĐẶT (NẾU CẦN) ---
+        target_exe = portable_exe 
+
+        if os.path.exists(installed_exe):
+            print("Phát hiện RustDesk đã được cài đặt.")
+            target_exe = installed_exe
+        else:
+            print("Chưa cài đặt. Đang kích hoạt bộ cài...")
+            if os.path.exists(portable_exe):
+                # 1. Chạy lệnh cài đặt nhưng KHÔNG đợi (Popen không communicate ngay)
+                print(f"Executing Install: {portable_exe} --install --silent")
+                install_proc = run_command_safe([portable_exe, "--install", "--silent"], wait_time=0)
+                
+                # 2. Vòng lặp kiểm tra file (Polling) thay vì Wait
+                # Quét mỗi 1 giây, tối đa 20 giây. Hễ thấy file là dừng.
+                print("Đang đợi file xuất hiện trong Program Files...")
+                install_success = False
+                for i in range(60):
+                    if os.path.exists(installed_exe):
+                        print(f"--> File đã xuất hiện sau {i+1} giây!")
+                        install_success = True
+                        break
+                    time.sleep(1)
+                
+                if install_success:
+                    # Chờ thêm 2s để file được ghi hoàn tất
+                    time.sleep(2)
+                    target_exe = installed_exe
+                    print("Cài đặt hoàn tất (Smart Check).")
+                    
+                    # (Tùy chọn) Kill tiến trình cài đặt nếu nó còn treo
+                    try: install_proc.kill() 
+                    except: pass
+                else:
+                    print("Cài đặt quá lâu hoặc thất bại. Dùng bản Portable.")
+                    target_exe = portable_exe
+
+        # --- BƯỚC 4: XỬ LÝ SERVICE (TỐI ƯU HÓA) ---
+        print(f"Đang cấu hình Service cho: {target_exe}")
+        
+        # 1. Kiểm tra xem Service đã tồn tại chưa (để tránh bị timeout 10s vô ích)
+        service_exists = False
+        try:
+            # Lệnh "sc query RustDesk" trả về 0 nếu service tồn tại, 1060 nếu không có
+            check_svc = subprocess.run(
+                ["sc", "query", "RustDesk"], 
+                capture_output=True, 
+                text=True, 
+                creationflags=CREATE_NO_WINDOW
+            )
+            if check_svc.returncode == 0:
+                service_exists = True
+                print("Service 'RustDesk' đã tồn tại. Bỏ qua bước cài đặt.")
+        except: pass
+
+        # 2. Chỉ cài đặt nếu chưa có
+        if not service_exists:
+            # Tăng timeout lên 15s cho chắc chắn
+            run_command_safe([target_exe, "--install-service"], wait_time=15)
+            time.sleep(1)
+
+        # 3. Đảm bảo đường dẫn Service trỏ đúng vào file exe hiện tại (Quan trọng khi update)
+        # Nếu file exe thay đổi vị trí, lệnh này sẽ cập nhật lại đường dẫn cho Service
+        try:
+            subprocess.run(
+                ["sc", "config", "RustDesk", f"binPath= \"{target_exe}\""],
+                capture_output=True,
+                creationflags=CREATE_NO_WINDOW
+            )
+        except: pass
+
+        # 4. Bật Service (Timeout 5s)
+        # Dùng 'sc start' đôi khi nhanh hơn 'net start'
+        run_command_safe(["sc", "start", "RustDesk"], wait_time=5)
+        time.sleep(2)
+
+        # --- BƯỚC 5: KHỞI ĐỘNG GIAO DIỆN ---
+        print("Mở giao diện RustDesk...")
         subprocess.Popen([target_exe])
 
-        # 4. CHỜ CỬA SỔ (GUI) HIỆN LÊN
-        print("⏳ Đang đợi giao diện RustDesk hiển thị...")
-        app_ready = False
-        for i in range(30): # Chờ 15s
-            windows = gw.getWindowsWithTitle('RustDesk')
-            for w in windows:
-                if "RustDesk" in w.title:
-                    app_ready = True
-                    break
-            if app_ready: 
-                print("✅ Giao diện đã hiện!")
+        # --- BƯỚC 6: CHỜ GUI VÀ LẤY ID ---
+        print("⏳ Đang đợi cửa sổ App...")
+        for i in range(20): 
+            if gw.getWindowsWithTitle('RustDesk'):
                 break
             time.sleep(0.5)
 
-        # 5. HÀM LẤY ID (Ưu tiên Config)
-        def get_valid_id():
-            # Check Config File
+        print("⏳ Đang lấy ID...")
+        # Hàm lấy ID nội bộ
+        def get_id_local():
+            # Thử lệnh cmd trước
+            try:
+                proc = subprocess.Popen([target_exe, "--get-id"], stdout=subprocess.PIPE, text=True, creationflags=CREATE_NO_WINDOW)
+                out, _ = proc.communicate(timeout=3)
+                val = out.strip().replace(" ", "")
+                if val.isdigit() and len(val) > 6: return val
+            except: pass
+            
+            # Thử đọc file config
             paths = [
                 os.path.join(os.getenv('APPDATA'), 'RustDesk', 'config'),
-                os.path.join(os.getenv('LOCALAPPDATA'), 'RustDesk', 'config')
+                os.path.join(os.getenv('LOCALAPPDATA'), 'RustDesk', 'config'),
+                os.path.join(os.environ.get("ProgramData", "C:\\ProgramData"), 'RustDesk', 'config') # Thêm ProgramData
             ]
             for d in paths:
                 for f in ['RustDesk.toml', 'RustDesk2.toml']:
@@ -8196,51 +8354,39 @@ def launch_rustdesk_thread(send_to_discord, discord_name):
                         try:
                             with open(full, 'r', encoding='utf-8') as file:
                                 match = re.search(r'id\s*=\s*[\'"]?(\d+)[\'"]?', file.read())
-                                if match:
-                                    fid = match.group(1)
-                                    if len(fid) > 6 and fid != "0": return fid
+                                if match: return match.group(1)
                         except: pass
-            
-            # Fallback: Check CMD (chỉ chạy nếu App là portable hoặc đã có quyền)
-            try:
-                proc = subprocess.run([target_exe, "--get-id"], 
-                    capture_output=True, text=True, creationflags=CREATE_NO_WINDOW)
-                val = proc.stdout.strip().replace(" ", "")
-                if val.isdigit() and len(val) > 6: return val
-            except: pass
             return None
 
-        # 6. VÒNG LẶP CHỜ MẠNG & ID
-        print("⏳ Đang chờ kết nối mạng để lấy ID...")
-        for i in range(20):
+        # Vòng lặp chờ ID
+        for i in range(15):
+            rustdesk_id = get_id_local()
+            if rustdesk_id: break
             time.sleep(1)
-            rustdesk_id = get_valid_id()
-            if rustdesk_id:
-                print(f"✅ ID chuẩn: {rustdesk_id}")
-                break
-            else:
-                print(f"Đang chờ ID... {i+1}/20")
+            print(f"Đang chờ ID... {i}/15")
 
-        # 7. XỬ LÝ KẾT QUẢ
+        # --- BƯỚC 7: XỬ LÝ KẾT QUẢ ---
         if rustdesk_id:
-            # Đặt pass
-            try:
-                subprocess.run([target_exe, "--password", temp_password], 
-                    capture_output=True, creationflags=CREATE_NO_WINDOW)
-            except: pass
+            print(f"✅ ID: {rustdesk_id}")
+            
+            # Đặt mật khẩu
+            print("Đang đặt mật khẩu...")
+            run_command_safe([target_exe, "--password", temp_password], wait_time=3)
 
-            # Gửi Discord
+            # Gửi thông báo
+            install_status = "Installed & Service Running" if target_exe == installed_exe else "Portable Mode (Service Fix)"
+            
             if send_to_discord and "YOUR_ID" not in DISCORD_WEBHOOK_URL:
                 try:
-                    content_ping = "@here 🆘 Yêu cầu hỗ trợ RustDesk (Installed)!"
+                    content_ping = "@here 🆘 Yêu cầu hỗ trợ!"
                     embed = {
                         "title": "🚀 Hỗ trợ RustDesk",
-                        "color": 16728380,
+                        "color": 65280, 
                         "fields": [
                             { "name": "👤 User", "value": f"**{discord_name}**", "inline": True },
                             { "name": "🆔 ID", "value": f"```{rustdesk_id}```", "inline": True },
                             { "name": "🔑 Pass", "value": f"```{temp_password}```", "inline": True },
-                            { "name": "💻 Mode", "value": "Auto-Install & Ready", "inline": False }
+                            { "name": "💻 Status", "value": install_status, "inline": False }
                         ],
                         "footer": { "text": "WGZ Updater" }
                     }
@@ -8253,10 +8399,10 @@ def launch_rustdesk_thread(send_to_discord, discord_name):
             else:
                 progress_queue.put(("anydesk_id_retrieved_locally", rustdesk_id))
         else:
-            progress_queue.put(("anydesk_error", "Đã mở App nhưng mạng chậm (chưa có ID).\nVui lòng đọc thủ công."))
+            progress_queue.put(("anydesk_error", "Không lấy được ID. Vui lòng kiểm tra lại RustDesk."))
 
     except Exception as e:
-        print(f"Lỗi: {e}")
+        print(f"Lỗi RustDesk: {e}")
         progress_queue.put(("anydesk_error", str(e)))
     
     finally:
