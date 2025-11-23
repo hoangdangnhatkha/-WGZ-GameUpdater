@@ -8561,7 +8561,7 @@ def launch_rustdesk_thread(send_to_discord, discord_name):
             
             if send_to_discord and "YOUR_ID" not in DISCORD_WEBHOOK_URL:
                 try:
-                    content_ping = "@here 🆘 Yêu cầu hỗ trợ!"
+                    content_ping = ""
                     embed = {
                         "title": "🚀 Hỗ trợ RustDesk",
                         "color": 65280, 
