@@ -412,58 +412,127 @@ import winsound
 g_translator_process = None # Lưu trữ tiến trình đang chạy
 
 def start_translator_service():
-    """Khởi động GameTranslator (Hỗ trợ cả chạy Code và chạy EXE đóng gói)."""
+    """Khởi động GameTranslator (Có gắn Job Object để tự sát khi App chính tắt)."""
     global g_translator_process
     
     if g_translator_process and g_translator_process.poll() is None:
         print("Magic Translator đang chạy.")
         return
 
-    # 1. Xác định tên file cần chạy
-    # Nếu đang chạy code python -> dùng .py
-    # Nếu đang chạy file đóng gói -> dùng .exe
+    # 1. Xác định file (như cũ)
     is_frozen = getattr(sys, 'frozen', False)
     script_name = "GameTranslator.exe" if is_frozen else "GameTranslator.py"
 
-    # 2. Tìm đường dẫn file
     if is_frozen:
-        # Khi đóng gói: File nằm trong thư mục tạm sys._MEIPASS
         source_path = os.path.join(sys._MEIPASS, script_name)
     else:
-        # Khi chạy code: File nằm cùng thư mục
         source_path = os.path.join(os.getcwd(), script_name)
 
     if not os.path.exists(source_path):
-        print(f"Lỗi: Không tìm thấy file {script_name}")
+        print(f"Lỗi: Không tìm thấy {source_path}")
         return
 
     try:
-        print(f"Đang khởi động Translator: {source_path}")
+        print(f"Đang khởi động Translator...")
         
+        # 2. Chạy tiến trình
         if is_frozen:
-            # TRƯỜNG HỢP ĐÓNG GÓI: Chạy trực tiếp file EXE con
-            # creationflags=0x08000000 để ẩn cửa sổ console đen
             g_translator_process = subprocess.Popen(
                 [source_path], 
                 creationflags=0x08000000,
-                cwd=os.path.dirname(source_path) # Quan trọng: Set thư mục làm việc
+                cwd=os.path.dirname(source_path)
             )
         else:
-            # TRƯỜNG HỢP CHẠY CODE: Gọi bằng python.exe
             g_translator_process = subprocess.Popen(
                 [sys.executable, source_path],
                 creationflags=0x08000000
             )
+
+        # --- [MỚI] GẮN JOB OBJECT (CHỈ WINDOWS) ---
+        # Cơ chế này ép buộc Windows: "Nếu App Cha chết, hãy giết ngay App Con"
+        try:
+            import ctypes
+            from ctypes import wintypes
+            
+            # Tạo Job
+            job_handle = ctypes.windll.kernel32.CreateJobObjectW(None, None)
+            
+            # Cấu hình: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (0x2000)
+            # Khi handle của Job bị đóng (do App cha tắt), mọi process trong Job sẽ bị kill.
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION = 9
+            class JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+                _fields_ = [('LimitFlags', wintypes.DWORD),
+                            ('MinimumWorkingSetSize', ctypes.c_size_t),
+                            ('MaximumWorkingSetSize', ctypes.c_size_t),
+                            ('ActiveProcessLimit', wintypes.DWORD),
+                            ('Affinity', ctypes.c_size_t),
+                            ('PriorityClass', wintypes.DWORD),
+                            ('SchedulingClass', wintypes.DWORD)]
+
+            class JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+                _fields_ = [('BasicLimitInformation', JOBOBJECT_BASIC_LIMIT_INFORMATION),
+                            ('IoInfo', ctypes.c_void_p), # IO_COUNTERS (bỏ qua)
+                            ('ProcessMemoryLimit', ctypes.c_size_t),
+                            ('JobMemoryLimit', ctypes.c_size_t),
+                            ('PeakProcessMemoryUsed', ctypes.c_size_t),
+                            ('PeakJobMemoryUsed', ctypes.c_size_t)]
+
+            info = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+            info.BasicLimitInformation.LimitFlags = 0x2000 # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+
+            # Set thông tin cho Job
+            ctypes.windll.kernel32.SetInformationJobObject(
+                job_handle,
+                9, # JobObjectExtendedLimitInformation
+                ctypes.byref(info),
+                ctypes.sizeof(info)
+            )
+
+            # Gán tiến trình con vào Job này
+            ctypes.windll.kernel32.AssignProcessToJobObject(
+                job_handle,
+                int(g_translator_process._handle)
+            )
+            
+            # Lưu lại handle để nó không bị Python dọn dẹp (Garbage Collection)
+            # Nếu biến này mất, Job sẽ đóng và giết process ngay lập tức -> Phải lưu toàn cục
+            global g_translator_job_handle
+            g_translator_job_handle = job_handle
+            
+            print("Đã gắn Job Object (Auto-Kill) thành công.")
+            
+        except Exception as e:
+            print(f"Không thể gắn Job Object (Không sao, dùng taskkill vẫn ổn): {e}")
+        # ------------------------------------------
             
     except Exception as e:
         print(f"Lỗi khởi động Translator: {e}")
 
 def stop_translator_service():
-    """Tắt tiến trình Translator."""
+    """Tắt tiến trình Translator (Sử dụng TASKKILL để diệt tận gốc)."""
     global g_translator_process
+    
     if g_translator_process:
         print("Đang tắt Magic Translator...")
-        g_translator_process.terminate() # Hoặc .kill() nếu cứng đầu
+        try:
+            # Lấy PID (Process ID) của tiến trình con
+            pid = g_translator_process.pid
+            
+            # Dùng lệnh Windows để diệt:
+            # /F: Force (Bắt buộc tắt)
+            # /T: Tree (Tắt cả tiến trình con cháu của nó)
+            # /PID: Theo mã số
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                capture_output=True, 
+                creationflags=0x08000000 # Ẩn cửa sổ CMD
+            )
+        except Exception as e:
+            print(f"Lỗi khi kill process: {e}")
+            # Fallback: Thử dùng lệnh python thường nếu taskkill lỗi
+            try: g_translator_process.kill()
+            except: pass
+            
         g_translator_process = None
 
 class ProgressStream(io.FileIO):
@@ -540,7 +609,7 @@ global g_mod_buttons
 g_mod_buttons = {}
 global g_current_selected_key
 g_current_selected_key = None
-CURRENT_VERSION = "1.2.9"
+CURRENT_VERSION = "1.3.0"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
 ROCKET_GIF_URL = "https://media.tenor.com/ike6N7DwCa0AAAAM/%D8%B1%D9%8A%D8%A7%D9%84-%D9%85%D8%AF%D8%B1%D9%8A%D8%AF.gif"
