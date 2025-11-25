@@ -11,6 +11,7 @@ def enforce_admin_rights():
     """
     Kiểm tra xem App có chạy quyền Admin không.
     Nếu không -> Tự động khởi động lại App với quyền Admin (hiện bảng UAC).
+    Đã FIX: Lỗi crash do sai đường dẫn khi chạy file .py
     """
     try:
         # Kiểm tra quyền Admin hiện tại
@@ -21,36 +22,47 @@ def enforce_admin_rights():
             return True # Đã là Admin, chạy tiếp bình thường
             
         else:
-            # Nếu chưa là Admin, thực hiện khởi động lại với tham số 'runas'
             print("App chưa có quyền Admin. Đang yêu cầu cấp quyền...")
             
-            # Lấy đường dẫn file đang chạy
+            # Chuẩn bị đường dẫn và tham số
             if getattr(sys, 'frozen', False):
                 # Nếu đang chạy file .exe (đã đóng gói)
                 executable = sys.executable
                 params = ""
+                cwd = os.path.dirname(executable)
             else:
                 # Nếu đang chạy file .py (môi trường dev)
                 executable = sys.executable
-                params = " ".join([f'"{arg}"' for arg in sys.argv])
+                
+                # QUAN TRỌNG: Chuyển đường dẫn script thành tuyệt đối (Absolute Path)
+                # Để khi Windows đổi thư mục về System32, nó vẫn tìm thấy file
+                script_path = os.path.abspath(sys.argv[0])
+                args = sys.argv[1:]
+                
+                # Tạo lại chuỗi params với đường dẫn tuyệt đối
+                params = f'"{script_path}" ' + " ".join([f'"{arg}"' for arg in args])
+                
+                # Lấy thư mục hiện tại để truyền vào ShellExecute
+                cwd = os.getcwd()
             
-            # Gọi lệnh ShellExecute của Windows với verb 'runas' để kích hoạt UAC
+            # Gọi lệnh ShellExecute của Windows với verb 'runas'
+            # Tham số thứ 5 (cwd) RẤT QUAN TRỌNG: Đặt lại thư mục làm việc đúng chỗ cũ
             ctypes.windll.shell32.ShellExecuteW(
                 None, 
                 "runas", 
                 executable, 
                 params, 
-                None, 
-                1 # SW_SHOWNORMAL
+                cwd, # <--- Fix: Truyền thư mục làm việc vào đây
+                1
             )
             
-            # Tắt instance hiện tại (không phải Admin) để nhường chỗ cho instance mới
+            # Tắt instance hiện tại
             sys.exit()
             
     except Exception as e:
         print(f"Lỗi khi xin quyền Admin: {e}")
-        # Nếu lỗi (ví dụ người dùng bấm No ở bảng UAC), có thể hiện thông báo hoặc cứ chạy tiếp
-        custom_showerror("Cảnh Báo", "Ứng dụng cần quyền Admin để hoạt động ổn định (Ghi file, Overlay).\nVui lòng khởi động lại và chọn 'Run as Administrator'.")
+        # Nếu lỗi (người dùng bấm No), hiện thông báo
+        custom_showerror("Cảnh Báo", "Ứng dụng cần quyền Admin để hoạt động ổn định.\nVui lòng khởi động lại và chọn 'Run as Administrator'.")
         return False
 
 ES_CONTINUOUS = 0x80000000
@@ -396,6 +408,63 @@ import webbrowser
 from packaging import version
 import subprocess
 import winsound
+
+g_translator_process = None # Lưu trữ tiến trình đang chạy
+
+def start_translator_service():
+    """Khởi động GameTranslator (Hỗ trợ cả chạy Code và chạy EXE đóng gói)."""
+    global g_translator_process
+    
+    if g_translator_process and g_translator_process.poll() is None:
+        print("Magic Translator đang chạy.")
+        return
+
+    # 1. Xác định tên file cần chạy
+    # Nếu đang chạy code python -> dùng .py
+    # Nếu đang chạy file đóng gói -> dùng .exe
+    is_frozen = getattr(sys, 'frozen', False)
+    script_name = "GameTranslator.exe" if is_frozen else "GameTranslator.py"
+
+    # 2. Tìm đường dẫn file
+    if is_frozen:
+        # Khi đóng gói: File nằm trong thư mục tạm sys._MEIPASS
+        source_path = os.path.join(sys._MEIPASS, script_name)
+    else:
+        # Khi chạy code: File nằm cùng thư mục
+        source_path = os.path.join(os.getcwd(), script_name)
+
+    if not os.path.exists(source_path):
+        print(f"Lỗi: Không tìm thấy file {script_name}")
+        return
+
+    try:
+        print(f"Đang khởi động Translator: {source_path}")
+        
+        if is_frozen:
+            # TRƯỜNG HỢP ĐÓNG GÓI: Chạy trực tiếp file EXE con
+            # creationflags=0x08000000 để ẩn cửa sổ console đen
+            g_translator_process = subprocess.Popen(
+                [source_path], 
+                creationflags=0x08000000,
+                cwd=os.path.dirname(source_path) # Quan trọng: Set thư mục làm việc
+            )
+        else:
+            # TRƯỜNG HỢP CHẠY CODE: Gọi bằng python.exe
+            g_translator_process = subprocess.Popen(
+                [sys.executable, source_path],
+                creationflags=0x08000000
+            )
+            
+    except Exception as e:
+        print(f"Lỗi khởi động Translator: {e}")
+
+def stop_translator_service():
+    """Tắt tiến trình Translator."""
+    global g_translator_process
+    if g_translator_process:
+        print("Đang tắt Magic Translator...")
+        g_translator_process.terminate() # Hoặc .kill() nếu cứng đầu
+        g_translator_process = None
 
 class ProgressStream(io.FileIO):
     """
@@ -810,7 +879,8 @@ def load_local_config():
         os.makedirs(g_cache_dir, exist_ok=True)
         with open(config_file_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
-
+            if "auto_start_translator" not in config:
+                config["auto_start_translator"] = False
             # --- LOGIC NÂNG CẤP ---
             if "game_paths" not in config:
                 config["game_paths"] = {}
@@ -3857,15 +3927,24 @@ def process_queue():
 def on_closing():
     # Kiểm tra xem có đang tải file không (dựa vào trạng thái nút)
     print(start_button.instate(['disabled']))
+    
     if start_button.instate(['disabled']): # <--- Kiểm tra ở đây
         # Nếu đang tải, hỏi xác nhận
         if custom_askyesno("Xác nhận thoát", "Đm dang tải file. m có chắc chắn muốn thoát? \n (Việc tải sẽ bị hủy và phải tải lại từ đầu)"):
             # Nếu người dùng chọn "Yes", thoát chương trình
+            try:
+                stop_translator_service() # Giết tiến trình con
+            except: pass
             root.destroy()
+            sys.exit(0)
         # else: (Nếu chọn "No", không làm gì cả, cửa sổ tiếp tục)
     else:
+        try:
+            stop_translator_service() # Giết tiến trình con
+        except: pass
         # Nếu không đang tải, thoát luôn
         root.destroy()
+        sys.exit(0)
 
 # --- Hàm áp dụng theme cho title bar ---
 
@@ -8156,6 +8235,34 @@ chaos_checkbutton = ttk.Checkbutton(
 )
 chaos_checkbutton.pack(anchor=tk.W, pady=5)
 CreateToolTip(chaos_checkbutton, "Khi bấm 'Chạy Game', giao diện sẽ nổ tung bay tứ tán.\nTắt đi nếu bạn thích sự nghiêm túc.")
+
+g_auto_translator = tk.BooleanVar(value=local_config.get("auto_start_translator", False))
+
+def on_translator_toggle():
+    global local_config
+    is_enabled = g_auto_translator.get()
+    
+    # 1. Lưu vào config
+    local_config["auto_start_translator"] = is_enabled
+    save_local_config(local_config)
+    
+    # 2. Xử lý Bật/Tắt ngay lập tức
+    if is_enabled:
+        start_translator_service()
+        print("Translator: ON")
+    else:
+        stop_translator_service()
+        print("Translator: OFF")
+
+translator_check = ttk.Checkbutton(
+    setting_frame,
+    text="🔮 Bật/Tắt Chức Năng Dịch Game ENG-VN (HotKey: Ctrl + Caps)",
+    variable=g_auto_translator,
+    command=on_translator_toggle,
+    style="Switch.TCheckbutton"
+)
+translator_check.pack(anchor=tk.W, pady=5)
+CreateToolTip(translator_check, "Tự động bật công cụ dịch (Ctrl+Q) khi mở App.\nNếu tắt, công cụ sẽ đóng ngay lập tức.")
 # --- Cột Phải: Công Cụ & Bảo Trì ---
 tools_frame = ttk.LabelFrame(settings_container, text="🛠️ Công Cụ & Bảo Trì", padding=10)
 tools_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
@@ -8785,6 +8892,10 @@ threading.Thread(target=load_config_thread, daemon=True).start()
 threading.Thread(target=load_gif_frames_thread, daemon=True).start()
 threading.Thread(target=auto_find_paths_thread, daemon=True).start()
 threading.Thread(target=preload_rocket_gif_thread, daemon=True).start()
+if local_config.get("auto_start_translator", False):
+    print("Config bật: Tự động chạy Translator...")
+    # Chạy trong thread để không làm chậm khởi động app chính
+    threading.Thread(target=start_translator_service, daemon=True).start()
 # Hủy splash screen
 splash.destroy()
 sv_ttk.set_theme("dark")

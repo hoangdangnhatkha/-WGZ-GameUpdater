@@ -186,3 +186,7 @@ token.json
 updater.exe
 AnyDesk.exe
 UnRAR.exe
+RustDesk.exe
+GameTranslator.exe
+build_all.bat
+key_secrets.py
