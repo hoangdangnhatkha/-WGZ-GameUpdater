@@ -304,33 +304,7 @@ def custom_askstring(title, prompt, parent=None, show=None, initialvalue=None):
     root.wait_window(dlg)
     
     return result[0]
-# --- Cài đặt cửa sổ Giao diện (UI) ---
-root = TkinterDnD.Tk()
-root.withdraw()
-# --- SPLASH SCREEN (BEGIN) ---
-splash = tk.Toplevel(root)
-splash.title("Loading")
 
-# Kích thước splash screen
-splash_width = 350
-splash_height = 200
-
-center_window_on_screen(splash, splash_width, splash_height)
-
-# Xóa viền cửa sổ
-splash.overrideredirect(True) 
-
-# Thêm style cho splash (dùng màu nền tối)
-splash_style = ttk.Style()
-splash_style.configure("Splash.TFrame", background="#2b2b2b")
-splash_style.configure("Splash.TLabel", background="#2b2b2b", foreground="white", font=("Segoe UI", 10))
-splash_style.configure("Splash.Header.TLabel", background="#2b2b2b", foreground="white", font=("Segoe UI", 14, "bold"))
-
-# Dùng Frame để có thể thêm viền
-splash_frame = ttk.Frame(splash, style="Splash.TFrame", borderwidth=1, relief="solid")
-splash_frame.pack(fill=tk.BOTH, expand=True)
-
-ttk.Label(splash_frame, text="WGZ Game Updater", style="Splash.Header.TLabel").pack(pady=(20, 10))
 def resource_path(relative_path):
     """ Lấy đường dẫn tuyệt đối, hoạt động cho cả .py và .exe """
     try:
@@ -339,24 +313,56 @@ def resource_path(relative_path):
         base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
 # Thử tải logo cho splash (nếu lỗi thì bỏ qua)
-try:
-    # Giả sử bạn có file 'logo.png' trong resource
-    icon_path = resource_path("logo.png") 
-    splash_img = Image.open(icon_path).resize((50, 50), Image.Resampling.LANCZOS)
-    # Phải lưu lại, nếu không sẽ bị Python xóa mất
-    root.splash_logo_tk = ImageTk.PhotoImage(splash_img) 
-    ttk.Label(splash_frame, image=root.splash_logo_tk, style="Splash.TLabel").pack(pady=5)
-except Exception as e:
-    print(f"Không thể tải logo cho splash (bỏ qua): {e}")
 
-status_label_splash = ttk.Label(splash_frame, text="Đang khởi động core system...", style="Splash.TLabel")
-status_label_splash.pack(pady=10)
-splash.update()
-root.update_idletasks()
+# --- Cài đặt cửa sổ Giao diện (UI) ---
+root = TkinterDnD.Tk()
+root.withdraw()
+# --- SPLASH SCREEN (BEGIN) ---
+if __name__ == '__main__':
+    splash = tk.Toplevel(root)
+    splash.title("Loading")
+
+    # Kích thước splash screen
+    splash_width = 350
+    splash_height = 200
+
+    center_window_on_screen(splash, splash_width, splash_height)
+
+    # Xóa viền cửa sổ
+    splash.overrideredirect(True) 
+
+    # Thêm style cho splash (dùng màu nền tối)
+    splash_style = ttk.Style()
+    splash_style.configure("Splash.TFrame", background="#2b2b2b")
+    splash_style.configure("Splash.TLabel", background="#2b2b2b", foreground="white", font=("Segoe UI", 10))
+    splash_style.configure("Splash.Header.TLabel", background="#2b2b2b", foreground="white", font=("Segoe UI", 14, "bold"))
+
+    # Dùng Frame để có thể thêm viền
+    splash_frame = ttk.Frame(splash, style="Splash.TFrame", borderwidth=1, relief="solid")
+    splash_frame.pack(fill=tk.BOTH, expand=True)
+
+    ttk.Label(splash_frame, text="WGZ Game Updater", style="Splash.Header.TLabel").pack(pady=(20, 10))
+    try:
+        # Giả sử bạn có file 'logo.png' trong resource
+        icon_path = resource_path("logo.png") 
+        splash_img = Image.open(icon_path).resize((50, 50), Image.Resampling.LANCZOS)
+        # Phải lưu lại, nếu không sẽ bị Python xóa mất
+        root.splash_logo_tk = ImageTk.PhotoImage(splash_img) 
+        ttk.Label(splash_frame, image=root.splash_logo_tk, style="Splash.TLabel").pack(pady=5)
+    except Exception as e:
+        print(f"Không thể tải logo cho splash (bỏ qua): {e}")
+
+    status_label_splash = ttk.Label(splash_frame, text="Đang khởi động core system...", style="Splash.TLabel")
+    status_label_splash.pack(pady=10)
+    splash.update()
+    root.update_idletasks()
 
 
-status_label_splash.config(text="Đang tải thư viện: Google Drive & GitHub...")
-splash.update()
+    status_label_splash.config(text="Đang tải thư viện: Google Drive & GitHub...")
+    splash.update()
+
+
+
 
 import io
 import platform
@@ -364,11 +370,11 @@ import shutil
 import zipfile
 import pyperclip
 import threading
+import webview
 import queue
 import gdown
 
-status_label_splash.config(text="Đang tải thư viện: Automation Tools...")
-splash.update()
+
 
 from google.auth.transport.requests import AuthorizedSession
 from tkinter import filedialog, messagebox, simpledialog # Added simpledialog
@@ -392,6 +398,7 @@ from github import Github, InputGitAuthor, GithubException
 import base64
 import time
 import math
+import multiprocessing
 from datetime import datetime
 import concurrent.futures
 from google.auth.transport.requests import Request
@@ -2735,6 +2742,177 @@ def get_system_info_text():
 
     return "\n".join(info_text)
 
+def _process_run_gemini():
+    import os
+    import time
+    import sys
+
+    # --- HÀM LẤY ĐƯỜNG DẪN FILE COOKIE ---
+    def get_cookie_file_path():
+        # Xác định thư mục chứa file chạy
+        if getattr(sys, 'frozen', False):
+            base_path = os.path.dirname(sys.executable)
+        else:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+        return os.path.join(base_path, "gemini_cookie.txt")
+
+    # --- HÀM ĐỌC COOKIE TỪ FILE ---
+    def load_cookie_from_file():
+        cookie_path = get_cookie_file_path()
+        if os.path.exists(cookie_path):
+            try:
+                with open(cookie_path, "r", encoding="utf-8") as f:
+                    # Đọc và xóa khoảng trắng thừa
+                    return f.read().strip()
+            except:
+                return None
+        return None
+
+    # --- CẤU HÌNH USER AGENT ---
+    FAKE_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0'
+
+    # --- CẤU HÌNH PROFILE (VẪN GIỮ ĐỂ TỐI ƯU CHO MÁY CỤC BỘ) ---
+    app_data = os.getenv('APPDATA')
+    profile_path = os.path.join(app_data, "NightreignModUpdater", "webview_profile")
+    if not os.path.exists(profile_path):
+        try: os.makedirs(profile_path, exist_ok=True)
+        except: pass
+
+    def logic_handler(window):
+        # 1. Đọc cookie từ file text bên ngoài
+        loading_html = """
+            // 1. Đặt nền đen ngay lập tức
+            document.documentElement.style.backgroundColor = "#131314";
+            document.body.style.backgroundColor = "#131314";
+            
+            // 2. Xóa sạch nội dung trang Google
+            document.body.innerHTML = ''; 
+            
+            // 3. Chèn giao diện Loading vào
+            var loader = document.createElement('div');
+            loader.innerHTML = `
+                <div style="
+                    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                    display: flex; flex-direction: column;
+                    justify-content: center; align-items: center;
+                    background-color: #131314; color: #E3E3E3;
+                    font-family: 'Segoe UI', sans-serif; z-index: 999999;
+                ">
+                    <div style="
+                        width: 50px; height: 50px;
+                        border: 4px solid #444746;
+                        border-top: 4px solid #4D9CFF; /* Màu xanh Gemini */
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                        margin-bottom: 20px;
+                    "></div>
+                    <div style="font-size: 20px; font-weight: 500;">Đang khởi động Gemini AI...</div>
+                    <div style="font-size: 14px; color: #888; margin-top: 10px;">Đang xác thực cookie...</div>
+                    <style>
+                        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                    </style>
+                </div>
+            `;
+            document.body.appendChild(loader);
+        """
+        # Chạy ngay lập tức!
+        window.evaluate_js(loading_html)
+        time.sleep(1.0)
+        window.show()
+        external_cookie = load_cookie_from_file()
+        
+        if external_cookie:
+            print(f"Tìm thấy file cookie! Đang xử lý...")
+            time.sleep(1)
+            
+            # --- [MỚI] BƯỚC 1: XÓA SẠCH COOKIE CŨ ---
+            # Chạy lệnh này để xóa toàn bộ cookie hiện có trên domain google.com
+            window.evaluate_js("""
+                var cookies = document.cookie.split(";");
+                for (var i = 0; i < cookies.length; i++) {
+                    var cookie = cookies[i];
+                    var eqPos = cookie.indexOf("=");
+                    var name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
+                    document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.google.com";
+                    document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=google.com";
+                }
+            """)
+            print("Đã dọn dẹp cookie cũ.")
+            time.sleep(0.5) # Nghỉ một chút cho trình duyệt xử lý
+            
+            # --- BƯỚC 2: TIÊM COOKIE MỚI (Như cũ) ---
+            cookie_list = external_cookie.split(';')
+            for cookie in cookie_list:
+                if "=" in cookie:
+                    js_code = f"document.cookie = '{cookie.strip()}; path=/; domain=.google.com; Secure; SameSite=None';"
+                    window.evaluate_js(js_code)
+            
+            print("Đã tiêm cookie mới thành công.")
+            window.load_url("https://gemini.google.com/app")
+        else:
+            print("Không tìm thấy file gemini_cookie.txt. Sử dụng profile cũ hoặc yêu cầu đăng nhập.")
+            # Nếu không có file, vẫn vào Gemini (hy vọng Profile cũ còn sống)
+            window.load_url("https://gemini.google.com/app")
+
+        # --- XỬ LÝ GIAO DIỆN (NHƯ CŨ) ---
+        time.sleep(4)
+        
+        # CSS Chặn click Avatar
+        css_killer = """
+            var style = document.createElement('style');
+            var cssContent = `
+                a[href^="https://accounts.google.com"],
+                button[aria-label*="Google Account"],
+                button[aria-label*="Tài khoản Google"],
+                div[aria-label*="Google Account"],
+                div[aria-label*="Tài khoản Google"] {
+                    pointer-events: none !important;
+                    cursor: default !important;
+                }
+                img[src*="googleusercontent.com"],
+                img[alt*="Profile"],
+                img[class*="gb_"] { 
+                    opacity: 1 !important;
+                    display: inline-block !important;
+                    visibility: visible !important;
+                }
+            `;
+            style.appendChild(document.createTextNode(cssContent));
+            document.head.appendChild(style);
+        """
+        window.evaluate_js(css_killer)
+        
+        # Vòng lặp canh gác
+        keep_hiding_script = """
+            setInterval(function() {
+                var targets = document.querySelectorAll('button[aria-label*="Google Account"], button[aria-label*="Tài khoản Google"]');
+                targets.forEach(function(el) {
+                    el.style.pointerEvents = 'none';
+                    el.style.cursor = 'default';
+                    el.style.opacity = '1';
+                });
+            }, 2000);
+        """
+        window.evaluate_js(keep_hiding_script)
+
+    # --- KHỞI TẠO CỬA SỔ ---
+    # Mở Google.com trước để có quyền tiêm cookie
+    window = webview.create_window(
+        'Gemini AI PRO', 
+        'https://google.com', 
+        width=1200, 
+        height=800,
+        hidden=True
+    )
+    
+    webview.start(
+        func=logic_handler, 
+        args=(window,), 
+        private_mode=False, 
+        storage_path=profile_path,
+        user_agent=FAKE_USER_AGENT
+    )
+
 def action_flush_dns():
     """Chạy lệnh ipconfig /flushdns để sửa lỗi kết nối mạng."""
     try:
@@ -4031,12 +4209,7 @@ def apply_theme_to_titlebar(root_window):
             except Exception as e: print(f"Lỗi pywinstyles (Win10): {e}")
     else: print("Warning: Title bar theming only supported on Windows 10/11.")
 
-try:
-    app_mutex_name = b"WGZ_GameUpdater_Singleton_Mutex"
-    g_singleton_lock = SingleInstance(app_mutex_name)
-    
-except Exception as e:
-    print(f"Cảnh báo: Không thể tạo singleton mutex: {e}")
+
 
 
 
@@ -5527,6 +5700,20 @@ def populate_page_1_grid(game_groups, search_term=""):
             root.update_idletasks() 
     except KeyError: pass
     
+    # =========================================================================
+    # [THÊM MỚI] NÚT GEMINI AI PRO (Góc Phải Trên Cùng)
+    # =========================================================================
+    gemini_btn = ttk.Button(
+        page_1_game_grid, 
+        text="✨ Gemini AI PRO", 
+        command=action_open_gemini_pro, 
+        style="Accent.TButton"
+    )
+    # relx=1.0, y=10, anchor="ne" -> Căn theo mép phải, cách trên 10px
+    gemini_btn.place(relx=1.0, x=-20, y=10, anchor="ne")
+    CreateToolTip(gemini_btn, "Mở trợ lý Google Gemini ngay trong App.")
+    # =========================================================================
+
     # --- 1. THANH TÌM KIẾM & NÚT THÊM GAME ---
     if g_game_search_entry is None:
         # ... (Code logo cũ giữ nguyên) ...
@@ -8014,6 +8201,19 @@ def action_clean_temp_files():
            
     custom_showinfo("Dọn Dẹp Hoàn Tất", msg)
 
+# --- [TÍNH NĂNG MỚI] GEMINI AI PRO BROWSER ---
+def action_open_gemini_pro():
+    """
+    Khởi động Gemini bằng Multiprocessing để tránh xung đột Main Thread với Tkinter.
+    """
+    try:
+        # Tạo một tiến trình mới (Process) thay vì luồng (Thread)
+        p = multiprocessing.Process(target=_process_run_gemini)
+        p.daemon = True # Tự tắt khi App chính tắt (tùy chọn)
+        p.start()
+    except Exception as e:
+        custom_showerror("Lỗi", f"Không thể mở Gemini: {e}")
+
 def on_secret_click(event):
     """Đếm số lần click vào label dung lượng."""
     global g_secret_click_count, drive_service
@@ -8951,31 +9151,41 @@ def preload_all_images_thread(themes_dict, mod_config_dict):
         progress_queue.put(("all_images_preloaded", mod_config_dict))
 
 # --- Chạy ứng dụng ---
-root.protocol("WM_DELETE_WINDOW", on_closing)
-status_label.configure(text="Đang tải config phiên bản...", style="White.TLabel")
-progress_bar.start(10)
-start_button.config(state=tk.DISABLED)
-browse_button.config(state=tk.DISABLED)
-root.after(100, process_queue)
-threading.Thread(target=load_config_thread, daemon=True).start()
-threading.Thread(target=load_gif_frames_thread, daemon=True).start()
-threading.Thread(target=auto_find_paths_thread, daemon=True).start()
-threading.Thread(target=preload_rocket_gif_thread, daemon=True).start()
-if local_config.get("auto_start_translator", False):
-    print("Config bật: Tự động chạy Translator...")
-    # Chạy trong thread để không làm chậm khởi động app chính
-    threading.Thread(target=start_translator_service, daemon=True).start()
-# Hủy splash screen
-splash.destroy()
-sv_ttk.set_theme("dark")
-# Hiển thị cửa sổ chính
-root.deiconify()
+if __name__ == '__main__':
+    multiprocessing.freeze_support()
 
-# Đưa cửa sổ chính lên trên cùng
-root.after(10, lambda: apply_theme_to_titlebar(root))
+    try:
+        app_mutex_name = b"WGZ_GameUpdater_Singleton_Mutex"
+        g_singleton_lock = SingleInstance(app_mutex_name)
+        
+    except Exception as e:
+        print(f"Cảnh báo: Không thể tạo singleton mutex: {e}")
 
-root.title("[WGZ] Game Updater")
-root.attributes('-topmost', 1) 
-root.focus_force()
-root.attributes('-topmost', 0)
-root.mainloop()
+    root.protocol("WM_DELETE_WINDOW", on_closing)
+    status_label.configure(text="Đang tải config phiên bản...", style="White.TLabel")
+    progress_bar.start(10)
+    start_button.config(state=tk.DISABLED)
+    browse_button.config(state=tk.DISABLED)
+    root.after(100, process_queue)
+    threading.Thread(target=load_config_thread, daemon=True).start()
+    threading.Thread(target=load_gif_frames_thread, daemon=True).start()
+    threading.Thread(target=auto_find_paths_thread, daemon=True).start()
+    threading.Thread(target=preload_rocket_gif_thread, daemon=True).start()
+    if local_config.get("auto_start_translator", False):
+        print("Config bật: Tự động chạy Translator...")
+        # Chạy trong thread để không làm chậm khởi động app chính
+        threading.Thread(target=start_translator_service, daemon=True).start()
+    # Hủy splash screen
+    splash.destroy()
+    sv_ttk.set_theme("dark")
+    # Hiển thị cửa sổ chính
+    root.deiconify()
+
+    # Đưa cửa sổ chính lên trên cùng
+    root.after(10, lambda: apply_theme_to_titlebar(root))
+
+    root.title("[WGZ] Game Updater")
+    root.attributes('-topmost', 1) 
+    root.focus_force()
+    root.attributes('-topmost', 0)
+    root.mainloop()

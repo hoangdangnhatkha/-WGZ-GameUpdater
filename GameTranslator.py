@@ -15,6 +15,7 @@ import os
 import sys
 import traceback # Thư viện để in chi tiết lỗi
 import re
+import google.generativeai as genai
 
 try:
     # Giúp tool nhận diện đúng độ phân giải màn hình, cắt ảnh chuẩn xác hơn
@@ -23,13 +24,14 @@ except:
     pass
 # --- CẤU HÌNH ---
 try:
-    from key_secrets import GROQ_API_KEYS
+    from key_secrets import GROQ_API_KEYS, GEMINI_API_KEY
 except ImportError:
     # Xử lý trường hợp người dùng tải về nhưng chưa tạo file key_secrets.py
     print("Cảnh báo: Không tìm thấy file 'key_secrets.py'.")
     print("Vui lòng tạo file này hoặc nhập Key thủ công.")
     # Đặt danh sách rỗng để không crash ngay lập tức
     GROQ_API_KEYS = []
+    GEMINI_API_KEY = ""
      
 HOTKEY = "<alt>+`"
 
@@ -108,6 +110,53 @@ def clean_translation_output(text):
         
     return cleaned_text.strip().strip('"').strip("'")
 
+if GEMINI_API_KEY:
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        gemini_model = genai.GenerativeModel('gemini-2.5-flash')
+    except Exception as e:
+        print(f"Lỗi config Gemini: {e}")
+
+def call_gemini_vision(image):
+    """Gửi ảnh cho Gemini: Prompt ngăn chặn việc gộp dòng Tiêu đề vào Body"""
+    if not gemini_model:
+        return None
+    try:
+        system_prompt = """
+        Bạn là Game Localizer chuyên nghiệp. Nhiệm vụ: Dịch text trong ảnh sang Tiếng Việt.
+        
+        QUY TẮC CẤU TRÚC (BẮT BUỘC TUÂN THỦ 100%):
+        
+        1. XỬ LÝ TIÊU ĐỀ (Dòng chữ to nhất/trên cùng):
+           - Bắt buộc thêm dấu thăng (#) vào đầu dòng tiêu đề.
+           - [TUYỆT ĐỐI CẤM] Không được viết nối nội dung mô tả vào ngay sau tiêu đề.
+           - Sau tiêu đề PHẢI xuống dòng ngay lập tức.
+           
+           🚫 SAI: #Fireball Gây 500 sát thương lửa. (Gộp chung dòng -> CẤM)
+           ✅ ĐÚNG: 
+              #*Fireball*
+              Gây *500* sát thương *Fire*. (Tách dòng riêng -> CHUẨN)
+
+        2. GIỮ NGUYÊN THUẬT NGỮ (Hybrid):
+           - Giữ nguyên tiếng Anh cho: Tên Skill, Item, Boss, Stats, Effect, Damage Type.
+           - Bọc các từ tiếng Anh này trong dấu sao (*).
+           
+        3. NỘI DUNG:
+           - Dịch phần mô tả sang tiếng Việt.
+           - [QUAN TRỌNG] VIẾT LIỀN MẠCH, KHÔNG TỰ Ý XUỐNG DÒNG GIỮA CÂU.
+           - Chỉ xuống dòng khi hết một đoạn văn hoặc bắt đầu một mục mới hoặc tiêu đề.
+           - Giữ nguyên số lượng dòng của ảnh gốc.
+
+        HÃY KIỂM TRA LẠI KẾT QUẢ TRƯỚC KHI TRẢ VỀ: LIỆU TIÊU ĐỀ ĐÃ NẰM RIÊNG 1 DÒNG CHƯA?
+        """
+        
+        response = gemini_model.generate_content([system_prompt, image])
+        print(f"Gemini Result: {response.text.strip()}")
+        return response.text.strip()
+    except Exception as e:
+        print(f"❌ Lỗi Gemini: {e}")
+        return None
+
 def call_groq_with_rotation(prompt):
     global current_key_index
     
@@ -154,7 +203,7 @@ class TooltipTranslator:
         self.result_windows = []
         self.is_selecting = False
         self.listeners = []
-
+        self.font_size = 11
         # Lắng nghe phím tắt (Global)
         with pynput_k.GlobalHotKeys({HOTKEY: self.start_selection}) as h:
             self.hotkey_listener = h
@@ -181,23 +230,127 @@ class TooltipTranslator:
         # KHÔNG chụp màn hình ở đây nữa (để hàm _show_overlay lo)
         self.root.after(0, self._show_overlay)
 
-    def update_text_safe(self, widget, text, color="white"):
-        """Hàm cập nhật nội dung, căn giữa cả dọc và ngang."""
+    def process_quality_path(self, image, label_widget, btn_widget):
+        try:
+            # Gọi API (Lúc này mới thực sự tốn tiền/token)
+            translated = call_gemini_vision(image)
+            
+            if translated:
+                print(f"Gemini Result: {translated}")
+                
+                # Cập nhật giao diện Text
+                self.root.after(0, lambda: self.update_text_safe(label_widget, translated, "#00ff00", "✨ Gemini AI"))
+                
+                # Cập nhật lại cái nút báo thành công
+                def update_button_done():
+                    if btn_widget.winfo_exists():
+                        btn_widget.config(text="✔ Hoàn tất", bg="#1c1c1c", fg="#00ff00", cursor="arrow")
+                
+                self.root.after(0, update_button_done)
+                
+        except Exception as e:
+            print(f"Lỗi Quality Path: {e}")
+            # Nếu lỗi thì báo lên nút
+            self.root.after(0, lambda: btn_widget.config(text="❌ Lỗi", fg="red"))
+
+    def update_text_safe(self, widget, text, color="white", status_text=""):
         try:
             widget.config(state=tk.NORMAL)
             widget.delete("1.0", tk.END)
-            widget.config(fg=color, font=("Segoe UI", 11, "bold")) # Reset font chuẩn
+            widget.config(fg=color)
             
-            # 1. Chèn text với tag "center" (Căn giữa ngang)
-            widget.insert(tk.END, text, "center")
+            # --- [MỚI] CẬP NHẬT TRẠNG THÁI ---
+            if hasattr(widget, 'status_label'):
+                widget.status_label.config(text=status_text)
+                # Nếu là màu xanh (Gemini hoàn tất), đổi màu status cho nổi
+                if color == "#00ff00": 
+                    widget.status_label.config(fg="#00ff00")
+                else:
+                    widget.status_label.config(fg="gray")
+            # ---------------------------------
+
+            # 1. Get the Fixed Window Dimensions
+            top = widget.winfo_toplevel()
+            target_height = top.winfo_height()
             
-            # 2. Căn giữa dọc: Co widget lại thành 1 dòng và neo vào giữa
-            widget.config(height=1) 
-            widget.pack_configure(fill='x', expand=True, anchor='center')
+            # ... (GIỮ NGUYÊN ĐOẠN LOOP TÍNH FONT SIZE - KHÔNG ĐỔI GÌ Ở GIỮA) ...
+            
+            # Copy lại đoạn Loop 1 và Loop 2 từ code cũ của bạn vào đây
+            # (Tôi rút gọn để dễ nhìn, bạn giữ nguyên logic tính font size cũ nhé)
+            widget.pack_configure(fill='both', expand=True)
+            start_size = getattr(self, 'font_size', 14)
+            final_size = start_size
+            text_pixel_height = 0
+            
+            for size in range(start_size, 7, -1):
+                # ... (Code cũ của bạn về logic render text) ...
+                # Chú ý: Đảm bảo bạn copy đủ logic render text vào đây
+                body_font = ("Segoe UI", int(self.font_size * 0.95), "bold")
+                title_font = ("Segoe UI", -int(self.font_size * 1.1), "bold")
+                
+                widget.tag_config("body_text", font=body_font)
+                widget.tag_config("title_text", font=title_font, justify='center', spacing3=5)
+                widget.tag_config("highlight_body", font=body_font, foreground="#FFD700") 
+                widget.tag_config("highlight_title", font=title_font, foreground="#FFD700")
+
+                widget.delete("1.0", tk.END)
+                clean_text = clean_translation_output(text)
+                lines = clean_text.split('\n')
+                
+                for line in lines:
+                    is_title = line.strip().startswith('#')
+                    if is_title: line = line.strip().lstrip('#').strip()
+                    base_tag = "title_text" if is_title else "body_text"
+                    high_tag = "highlight_title" if is_title else "highlight_body"
+                    parts = line.split('*')
+                    for i, part in enumerate(parts):
+                        if i % 2 == 0: widget.insert(tk.END, part, base_tag)
+                        else: widget.insert(tk.END, part, high_tag)
+                    widget.insert(tk.END, "\n")
+                
+                widget.update_idletasks()
+                bbox = widget.bbox("end-1c")
+                if bbox:
+                    current_text_height = bbox[1] + bbox[3]
+                    if current_text_height <= target_height:
+                        final_size = self.font_size
+                        text_pixel_height = current_text_height
+                        break 
+            
+            self.current_font_size = final_size
+            
+            # Loop 2: Vertical Centering
+            gap = target_height - text_pixel_height
+            if gap > 0:
+                top_padding = gap // 2
+                # widget.tag_config("v_center_push", spacing1=top_padding)
+                widget.tag_add("v_center_push", "1.0", "1.end")
             
             widget.config(state=tk.DISABLED)
+            
         except Exception as e:
             print(f"Lỗi update UI: {e}")
+            traceback.print_exc()
+
+    def trigger_optimization(self, event):
+        btn = event.widget
+        
+        # Kiểm tra xem nút đã có ảnh chưa (để tránh lỗi)
+        if hasattr(btn, 'target_image') and btn.target_image:
+            print("🚀 Bắt đầu gọi Gemini theo yêu cầu...")
+            
+            # 1. Đổi giao diện nút để báo đang làm việc
+            btn.config(text="⏳ Đang xử lý...", bg="#333", fg="gray", cursor="watch")
+            
+            # 2. Hủy sự kiện click (để không bị bấm spam nhiều lần)
+            btn.unbind("<Button-1>")
+            
+            # 3. Chạy luồng xử lý (truyền cả cái nút vào để hàm kia update lại khi xong)
+            threading.Thread(target=self.process_quality_path, 
+                             args=(btn.target_image, btn.original_widget, btn)).start()
+            
+            # Ngăn sự kiện lan truyền (nếu cần)
+            return "break"
 
     def _show_overlay(self):
         # Bảo vệ kép: Nếu cửa sổ chọn đã tồn tại thì không tạo nữa
@@ -302,54 +455,70 @@ class TooltipTranslator:
                 # Cắt ảnh
                 cropped_img = self.frozen_img.crop((crop_x1, crop_y1, crop_x2, crop_y2))
                 
-                # --- [SỬA LỖI: ĐÓNG SAU KHI ĐÃ CẮT XONG] ---
                 self.close_selection() 
-                # -------------------------------------------
 
                 # Hiện khung kết quả
                 win, label = self.create_result_window(screen_x, screen_y, w, h)
-                self.update_text_safe(label, "Đang đọc...", "yellow")
-                
+                self.update_text_safe(label, "🔍 Đang đọc...", "#FFFF00")
+                # --- [MỚI] GẮN ẢNH VÀO NÚT ĐỂ DÙNG SAU ---
+                # Chúng ta cần truy cập vào cái nút opt_btn đã tạo trong create_result_window
+                if hasattr(self, 'opt_btn'):
+                    self.opt_btn.target_image = cropped_img # Lưu ảnh vào nút
+                # -----------------------------------------
+
                 self.enable_auto_close()
                 
+                # Chỉ chạy OCR (Groq) tự động
                 threading.Thread(target=self.process_image, args=(cropped_img, label)).start()
+                
+                # --- [QUAN TRỌNG] ĐÃ XÓA DÒNG GỌI GEMINI TỰ ĐỘNG Ở ĐÂY ---
+                # (Không còn threading.Thread(target=self.process_quality_path...) nữa)
+
             except Exception as e:
                 print(f"Lỗi cắt ảnh: {e}")
-                self.close_selection() # Đóng nếu có lỗi
+                self.close_selection()
         else:
-            # Nếu vùng chọn quá bé (click nhầm), đóng luôn
             self.close_selection()
 
     def create_result_window(self, x, y, w, h):
         win = tk.Toplevel(self.root)
-        
-        # --- [SỬA LỖI: ÉP KÍCH THƯỚC CỨNG] ---
-        # 1. Đặt kích thước và vị trí chính xác theo vùng chọn
         win.geometry(f"{w}x{h}+{x}+{y}")
-        
-        # 2. Ngăn cửa sổ tự động thay đổi kích thước theo nội dung bên trong
         win.pack_propagate(False) 
         win.grid_propagate(False)
-        # -------------------------------------
-
+        
         win.overrideredirect(True)
         win.attributes('-topmost', True)
         win.config(bg='#1c1c1c')
         win.attributes('-alpha', 0.9)
 
-        # Tạo widget Text
+        # Widget Text
         text_widget = tk.Text(win, bg='#1c1c1c', fg="white", 
                               font=("Segoe UI", 11, "bold"), 
                               wrap=tk.WORD, bd=0, highlightthickness=0)
-        
-        # Pack vào giữa (sẽ hoạt động tốt vì cửa sổ đã bị khóa kích thước)
         text_widget.pack(fill="both", expand=True, padx=5, pady=5)
         
-        # Định nghĩa tag
+        # --- [QUAN TRỌNG: XÓA DÒNG BIND NÀY ĐI] ---
+        # text_widget.bind("<Button-1>", lambda e: self.close_all_windows())  <-- XÓA HOẶC COMMENT
+        # ------------------------------------------
+        
         text_widget.tag_configure("center", justify='center')
         text_widget.tag_config("highlight", foreground="#FFD700")
+
+        # Nút tối ưu
+        self.opt_btn = tk.Label(win, text="✨ Tối ưu", bg='#007acc', fg='white', 
+                                font=("Segoe UI", 9), padx=5, pady=2, cursor="hand2")
+        self.opt_btn.place(relx=1.0, rely=1.0, anchor='se', x=-2, y=-2)
         
-        self.set_click_through(win)
+        self.opt_btn.original_widget = text_widget # Lưu widget chữ để lát nữa ghi đè
+        self.opt_btn.target_image = None # Chỗ giữ ảnh (sẽ được gán ở on_mouse_up)
+
+        # Gán sự kiện click: Gọi hàm kích hoạt
+        self.opt_btn.bind("<Button-1>", self.trigger_optimization)
+        
+        # Hiệu ứng hover cho đẹp
+        self.opt_btn.bind("<Enter>", lambda e: e.widget.config(bg="#005f9e"))
+        self.opt_btn.bind("<Leave>", lambda e: e.widget.config(bg="#007acc"))
+
         self.result_windows.append(win)
         return win, text_widget
 
@@ -365,15 +534,46 @@ class TooltipTranslator:
         except: pass
 
     def enable_auto_close(self):
-        def on_any_action(*args):
-            self.root.after(0, self.close_all_windows)
-            return False
-        
-        m_listener = mouse.Listener(on_click=on_any_action)
+        # Hàm kiểm tra click chuột
+        def on_click(x, y, button, pressed):
+            # Chỉ xử lý khi nhấn xuống (pressed=True)
+            if pressed:
+                is_click_inside = False
+                
+                # Duyệt qua tất cả các cửa sổ kết quả đang mở
+                for win in self.result_windows:
+                    try:
+                        if win.winfo_exists():
+                            # Lấy tọa độ và kích thước cửa sổ
+                            win_x = win.winfo_rootx()
+                            win_y = win.winfo_rooty()
+                            win_w = win.winfo_width()
+                            win_h = win.winfo_height()
+                            
+                            # Kiểm tra xem chuột có nằm trong hình chữ nhật cửa sổ không
+                            if (win_x <= x <= win_x + win_w) and (win_y <= y <= win_y + win_h):
+                                is_click_inside = True
+                                break # Đã tìm thấy click bên trong, dừng kiểm tra
+                    except:
+                        pass
+                
+                # LOGIC QUAN TRỌNG:
+                # Nếu click KHÔNG nằm trong cửa sổ nào -> Đóng tất cả
+                if not is_click_inside:
+                    self.root.after(0, self.close_all_windows)
+                # Ngược lại (click bên trong) -> Không làm gì cả (để Tkinter xử lý nút bấm)
+
+        # Lắng nghe chuột toàn cục
+        m_listener = mouse.Listener(on_click=on_click)
         m_listener.start()
         self.listeners.append(m_listener)
         
-        k_listener = pynput_k.Listener(on_press=on_any_action)
+        # Vẫn giữ phím ESC để đóng khẩn cấp
+        def on_key_release(key):
+            if key == pynput_k.Key.esc:
+                self.root.after(0, self.close_all_windows)
+                
+        k_listener = pynput_k.Listener(on_release=on_key_release)
         k_listener.start()
         self.listeners.append(k_listener)
 
@@ -586,7 +786,8 @@ class TooltipTranslator:
 
             # Font Size
             font_size = max(11, min(int(avg_h_orig * 0.85), 40))
-            dynamic_font = ("Segoe UI", -font_size, "bold")
+            self.font_size = font_size
+            dynamic_font = ("Segoe UI", font_size, "bold")
             label_widget.config(font=dynamic_font)
             label_widget.tag_config("highlight", foreground="#FFD700", font=dynamic_font)
 
@@ -594,7 +795,7 @@ class TooltipTranslator:
             final_input = f"{ROGUELIKE_PROMPT}\n\n(NỘI DUNG CẦN DỊCH:\n\n'{raw_text}')"
             translated_text = call_groq_with_rotation(final_input)
             clean_text = clean_translation_output(translated_text)
-            print(final_input)
+            self.root.after(0, lambda: self.update_text_safe(label_widget, clean_text, "white", "⏳ Đang tối ưu..."))
             # Display
             label_widget.config(state=tk.NORMAL)
             label_widget.delete("1.0", tk.END)
@@ -611,18 +812,13 @@ class TooltipTranslator:
             num_lines = count_res[0] if count_res else 1
             label_widget.config(height=num_lines)
             label_widget.pack_configure(fill='x', expand=True, anchor='center')
-            
-            font_metrics = tk.font.Font(font=label_widget['font']).metrics('linespace')
-            req_h = (num_lines * font_metrics) + 20
-            top = label_widget.winfo_toplevel()
-            if req_h > top.winfo_height():
-                top.geometry(f"{top.winfo_width()}x{req_h}+{top.winfo_x()}+{top.winfo_y()}")
-
             label_widget.config(state=tk.DISABLED)
                 
         except Exception as e:
             print(f"Lỗi xử lý: {e}")
             self.update_text_safe(label_widget, "Lỗi dịch", "red")
+
+
 
 # --- HÀM MAIN AN TOÀN (CHỐNG CRASH) ---
 def main():
