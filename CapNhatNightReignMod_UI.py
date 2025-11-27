@@ -219,6 +219,7 @@ def center_window_on_screen(window, width, height):
 def _show_custom_dialog(title, message, dialog_type="info", parent=None):
     """
     Hàm lõi để hiển thị popup tùy chỉnh.
+    Kích thước tự động điều chỉnh theo nội dung.
     """
     # Use the passed parent, or the global root, or create a hidden temporary root if needed
     current_parent = parent if parent else root
@@ -233,10 +234,6 @@ def _show_custom_dialog(title, message, dialog_type="info", parent=None):
     # 2. Tạo cửa sổ
     dlg = tk.Toplevel(current_parent)
     dlg.title(title)
-    
-    # Kích thước & Căn giữa
-    w, h = 400, 250 # Kích thước mặc định rộng hơn xíu cho đẹp
-    center_window_on_screen(dlg, w, h)
     
     dlg.transient(parent if parent else root)
     dlg.grab_set()
@@ -267,6 +264,7 @@ def _show_custom_dialog(title, message, dialog_type="info", parent=None):
     header_frame = ttk.Frame(main_frame)
     header_frame.pack(fill=tk.X, pady=(0, 10))
     
+    # Giữ nguyên lbl_icon
     lbl_icon = tk.Label(header_frame, text=icon_text, font=("Segoe UI", 20), bg=style.lookup("TFrame", "background"), fg=icon_color)
     lbl_icon.pack(side=tk.LEFT, padx=(0, 10))
     
@@ -274,7 +272,7 @@ def _show_custom_dialog(title, message, dialog_type="info", parent=None):
     lbl_msg = ttk.Label(
         main_frame, 
         text=message, 
-        wraplength=350, 
+        wraplength=450, # Tăng wraplength lên 450 để cho phép cửa sổ rộng hơn
         justify=tk.LEFT, 
         font=("Segoe UI", 10)
     )
@@ -290,22 +288,31 @@ def _show_custom_dialog(title, message, dialog_type="info", parent=None):
 
     # Cấu hình nút theo loại dialog
     if dialog_type == "yesno":
-        # Nút YES (Accent)
         btn_yes = ttk.Button(btn_frame, text="Có (Yes)", style="Accent.TButton", command=lambda: on_close(True))
         btn_yes.pack(side=tk.RIGHT, padx=5)
-        # Nút NO (Thường)
         btn_no = ttk.Button(btn_frame, text="Không (No)", command=lambda: on_close(False))
         btn_no.pack(side=tk.RIGHT, padx=5)
         
     elif dialog_type == "error":
-        # Nút Đóng (Danger hoặc Accent tùy ý, ở đây dùng Danger cho lỗi)
         btn_ok = ttk.Button(btn_frame, text="Đóng", style="Danger.TButton", command=lambda: on_close(None))
         btn_ok.pack(side=tk.RIGHT)
         
     else: # info, warning
-        # Nút OK (Accent)
         btn_ok = ttk.Button(btn_frame, text="OK", style="Accent.TButton", command=lambda: on_close(None))
         btn_ok.pack(side=tk.RIGHT)
+
+    # --- LOGIC ĐIỀU CHỈNH KÍCH THƯỚC ĐỘNG ---
+    # 1. Yêu cầu Tkinter tính toán kích thước tối thiểu
+    dlg.geometry('')
+    dlg.update_idletasks()
+
+    # 2. Lấy kích thước tính toán (Đảm bảo chiều rộng không quá 700px và có kích thước tối thiểu)
+    required_width = min(700, max(300, dlg.winfo_reqwidth()))
+    required_height = max(150, dlg.winfo_reqheight())
+
+    # 3. Căn giữa cửa sổ với kích thước mới
+    center_window_on_screen(dlg, required_width, required_height)
+    # --- KẾT THÚC LOGIC KÍCH THƯỚC ĐỘNG ---
 
     # Xử lý phím Enter/Esc
     dlg.bind("<Return>", lambda e: on_close(True if dialog_type == "yesno" else None))
@@ -340,10 +347,6 @@ def custom_askstring(title, prompt, parent=None, show=None, initialvalue=None):
     dlg = tk.Toplevel(current_parent)
     dlg.title(title)
     
-    # Kích thước & Căn giữa
-    w, h = 400, 210
-    center_window_on_screen(dlg, w, h)
-    
     dlg.transient(parent if parent else root)
     dlg.grab_set()
     dlg.resizable(False, False)
@@ -357,11 +360,13 @@ def custom_askstring(title, prompt, parent=None, show=None, initialvalue=None):
     main_frame.pack(fill=tk.BOTH, expand=True)
 
     # Label câu hỏi
-    lbl_prompt = ttk.Label(main_frame, text=prompt, wraplength=360, justify=tk.LEFT)
+    # Đặt wraplength lớn hơn để đảm bảo nó co giãn tốt
+    lbl_prompt = ttk.Label(main_frame, text=prompt, wraplength=450, justify=tk.LEFT)
     lbl_prompt.pack(fill=tk.X, pady=(0, 10))
 
     # Ô nhập liệu (Entry)
-    entry = ttk.Entry(main_frame)
+    # Entry widget có kích thước cố định, nên nó giúp định hình chiều rộng tối thiểu
+    entry = ttk.Entry(main_frame, width=40) 
     
     # Xử lý hiển thị mật khẩu (dấu *)
     if show:
@@ -395,6 +400,19 @@ def custom_askstring(title, prompt, parent=None, show=None, initialvalue=None):
     btn_cancel = ttk.Button(btn_frame, text="Hủy (Cancel)", command=on_cancel)
     btn_cancel.pack(side=tk.RIGHT, padx=5)
 
+    # --- LOGIC ĐIỀU CHỈNH KÍCH THƯỚC ĐỘNG ---
+    # 1. Yêu cầu Tkinter tính toán kích thước tối thiểu
+    dlg.geometry('')
+    dlg.update_idletasks()
+
+    # 2. Lấy kích thước tính toán (Đảm bảo có kích thước tối thiểu)
+    required_width = min(600, max(300, dlg.winfo_reqwidth()))
+    required_height = max(150, dlg.winfo_reqheight())
+
+    # 3. Căn giữa cửa sổ với kích thước mới
+    center_window_on_screen(dlg, required_width, required_height)
+    # --- KẾT THÚC LOGIC KÍCH THƯỚC ĐỘNG ---
+    
     # Phím tắt
     dlg.bind("<Return>", lambda e: on_ok())
     dlg.bind("<Escape>", lambda e: on_cancel())
@@ -1749,18 +1767,28 @@ def upload_json_to_github(repo, config_dict_to_upload, current_sha): # Takes dic
 
 # --- THÊM MỚI: HÀM UPLOAD THEME JSON ---
 def upload_theme_json_to_github(repo, theme_dict_to_upload, current_sha):
-    """Uploads the updated THEME dictionary to GitHub."""
+    """
+    (FINAL FIX) Tự động lấy SHA mới nhất trước khi upload.
+    Xử lý an toàn kết quả trả về để không báo lỗi ảo.
+    """
     if not repo: return False, None
 
     # Convert dict to formatted JSON string
     json_string_to_upload = json.dumps(theme_dict_to_upload, indent=4, ensure_ascii=False)
 
-    print(f"Chuẩn bị upload lên game_themes.json với SHA: {current_sha}")
+    print(f"Chuẩn bị logic upload theme...")
+    
     try:
         commit_message = f"Update game_themes.json via Updater Tool"
 
-        # Tải nội dung hiện tại để so sánh
-        current_content_str, _ = load_theme_json_from_github_api(repo)
+        # 1. LUÔN LUÔN tải bản mới nhất từ GitHub để lấy SHA thực tế
+        # (Sửa lỗi SHA: None trong log của bạn)
+        current_content_str, fresh_sha = load_theme_json_from_github_api(repo)
+        
+        # Quyết định dùng SHA nào (Ưu tiên cái mới tải về)
+        sha_to_use = fresh_sha if fresh_sha else current_sha
+
+        # 2. So sánh nội dung (tránh upload nếu không đổi)
         needs_upload = True
         if current_content_str:
             try:
@@ -1768,32 +1796,45 @@ def upload_theme_json_to_github(repo, theme_dict_to_upload, current_sha):
                 if current_obj == theme_dict_to_upload:
                     print("Theme config không thay đổi. Bỏ qua upload.")
                     needs_upload = False
-                    return True, current_sha
+                    return True, sha_to_use
             except json.JSONDecodeError: pass
 
         if needs_upload:
+            print(f"Đang thực hiện upload với SHA: {sha_to_use}")
+            
+            # 3. Thực hiện Upload
             update_result = repo.update_file(
-                path="game_themes.json", # <-- SỬA FILE PATH
+                path="game_themes.json",
                 message=commit_message,
                 content=json_string_to_upload,
-                sha=current_sha,
+                sha=sha_to_use, # Dùng SHA mới nhất
                 branch=GITHUB_BRANCH,
             )
 
-            # Lấy SHA mới của file
-            updated_contents = repo.get_contents("game_themes.json", ref=GITHUB_BRANCH)
-            new_file_sha = updated_contents.sha
-            print(f"New theme file SHA: {new_file_sha}")
+            # 4. Lấy SHA mới một cách an toàn (Tránh lỗi 'NoneType')
+            new_file_sha = None
+            try:
+                # Thử lấy SHA của file content
+                if 'content' in update_result and update_result['content']:
+                    new_file_sha = update_result['content'].sha
+                # Nếu không, lấy SHA của commit (fallback)
+                elif 'commit' in update_result:
+                    new_file_sha = update_result['commit'].sha
+            except:
+                pass # Nếu lỗi lấy SHA, bỏ qua, vẫn tính là upload thành công
+
+            print(f"Upload thành công! New SHA: {new_file_sha}")
+            custom_showinfo("Thành công", "Đã cập nhật thêm/xóa file theme lên Database!")
             return True, new_file_sha
 
     except GithubException as e:
         if e.status == 409:
-             custom_showerror("Lỗi GitHub Upload (409)", "File theme trên GitHub đã bị thay đổi.\nHãy 'Tải Config (Làm mới)' lại Tab 2.")
+             custom_showerror("Lỗi GitHub Upload (409)", "File theme trên GitHub đã bị thay đổi.\nHãy thử lại, tool sẽ tự lấy SHA mới.")
         else:
-             custom_showerror("Lỗi GitHub Upload", f"Không thể cập nhật file theme:\n{e}")
+             custom_showerror("Lỗi GitHub Upload", f"Không thể cập nhật file theme:\n{e.data.get('message', str(e))}")
         return False, None
     except Exception as e:
-         custom_showerror("Lỗi GitHub Upload", f"Lỗi không xác định khi upload theme: {e}")
+         custom_showerror("Lỗi GitHub Upload", f"Lỗi không xác định: {e}")
          return False, None
 
 # --- THÊM CÁC HÀM XỬ LÝ GOOGLE DRIVE ---
@@ -2146,46 +2187,57 @@ def download_and_extract_logic():
             return 
 
         # --- BẮT ĐẦU TẢI ---
-        progress_queue.put(("status", "Bắt đầu tải file..."))
-        
         try:
             # CÁCH 1: Thử dùng gdown (Nhanh)
             print(f"Đang thử tải bằng gdown vào: {target_path_to_use}")
             out = gdown.download(file_url, target_path_to_use, quiet=False, fuzzy=True)
             
+            # --- [FIX] KIỂM TRA KỸ HƠN KHI GDOWN TRẢ VỀ NONE ---
             if not out: 
-                raise Exception("gdown download failed (None returned)")
+                # Nếu gdown trả về None (tưởng là lỗi) nhưng file thực tế đã nằm đó và > 1MB
+                if os.path.exists(target_path_to_use) and os.path.getsize(target_path_to_use) > 1024 * 1024:
+                    print("Cảnh báo: gdown trả về None nhưng file đã tải xong. Bỏ qua lỗi.")
+                else:
+                    raise Exception("gdown download failed (None returned)")
 
         except Exception as e_gdown:
-            print(f"gdown thất bại: {e_gdown}")
-            error_str = str(e_gdown).lower()
+            print(f"gdown báo lỗi: {e_gdown}")
             
-            # Nếu gặp lỗi Quota/Permission -> Chuyển sang API
-            if "too many users" in error_str or "denied" in error_str or "permission" in error_str or "failed" in error_str:
-                
-                progress_queue.put(("status", "Link quá tải. Chuyển sang tải bằng API Google..."))
-                
-                file_id = extract_gdrive_id_from_url(file_url)
-                if not file_id:
-                    raise Exception(f"Không lấy được ID từ link: {file_url}")
-                    
-                # CÁCH 2: Tải bằng API (Fix lỗi NoneType ở đây)
-                try:
-                    # target_path_to_use giờ đã chắc chắn là string hợp lệ
-                    download_via_api_logic(file_id, target_path_to_use)
-                except Exception as e_api:
-                    # CÁCH 3: Mở trình duyệt
-                    msg_err = ""
-                    if "Cần đăng nhập" in str(e_api):
-                        msg_err = "File quá tải. Vui lòng Đăng nhập Drive ở Tab 3 rồi thử lại."
-                    else:
-                        msg_err = f"Lỗi tải file API: {e_api}"
-                    
-                    progress_queue.put(("download_complete", {"success": False, "title": "Lỗi Tải", "message": msg_err + "\n\nApp sẽ mở trình duyệt để bạn tải thủ công."}))
-                    webbrowser.open(file_url)
-                    raise Exception("Đã chuyển hướng sang trình duyệt.")
+            # --- [FIX QUAN TRỌNG] KIỂM TRA FILE LẦN CUỐI TRƯỚC KHI FALLBACK ---
+            # Nếu file đã tồn tại và dung lượng > 1MB, nghĩa là gdown đã tải xong rồi mới error.
+            # Lúc này ta coi như thành công, KHÔNG chuyển sang Cách 2.
+            if os.path.exists(target_path_to_use) and os.path.getsize(target_path_to_use) > 1024 * 1024:
+                print("--> Phát hiện file đã tải thành công dù gdown báo lỗi. Bỏ qua tải lại bằng API.")
+                # Không làm gì cả, để code chạy tiếp xuống phần giải nén
             else:
-                raise e_gdown
+                # Nếu file chưa có hoặc lỗi thật sự -> Mới chuyển sang API
+                error_str = str(e_gdown).lower()
+                
+                # Nếu gặp lỗi Quota/Permission -> Chuyển sang API
+                if "too many users" in error_str or "denied" in error_str or "permission" in error_str or "failed" in error_str:
+                    
+                    progress_queue.put(("status", "Link quá tải. Chuyển sang tải bằng API Google..."))
+                    
+                    file_id = extract_gdrive_id_from_url(file_url)
+                    if not file_id:
+                        raise Exception(f"Không lấy được ID từ link: {file_url}")
+                        
+                    # CÁCH 2: Tải bằng API
+                    try:
+                        download_via_api_logic(file_id, target_path_to_use)
+                    except Exception as e_api:
+                        # CÁCH 3: Mở trình duyệt
+                        msg_err = ""
+                        if "Cần đăng nhập" in str(e_api):
+                            msg_err = "File quá tải. Vui lòng Đăng nhập Drive ở Tab 3 rồi thử lại."
+                        else:
+                            msg_err = f"Lỗi tải file API: {e_api}"
+                        
+                        progress_queue.put(("download_complete", {"success": False, "title": "Lỗi Tải", "message": msg_err + "\n\nApp sẽ mở trình duyệt để bạn tải thủ công."}))
+                        webbrowser.open(file_url)
+                        raise Exception("Đã chuyển hướng sang trình duyệt.")
+                else:
+                    raise e_gdown
 
         # --- KẾT THÚC TẢI ---
 
@@ -2198,13 +2250,6 @@ def download_and_extract_logic():
 
         elif file_type == "zip" or file_type == "rar":
             temp_archive_path = os.path.join(os.environ['TEMP'], f"my_temp_download.{file_type}")
-
-            if os.path.exists(temp_archive_path):
-                try: os.remove(temp_archive_path)
-                except OSError as e: print(f"Cảnh báo: Không thể xóa file tạm cũ {temp_archive_path}: {e}")
-
-            progress_queue.put(("status", "Bắt đầu tải file..."))
-            gdown.download(file_url, temp_archive_path, quiet=False)
 
             # --- THAY THẾ: Logic Xóa bằng Logic Sao lưu ---
             if g_backup_enabled.get():
@@ -6357,363 +6402,676 @@ if __name__ == '__main__':
 
     # --- SỬA: Tạo UI cho Tab 2 ("Upload Config") ---
     second_tab_frame = ttk.Frame(notebook, padding=(10, 10))
-    notebook.add(second_tab_frame, text="Thêm/Xóa Option Tải")
+    notebook.add(second_tab_frame, text=" Quản Lý Option Tải ") # Đổi tên cho chuyên nghiệp
 
     # --- Variables ---
-    current_config_data = {} # Dictionary để giữ config đang sửa
-    current_github_sha = None # SHA của file đã tải từ GitHub
+    current_config_data = {} 
+    current_github_sha = None 
     g_currently_selected_id = None
-    g_game_theme_sha = None # BIẾN MỚI: SHA cho file game_themes.json
+    g_game_theme_sha = None
     g_master_game_list = []
     g_search_timer = None
     g_theme_manager_window = None
-    # --- Frames ---
-    top_button_frame = ttk.Frame(second_tab_frame)
-    top_button_frame.pack(fill=tk.X, pady=(0, 10))
-    middle_frame = ttk.Frame(second_tab_frame)
-    middle_frame.pack(fill=tk.BOTH, expand=True)
-    tree_frame = ttk.Frame(middle_frame)
-    tree_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-    edit_form_frame = ttk.LabelFrame(middle_frame, text="Thêm/Sửa Option", padding=(10, 5))
-    edit_form_frame.pack(side=tk.RIGHT, fill=tk.Y)
-    bottom_status_frame = ttk.Frame(second_tab_frame)
-    bottom_status_frame.pack(fill=tk.X, pady=(10, 0))
 
-    # --- Treeview Setup ---
+    # --- Layout Chính: Chia làm 2 cột (Trái: List, Phải: Form Editor) ---
+    # PanedWindow giúp người dùng kéo thả kích thước 2 bên
+    paned_window = ttk.PanedWindow(second_tab_frame, orient=tk.HORIZONTAL)
+    paned_window.pack(fill=tk.BOTH, expand=True)
+
+    # Khung Trái (Danh sách Option)
+    left_pane = ttk.Frame(paned_window)
+    paned_window.add(left_pane, weight=1)
+
+    # Khung Phải (Form Nhập liệu)
+    right_pane = ttk.Frame(paned_window)
+    paned_window.add(right_pane, weight=2) # Form rộng hơn list
+
+    # ==========================
+    # 1. CỘT TRÁI: DANH SÁCH
+    # ==========================
+    
+    # Toolbar trên cùng của cột trái
+    left_toolbar = ttk.Frame(left_pane)
+    left_toolbar.pack(fill=tk.X, pady=(0, 5))
+    
+    ttk.Label(left_toolbar, text="Danh sách Option", font=("Segoe UI", 10, "bold")).pack(side=tk.LEFT)
+
+    # Treeview
+    tree_frame = ttk.Frame(left_pane)
+    tree_frame.pack(fill=tk.BOTH, expand=True)
+
     tree_scrollbar = ttk.Scrollbar(tree_frame)
     tree_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-    cols = ("ID", "Option Name", "Version", "Type", "Game")
-    options_treeview = ttk.Treeview(tree_frame, columns=cols, show='headings', yscrollcommand=tree_scrollbar.set, height=15)
+    
+    # Chỉ hiện Tên và Game để tiết kiệm diện tích, các thông tin khác xem bên phải
+    cols = ("ID", "Name", "Game") 
+    options_treeview = ttk.Treeview(tree_frame, columns=cols, show='headings', yscrollcommand=tree_scrollbar.set, selectmode="browse")
     options_treeview.pack(expand=True, fill=tk.BOTH)
-    move_button_frame = ttk.Frame(tree_frame)
-    move_button_frame.pack(fill=tk.X, pady=5)
-
-    # (Chúng ta sẽ thêm 'command' ở bước 3)
-    move_up_button = ttk.Button(move_button_frame, text="▲ Di chuyển Lên",
-                                command=lambda: action_move_option("up"))
-    move_up_button.pack(side=tk.LEFT, padx=5, expand=True)
-
-    move_down_button = ttk.Button(move_button_frame, text="▼ Di chuyển Xuống",
-                                command=lambda: action_move_option("down"))
-    move_down_button.pack(side=tk.LEFT, padx=5, expand=True)
     tree_scrollbar.config(command=options_treeview.yview)
-    for col in cols:
-        options_treeview.heading(col, text=col)
-        options_treeview.column(col, width=100, anchor=tk.W)
-    options_treeview.column("ID", width=40, anchor=tk.CENTER, stretch=tk.NO)
-    options_treeview.column("Option Name", width=180)
-    options_treeview.column("Version", width=100)
-    options_treeview.column("Type", width=70)
-    options_treeview.column("Game", width=120)
 
-    # --- Edit Form Setup ---
+    options_treeview.heading("ID", text="ID")
+    options_treeview.heading("Name", text="Tên Option")
+    options_treeview.heading("Game", text="Game")
+    
+    options_treeview.column("ID", width=40, anchor=tk.CENTER, stretch=tk.NO)
+    options_treeview.column("Name", width=150, anchor=tk.W)
+    options_treeview.column("Game", width=100, anchor=tk.W)
+
+    # Nút Di chuyển (Floating nhỏ gọn bên dưới)
+    move_btn_frame = ttk.Frame(left_pane)
+    move_btn_frame.pack(fill=tk.X, pady=5)
+    
+    ttk.Button(move_btn_frame, text="▲", width=3, command=lambda: action_move_option("up")).pack(side=tk.LEFT, padx=2, expand=True, fill=tk.X)
+    ttk.Button(move_btn_frame, text="▼", width=3, command=lambda: action_move_option("down")).pack(side=tk.LEFT, padx=2, expand=True, fill=tk.X)
+
+    # ==========================
+    # 2. CỘT PHẢI: FORM EDITOR HIỆN ĐẠI
+    # ==========================
+    
+    # Container cho Form (có scrollbar phòng khi màn hình bé)
+    form_canvas = tk.Canvas(right_pane, highlightthickness=0)
+    form_scrollbar = ttk.Scrollbar(right_pane, orient="vertical", command=form_canvas.yview)
+    
+    # Frame chứa nội dung thực sự
+    edit_form_frame = ttk.Frame(form_canvas)
+
+    form_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    form_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    
+    # --- [FIX QUAN TRỌNG] ---
+    # Tạo window và LƯU ID lại để dùng sau
+    form_window_id = form_canvas.create_window((0, 0), window=edit_form_frame, anchor="nw")
+
+    # Hàm 1: Khi nội dung thay đổi chiều cao -> Cập nhật thanh cuộn dọc
+    def on_frame_configure(event):
+        form_canvas.configure(scrollregion=form_canvas.bbox("all"))
+
+    # Hàm 2: Khi Canvas thay đổi chiều rộng -> Ép nội dung co giãn theo
+    def on_canvas_configure(event):
+        # Lấy chiều rộng hiện tại của canvas
+        canvas_width = event.width
+        # Set chiều rộng của edit_form_frame bằng chiều rộng canvas
+        form_canvas.itemconfig(form_window_id, width=canvas_width)
+
+    edit_form_frame.bind("<Configure>", on_frame_configure)
+    form_canvas.bind("<Configure>", on_canvas_configure)
+
+    # --- Header Form ---
+    header_form_frame = ttk.Frame(edit_form_frame, padding=10)
+    header_form_frame.pack(fill=tk.X)
+    
+    form_title_label = ttk.Label(header_form_frame, text="✨ Thêm / Sửa Option", font=("Segoe UI", 12, "bold"), foreground="#4cc2ff")
+    form_title_label.pack(side=tk.LEFT)
+    
+    # Nút Clear Form
+    ttk.Button(header_form_frame, text="Làm mới (Tạo mới)", command=lambda: clear_form()).pack(side=tk.RIGHT)
+
     form_widgets = {}
-    def create_form_row(parent, label_text, widget_type="Entry", options=None):
-        row = ttk.Frame(parent)
-        row.pack(fill=tk.X, pady=2)
-        label = ttk.Label(row, text=label_text, width=15, anchor=tk.W)
-        label.pack(side=tk.LEFT)
-        if widget_type == "Entry": widget = ttk.Entry(row)
+    def action_move_option(direction):
+        """Di chuyển thứ tự option lên/xuống."""
+        global current_config_data
+        selected_items = options_treeview.selection()
+        if not selected_items: return
+
+        selected_key = selected_items[0]
+        items_list = list(current_config_data.items())
+        
+        # Tìm index hiện tại
+        curr_idx = -1
+        for i, (k, v) in enumerate(items_list):
+            if k == selected_key:
+                curr_idx = i
+                break
+        
+        if curr_idx == -1: return
+
+        # Tính index mới
+        new_idx = curr_idx - 1 if direction == "up" else curr_idx + 1
+        
+        if 0 <= new_idx < len(items_list):
+            # Hoán đổi
+            items_list[curr_idx], items_list[new_idx] = items_list[new_idx], items_list[curr_idx]
+            current_config_data = dict(items_list)
+            
+            # Refresh UI
+            populate_treeview()
+            options_treeview.selection_set(selected_key)
+            options_treeview.see(selected_key)
+            upload_status_label.config(text="Đã thay đổi thứ tự. Nhớ 'Upload Config' để lưu!", foreground="#ffcc00")
+
+    def open_game_theme_manager():
+        """Mở cửa sổ modal để Thêm/Xóa game theme."""
+        global g_theme_manager_window, g_theme_listbox, g_theme_name_entry, g_theme_url_entry
+
+        if g_theme_manager_window is not None:
+            try: g_theme_manager_window.destroy()
+            except: pass
+
+        g_theme_manager_window = tk.Toplevel(root)
+        g_theme_manager_window.title("Quản lý Game Theme")
+        center_window_on_screen(g_theme_manager_window, 600, 400)
+        g_theme_manager_window.transient(root)
+        g_theme_manager_window.grab_set()
+
+        main_frame = ttk.Frame(g_theme_manager_window, padding=10)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Cột trái: Danh sách
+        list_frame = ttk.LabelFrame(main_frame, text="Game Themes Hiện tại")
+        list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+
+        list_scroll = ttk.Scrollbar(list_frame, orient="vertical")
+        list_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        g_theme_listbox = tk.Listbox(list_frame, yscrollcommand=list_scroll.set)
+        g_theme_listbox.pack(fill=tk.BOTH, expand=True)
+        list_scroll.config(command=g_theme_listbox.yview)
+
+        # Điền vào listbox
+        populate_theme_listbox()
+
+        # Cột phải: Form
+        form_frame = ttk.Frame(main_frame, width=250)
+        form_frame.pack(side=tk.LEFT, fill=tk.Y)
+
+        # Form Thêm
+        add_frame = ttk.LabelFrame(form_frame, text="Thêm Game Mới")
+        add_frame.pack(fill=tk.X)
+
+        ttk.Label(add_frame, text="Tên Game:").pack(anchor=tk.W, padx=5, pady=(5,0))
+        g_theme_name_entry = ttk.Entry(add_frame)
+        g_theme_name_entry.pack(fill=tk.X, padx=5, pady=5)
+
+        ttk.Label(add_frame, text="URL Hình ảnh:").pack(anchor=tk.W, padx=5, pady=(5,0))
+        g_theme_url_entry = ttk.Entry(add_frame)
+        g_theme_url_entry.pack(fill=tk.X, padx=5, pady=5)
+
+        add_button = ttk.Button(add_frame, text="Thêm Mới", 
+                                style="Accent.TButton",
+                                command=action_add_game_theme)
+        add_button.pack(pady=10, padx=5)
+
+        # Form Xóa
+        delete_frame = ttk.LabelFrame(form_frame, text="Xóa Game")
+        delete_frame.pack(fill=tk.X, pady=20)
+
+        delete_button = ttk.Button(delete_frame, text="Xóa Game Đã Chọn",
+                                style="Danger.TButton",
+                                command=action_delete_game_theme)
+        delete_button.pack(pady=10, padx=5)
+
+    def action_add_update_option():
+        """Lấy dữ liệu từ Form Hiện Đại và Lưu vào Config."""
+        global current_config_data, g_currently_selected_id
+
+        # 1. Lấy dữ liệu từ Form Widgets
+        name = form_widgets["Option Name:"].get().strip()
+        url_raw = form_widgets["URL:"].get().strip()
+        game = form_widgets["Game:"].get().strip()
+        ver = form_widgets["Version:"].get().strip()
+        f_type = form_widgets["Type:"].get()
+        launch_file = form_widgets["Launch File:"].get().strip()
+        pwd = form_widgets["Password:"].get().strip()
+        
+        # Lấy Text (multiline)
+        guide = form_widgets["Path Guide:"].get("1.0", tk.END).strip()
+        del_list_raw = form_widgets["Delete List:"].get("1.0", tk.END).strip()
+        del_list = [line.strip() for line in del_list_raw.splitlines() if line.strip()]
+
+        # Validate
+        if not name:
+            custom_showwarning("Thiếu Tên", "Vui lòng nhập Tên Option.")
+            return
+        if not game:
+            custom_showwarning("Thiếu Game", "Vui lòng chọn hoặc nhập tên Game.")
+            return
+
+        # Xử lý URL Drive
+        final_url = url_raw
+        if url_raw and "drive.google.com" not in url_raw and "/" not in url_raw:
+             # Giả sử người dùng nhập ID
+             final_url = f"https://drive.google.com/uc?id={url_raw}"
+
+        # Tạo dict data
+        new_data = {
+            "name": name,
+            "url": final_url,
+            "version": ver,
+            "game": game,
+            "type": f_type,
+            "password": pwd if pwd else None,
+            "launch_file": launch_file if launch_file else None,
+            "path_guide": guide if guide else None,
+            "delete_before_extract": del_list
+        }
+
+        # 2. Lưu vào dict chính
+        target_key = None
+        if g_currently_selected_id:
+            # Update
+            target_key = g_currently_selected_id
+            current_config_data[target_key] = new_data
+            upload_status_label.config(text=f"Đã cập nhật: {name}", foreground="green")
+        else:
+            # Add New (Tìm ID lớn nhất + 1)
+            max_id = 0
+            for k in current_config_data:
+                if k.isdigit(): max_id = max(max_id, int(k))
+            target_key = str(max_id + 1)
+            current_config_data[target_key] = new_data
+            upload_status_label.config(text=f"Đã thêm mới: {name} (ID: {target_key})", foreground="green")
+
+        # 3. Refresh
+        populate_treeview()
+        # Select lại item vừa làm
+        options_treeview.selection_set(target_key)
+        options_treeview.see(target_key)
+    
+    def action_delete_option():
+        global current_config_data
+        sel = options_treeview.selection()
+        if not sel: return
+        
+        key = sel[0]
+        name = current_config_data.get(key, {}).get("name", "Unknown")
+        
+        if custom_askyesno("Xóa Option", f"Bạn chắc chắn muốn xóa: {name}?"):
+            del current_config_data[key]
+            clear_form()
+            populate_treeview()
+            upload_status_label.config(text=f"Đã xóa: {name}", foreground="red")
+
+    def action_load_from_github_wrapper():
+        # Wrapper gọi hàm load logic chính (đã có ở phần tab 2 cũ)
+        # Vì bạn đang thay thế UI, ta cần đảm bảo logic load vẫn chạy
+        # Gọi lại hàm load_from_github_wrapper gốc hoặc viết lại logic gọi hàm load_json
+        # Ở đây tôi viết lại logic kết nối UI mới:
+        
+        global current_config_data, current_github_sha
+        repo = get_github_repo()
+        if not repo: return
+        
+        content, sha = load_json_from_github_api(repo)
+        if content:
+            current_config_data = json.loads(content)
+            current_github_sha = sha
+            populate_treeview()
+            clear_form()
+            upload_status_label.config(text="Đã tải Config mới nhất từ GitHub.", foreground="#4cc2ff")
+            
+            # Refresh cả game list cho combobox
+            update_game_combobox_list()
+
+    def action_upload_to_github_wrapper():
+        global current_config_data, current_github_sha
+        if not current_config_data: return
+        
+        repo = get_github_repo()
+        if not repo: return
+        
+        # Hỏi PIN
+        pin = custom_askstring("Bảo Mật", "Nhập mã PIN Admin để upload:", show="*")
+        if pin != "2408": 
+            custom_showerror("Sai PIN", "Sai mã PIN.")
+            return
+
+        success, new_sha = upload_json_to_github(repo, current_config_data, current_github_sha)
+        if success:
+            if new_sha: current_github_sha = new_sha
+            upload_status_label.config(text="Upload thành công! Dữ liệu đã an toàn.", foreground="green")
+
+    def update_game_combobox_list():
+        """Cập nhật Dropdown Game từ cả 2 nguồn: Config Option và Config Theme."""
+        global g_game_themes, current_config_data
+        
+        # 1. Lấy game từ các Option hiện có
+        games = set()
+        if current_config_data:
+            for v in current_config_data.values():
+                if isinstance(v, dict) and "game" in v: 
+                    games.add(v["game"])
+
+        # 2. [FIX QUAN TRỌNG] Gộp thêm game từ danh sách Theme (g_game_themes)
+        # Đây là phần bị thiếu khiến danh sách của bạn bị ngắn
+        if 'g_game_themes' in globals() and g_game_themes:
+            games.update(g_game_themes.keys())
+
+        # 3. Sắp xếp và cập nhật vào Widget
+        sorted_games = sorted(list(games))
+        
+        if "Game:" in form_widgets:
+            form_widgets["Game:"].config(values=sorted_games)
+            
+            # Nếu danh sách không rỗng và chưa chọn gì, chọn cái đầu tiên hoặc giữ nguyên
+            current_val = form_widgets["Game:"].get()
+            if not current_val and sorted_games:
+                # form_widgets["Game:"].current(0) # Tùy chọn: Tự động chọn cái đầu
+                pass
+
+    # --- Hàm Helper tạo Input Group ---
+    def create_modern_input(parent, label_text, widget_key, widget_type="Entry", options=None, height=1):
+        frame = ttk.Frame(parent, padding=(10, 5))
+        frame.pack(fill=tk.X)
+        
+        ttk.Label(frame, text=label_text, style="secondary.TLabel").pack(anchor=tk.W)
+        
+        widget = None
+        if widget_type == "Entry":
+            widget = ttk.Entry(frame)
         elif widget_type == "Combobox":
-            widget = ttk.Combobox(row, values=options, state="readonly")
+            widget = ttk.Combobox(frame, values=options, state="readonly")
             if options: widget.set(options[0])
         elif widget_type == "Text":
-            widget = tk.Text(row, height=3, width=20, wrap="word", relief=tk.SUNKEN, borderwidth=1) # Dùng tk.Text
-            txt_scroll = ttk.Scrollbar(row, orient="vertical", command=widget.yview)
-            widget['yscrollcommand'] = txt_scroll.set
-            txt_scroll.pack(side=tk.RIGHT, fill=tk.Y) # Pack scrollbar trước
-        widget.pack(side=tk.LEFT, expand=True, fill=tk.X) # Pack widget sau
-        form_widgets[label_text] = widget
-        return widget
+            widget = tk.Text(frame, height=height, wrap="word", relief=tk.FLAT, bg="#2b2b2b", fg="white", insertbackground="white", padx=5, pady=5)
+            # Viền giả
+            border_frame = ttk.Frame(frame, style="Card.TFrame") # Giả sử có style Card
+            widget.pack(fill=tk.X, pady=2)
+            
+        if widget_type != "Text":
+            widget.pack(fill=tk.X, pady=2)
+            
+        form_widgets[widget_key] = widget
+        return frame, widget
 
-    create_form_row(edit_form_frame, "Option Name:")
-    create_form_row(edit_form_frame, "URL:")
-    create_form_row(edit_form_frame, "Version:")
-    create_form_row(edit_form_frame, "Type:", widget_type="Combobox", options=["zip", "rar", "exe"])
-    # --- THÊM MỚI: TẠO GAME COMBOBOX (Dropdown) ---
-    row_game = ttk.Frame(edit_form_frame)
-    row_game.pack(fill=tk.X, pady=2)
-    label_game = ttk.Label(row_game, text="Game:", width=15, anchor=tk.W)
-    label_game.pack(side=tk.LEFT)
+    # --- NHÓM 1: THÔNG TIN CƠ BẢN (Card Layout) ---
+    basic_info_frame = ttk.LabelFrame(edit_form_frame, text="📁 Thông tin File & Nguồn", padding=10)
+    basic_info_frame.pack(fill=tk.X, padx=10, pady=5)
 
-    # Tạo Combobox (không "readonly" để cho phép gõ tên mới)
+    # Hàng 1: URL + Nút chọn Drive + Nút Paste
+    url_container = ttk.Frame(basic_info_frame)
+    url_container.pack(fill=tk.X, pady=5)
+    ttk.Label(url_container, text="URL / File ID:", style="secondary.TLabel").pack(anchor=tk.W)
+    
+    url_row = ttk.Frame(url_container)
+    url_row.pack(fill=tk.X)
+    
+    url_entry = ttk.Entry(url_row)
+    url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    form_widgets["URL:"] = url_entry
+
+    def action_smart_paste():
+        try:
+            content = root.clipboard_get().strip()
+            # Trích xuất ID nếu là link drive
+            file_id = extract_gdrive_id_from_url(content)
+            if file_id:
+                url_entry.delete(0, tk.END)
+                url_entry.insert(0, file_id)
+                custom_showinfo("Smart Paste", "Đã trích xuất ID từ link Drive!")
+            else:
+                url_entry.delete(0, tk.END)
+                url_entry.insert(0, content)
+        except: pass
+
+    def open_drive_picker_modal():
+        """Mở popup chọn file từ Drive (dùng dữ liệu cache từ Tab 3)."""
+        if not hasattr(root, 'drive_icon_zip'): # Check nếu resource chưa load
+             custom_showerror("Lỗi", "Vui lòng tải danh sách file ở Tab 3 trước.")
+             return
+
+        picker = tk.Toplevel(root)
+        picker.title("Chọn File từ Drive")
+        center_window_on_screen(picker, 500, 400)
+        picker.transient(root)
+        picker.grab_set()
+        
+        # Tiêu đề
+        ttk.Label(picker, text="Click đúp vào file để chọn:", font=("Segoe UI", 10, "bold")).pack(pady=10)
+
+        # Listbox
+        list_frame = ttk.Frame(picker, padding=10)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+        
+        scrollbar = ttk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        lb = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, font=("Segoe UI", 10))
+        lb.pack(fill=tk.BOTH, expand=True)
+        scrollbar.config(command=lb.yview)
+
+        # Lấy data từ Tab 3 (biến global files trong drive_refresh_thread)
+        # Chúng ta cần truy cập biến `drive_icon_content_frame` để lấy data (hơi hacky nhưng nhanh)
+        # Cách tốt hơn: Lưu data vào biến global khi refresh
+        
+        # Ta sẽ dùng biến `drive_service` để lấy lại list nhanh nếu cache ko có
+        # Nhưng để đơn giản, ta giả sử user đã load Tab 3.
+        # Nếu chưa, ta sẽ gọi refresh_drive_file_list_thread và bắt sự kiện.
+        # Ở đây ta sẽ dùng logic đơn giản:
+        
+        file_map = {} # Map index -> file info
+
+        def load_list():
+            try:
+                # Gọi API trực tiếp cho chắc ăn
+                if not drive_service:
+                    lb.insert(tk.END, "Lỗi: Chưa đăng nhập Drive (Tab 3).")
+                    return
+
+                files = drive_service.files().list(
+                    q=f"'{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false",
+                    fields='files(id, name)', orderBy='name').execute().get('files', [])
+                
+                for idx, f in enumerate(files):
+                    lb.insert(tk.END, f"📄 {f['name']}")
+                    file_map[idx] = f
+            except Exception as e:
+                lb.insert(tk.END, f"Lỗi tải: {e}")
+
+        threading.Thread(target=load_list, daemon=True).start()
+
+        def on_select(event=None):
+            selection = lb.curselection()
+            if not selection: return
+            idx = selection[0]
+            if idx in file_map:
+                f = file_map[idx]
+                
+                # --- AUTO FILL LOGIC ---
+                # 1. Fill ID
+                url_entry.delete(0, tk.END)
+                url_entry.insert(0, f['id'])
+                
+                # 2. Fill Name (Auto Clean)
+                clean_name = os.path.splitext(f['name'])[0] # Bỏ đuôi
+                clean_name = clean_name.replace("_", " ").replace("-", " ")
+                form_widgets["Option Name:"].delete(0, tk.END)
+                form_widgets["Option Name:"].insert(0, clean_name)
+                
+                # 3. Detect Type
+                ext = os.path.splitext(f['name'])[1].lower()
+                if ".zip" in ext: form_widgets["Type:"].set("zip")
+                elif ".rar" in ext: form_widgets["Type:"].set("rar")
+                elif ".exe" in ext: form_widgets["Type:"].set("exe")
+                
+                picker.destroy()
+                custom_showinfo("Auto-Fill", f"Đã điền thông tin từ file:\n{f['name']}")
+
+        lb.bind("<Double-Button-1>", on_select)
+        ttk.Button(picker, text="Chọn File Này", command=on_select, style="Accent.TButton").pack(pady=10)
+
+
+    ttk.Button(url_row, text="📋 Paste", width=8, command=action_smart_paste).pack(side=tk.RIGHT, padx=2)
+    ttk.Button(url_row, text="🔍 Chọn từ Drive", command=open_drive_picker_modal, style="Accent.TButton").pack(side=tk.RIGHT, padx=2)
+    
+    # Hàng 2: Tên Option & Version
+    row2 = ttk.Frame(basic_info_frame)
+    row2.pack(fill=tk.X)
+    
+    # Tên Option (chiếm 70%)
+    f_name, w_name = create_modern_input(row2, "Tên Hiển Thị (Option Name):", "Option Name:")
+    f_name.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    
+    # Version (chiếm 30%)
+    f_ver, w_ver = create_modern_input(row2, "Version:", "Version:")
+    f_ver.pack(side=tk.LEFT, fill=tk.X) # Không expand
+    w_ver.config(width=10)
+
+    # Hàng 3: Game & Type
+    row3 = ttk.Frame(basic_info_frame)
+    row3.pack(fill=tk.X)
+    
+    # --- Game Combobox (Kèm nút thêm nhanh) ---
+    game_frame = ttk.Frame(row3, padding=(10, 5))
+    game_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    
+    ttk.Label(game_frame, text="Game:", style="secondary.TLabel").pack(anchor=tk.W)
+    
+    # Tạo một frame con để chứa Combobox và Nút nằm ngang hàng
+    game_input_group = ttk.Frame(game_frame)
+    game_input_group.pack(fill=tk.X, pady=2)
+
     global g_admin_game_combobox
-    g_admin_game_combobox = ttk.Combobox(row_game, values=[], state="normal")
-    g_admin_game_combobox.pack(side=tk.LEFT, expand=True, fill=tk.X)
+    g_admin_game_combobox = ttk.Combobox(game_input_group, values=[], state="normal")
+    g_admin_game_combobox.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    
+    # Nút Thêm Game (+)
+    btn_add_game_theme = ttk.Button(game_input_group, text="➕", width=3, 
+                                  command=open_game_theme_manager, style="Accent.TButton")
+    btn_add_game_theme.pack(side=tk.LEFT, padx=(5, 0))
+    CreateToolTip(btn_add_game_theme, "Mở Quản lý Game (Thêm/Xóa tên Game trong danh sách)")
+
+    # Bindings cho Combobox
     g_admin_game_combobox.bind("<<ComboboxSelected>>", lambda e: on_game_combobox_select(e))
     g_admin_game_combobox.bind("<KeyRelease>", lambda e: on_game_combobox_search(e))
     g_admin_game_combobox.bind("<FocusOut>", lambda e: on_game_combobox_validate(e))
-    # Lưu nó vào form_widgets để các hàm khác có thể dùng
+    
     form_widgets["Game:"] = g_admin_game_combobox
-    create_form_row(edit_form_frame, "Password:")
-    create_form_row(edit_form_frame, "Delete List:", widget_type="Text")
-    delete_help = ttk.Label(edit_form_frame, text="(Nhập file/folder, mỗi cái một dòng)", style="secondary.TLabel")
-    delete_help.pack(fill=tk.X)
 
-    create_form_row(edit_form_frame, "Path Guide:", widget_type="Text")
-    guide_help = ttk.Label(edit_form_frame, text="(Hướng dẫn chọn đường dẫn cho Tab 1)", style="secondary.TLabel")
-    guide_help.pack(fill=tk.X)
-    create_form_row(edit_form_frame, "Launch File:") # <-- ĐỔI KEY
-    exe_help = ttk.Label(edit_form_frame, text="(Tên file, ví dụ: run.bat, game.exe)", style="secondary.TLabel") # <-- ĐỔI TEXT
-    exe_help.pack(fill=tk.X)
-    form_button_frame = ttk.Frame(edit_form_frame)
-    form_button_frame.pack(pady=10)
-    add_update_button = ttk.Button(form_button_frame, text="Thêm / Cập nhật", style="Accent.TButton")
-    add_update_button.pack(side=tk.LEFT, padx=5)
-    clear_button = ttk.Button(form_button_frame, text="Xóa Hết")
-    clear_button.pack(side=tk.LEFT, padx=5)
+    # --- Type Combobox ---
+    f_type, w_type = create_modern_input(row3, "Loại File:", "Type:", "Combobox", options=["zip", "rar", "exe"])
+    f_type.pack(side=tk.LEFT, padx=(5, 0))
+    w_type.config(width=8)
 
-    # --- Bottom Status ---
-    upload_status_label = ttk.Label(bottom_status_frame, text="Tải Config để bắt đầu")
-    upload_status_label.pack(side=tk.LEFT)
+    # --- NHÓM 2: CẤU HÌNH CÀI ĐẶT (Card Layout) ---
+    install_config_frame = ttk.LabelFrame(edit_form_frame, text="⚙️ Cấu Hình Cài Đặt", padding=10)
+    install_config_frame.pack(fill=tk.X, padx=10, pady=10)
+    
+    # Launch File & Password
+    row4 = ttk.Frame(install_config_frame)
+    row4.pack(fill=tk.X)
+    
+    f_launch, w_launch = create_modern_input(row4, "File Khởi Chạy (.exe):", "Launch File:")
+    f_launch.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    CreateToolTip(w_launch, "Tên file exe game (vd: EldenRing.exe).\nDùng để kiểm tra và kích hoạt nút 'Chạy Game'.")
 
-    # --- Treeview Functions ---
+    f_pass, w_pass = create_modern_input(row4, "Mật khẩu giải nén (nếu có):", "Password:")
+    f_pass.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
+
+    # Path Guide
+    create_modern_input(install_config_frame, "Hướng dẫn (Hiện ở Tab 1):", "Path Guide:", "Text", height=2)
+
+    # Delete List
+    create_modern_input(install_config_frame, "Xóa file cũ trước khi cài (Mỗi dòng 1 file/folder):", "Delete List:", "Text", height=3)
+
+    # --- ACTION BUTTONS ---
+    action_btn_frame = ttk.Frame(edit_form_frame, padding=20)
+    action_btn_frame.pack(fill=tk.X)
+
+    add_update_button = ttk.Button(action_btn_frame, text="✅ Lưu / Cập Nhật Option", command=action_add_update_option, style="Accent.TButton")
+    add_update_button.pack(side=tk.RIGHT, padx=5)
+    
+    delete_option_btn = ttk.Button(action_btn_frame, text="🗑️ Xóa Option", command=action_delete_option, style="Danger.TButton")
+    delete_option_btn.pack(side=tk.RIGHT, padx=5)
+
+    # --- FOOTER: Status & Global Actions ---
+    bottom_status_frame = ttk.Frame(second_tab_frame)
+    bottom_status_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
+    # Thanh trạng thái riêng cho Tab 2
+    upload_status_label = ttk.Label(bottom_status_frame, text="Sẵn sàng.", anchor=tk.W)
+    upload_status_label.pack(side=tk.BOTTOM, fill=tk.X, pady=5, padx=10)
+
+    # Global Actions (Tải Config / Upload Config)
+    # Tái sử dụng frame bottom_status_frame đã tạo ở ngoài
+    global_actions_frame = ttk.Frame(bottom_status_frame)
+    global_actions_frame.pack(side=tk.TOP, fill=tk.X, pady=5)
+    
+    ttk.Button(global_actions_frame, text="☁️ Tải Config (GitHub)", command=action_load_from_github_wrapper).pack(side=tk.LEFT, padx=5)
+    ttk.Button(global_actions_frame, text="💾 Upload Config (GitHub)", command=action_upload_to_github_wrapper, style="Accent.TButton").pack(side=tk.RIGHT, padx=5)
+    
+    # --- LOGIC GẮN KẾT TREEVIEW VÀ FORM (Giữ nguyên logic cũ nhưng cập nhật widget reference) ---
     def populate_treeview():
         options_treeview.delete(*options_treeview.get_children())
         if not current_config_data: return
         for key, data in current_config_data.items():
-            if key == "updater":
-                continue
-            options_treeview.insert("", tk.END, iid=key, values=(
-                (key, data.get("name", "LỖI: THIẾU TÊN"), data.get("version", ""), 
-                    data.get("type", "zip"), data.get("game", "Khác"))
-            ))
+            if key == "updater": continue
+            # Chỉ hiển thị ID, Tên, Game trong bảng
+            options_treeview.insert("", tk.END, iid=key, values=(key, data.get("name", "??"), data.get("game", "Khác")))
 
     def on_treeview_select(event):
-        """Fills the form when an item in the treeview is selected."""
+        """Điền dữ liệu vào Form Hiện Đại"""
         selected_items = options_treeview.selection()
         if not selected_items:
-            clear_form() # Clear form if selection is removed
+            clear_form()
             return
 
-        selected_key = selected_items[0] # Get the item ID (which is the option key)
-
+        selected_key = selected_items[0]
         global g_currently_selected_id
         g_currently_selected_id = selected_key
 
         if selected_key in current_config_data:
             data = current_config_data[selected_key]
+            
+            # Cập nhật tiêu đề
+            form_title_label.config(text=f"✏️ Đang sửa: {data.get('name')} (ID: {selected_key})")
+            
+            # Fill Basic Info
             form_widgets["Option Name:"].delete(0, tk.END)
             form_widgets["Option Name:"].insert(0, data.get("name") or "")
 
-            # --- SỬA LOGIC HIỂN THỊ URL ---
+            # URL Logic (Giữ nguyên)
             url_entry = form_widgets["URL:"]
             url_entry.delete(0, tk.END)
             stored_url = data.get("url", "")
-            # Check if it's a Google Drive direct link
             gdrive_prefix = "https://drive.google.com/uc?id="
             if stored_url.startswith(gdrive_prefix):
-                # Extract and display only the ID
                 file_id = stored_url[len(gdrive_prefix):]
                 url_entry.insert(0, file_id)
             else:
-                # Display the full URL if it's not a GDrive link
                 url_entry.insert(0, stored_url)
-            # --- HẾT SỬA ---
-            form_widgets["Game:"].set("")
-            form_widgets["Game:"].insert(0, data.get("game") or "Khác")
+
             form_widgets["Version:"].delete(0, tk.END)
             form_widgets["Version:"].insert(0, data.get("version") or "")
+            
+            form_widgets["Game:"].set("")
+            form_widgets["Game:"].insert(0, data.get("game") or "Khác")
+            
             form_widgets["Type:"].set(data.get("type", "zip"))
-            form_widgets["Password:"].delete(0, tk.END)
-            form_widgets["Password:"].insert(0, data.get("password", "") or "") # Insert empty string if None/null
-
-            delete_list_widget = form_widgets["Delete List:"]
-            delete_list_widget.config(state=tk.NORMAL) # Allow editing
-            delete_list_widget.delete("1.0", tk.END)
-            delete_items = data.get("delete_before_extract", [])
-            if delete_items:
-                delete_list_widget.insert("1.0", "\n".join(delete_items))
             
-            guide_widget = form_widgets["Path Guide:"]
-            guide_widget.config(state=tk.NORMAL)
-            guide_widget.delete("1.0", tk.END)
-            guide_text = data.get("path_guide") # Lấy giá trị, có thể là None
-            if guide_text: # Chỉ chèn nếu guide_text không phải None và không rỗng
-                guide_widget.insert("1.0", guide_text)
-            
+            # Fill Install Config
             form_widgets["Launch File:"].delete(0, tk.END)
             form_widgets["Launch File:"].insert(0, data.get("launch_file") or "")
+            
+            form_widgets["Password:"].delete(0, tk.END)
+            form_widgets["Password:"].insert(0, data.get("password") or "")
+
+            # Text Widgets
+            guide_widget = form_widgets["Path Guide:"]
+            guide_widget.delete("1.0", tk.END)
+            if data.get("path_guide"): guide_widget.insert("1.0", data.get("path_guide"))
+
+            delete_list_widget = form_widgets["Delete List:"]
+            delete_list_widget.delete("1.0", tk.END)
+            delete_items = data.get("delete_before_extract", [])
+            if delete_items: delete_list_widget.insert("1.0", "\n".join(delete_items))
 
     options_treeview.bind('<<TreeviewSelect>>', on_treeview_select)
 
-    # --- Form Button Functions ---
     def clear_form():
         global g_currently_selected_id
         g_currently_selected_id = None
+        form_title_label.config(text="✨ Thêm Option Mới")
+        
+        # Xóa nội dung tất cả widget
         form_widgets["Option Name:"].delete(0, tk.END)
         form_widgets["URL:"].delete(0, tk.END)
-        form_widgets["Game:"].delete(0, tk.END)
         form_widgets["Version:"].delete(0, tk.END)
+        form_widgets["Game:"].set("") # Hoặc set về default
         form_widgets["Type:"].set("zip")
-        form_widgets["Password:"].delete(0, tk.END)
-        form_widgets["Delete List:"].config(state=tk.NORMAL)
-        form_widgets["Delete List:"].delete("1.0", tk.END)
-        form_widgets["Path Guide:"].config(state=tk.NORMAL)
-        form_widgets["Path Guide:"].delete("1.0", tk.END)
         form_widgets["Launch File:"].delete(0, tk.END)
+        form_widgets["Password:"].delete(0, tk.END)
+        form_widgets["Path Guide:"].delete("1.0", tk.END)
+        form_widgets["Delete List:"].delete("1.0", tk.END)
+        
         options_treeview.selection_remove(options_treeview.selection())
-
-    def action_add_update_option():
-        """(ĐÃ VIẾT LẠI) Thêm hoặc Cập nhật option dựa trên ID."""
-        global current_config_data, g_currently_selected_id
-
-        # 1. Lấy tất cả dữ liệu từ form (như cũ)
-        option_name_display = form_widgets["Option Name:"].get().strip() # Đây là "name"
-        if not option_name_display:
-            custom_showwarning("Thiếu tên", "Vui lòng nhập 'Option Name'.")
-            return
-        if option_name_display.lower() == "updater":
-            custom_showerror("Tên Bị Cấm", "Bạn không thể đặt tên 'updater'")
-            return
-
-        url_input = form_widgets["URL:"].get().strip()
-        final_url = url_input
-        if url_input and "/" not in url_input and ":" not in url_input and "drive.google.com" not in url_input:
-            final_url = f"https://drive.google.com/uc?id={url_input}"
-
-        game_name = form_widgets["Game:"].get().strip()
-        if not game_name:
-            custom_showerror("Thiếu Game", "Bạn phải chọn một Game từ dropdown.")
-            return
-        if game_name == "Thêm Game...":
-            custom_showerror("Thiếu Game", 
-                                "Bạn đã chọn 'Thêm Game...' nhưng chưa thêm game nào.\n\n"
-                                "Vui lòng chọn một game đã tồn tại, hoặc thêm game mới.")
-            return
-        version = form_widgets["Version:"].get().strip()
-        option_type = form_widgets["Type:"].get()
-        password = form_widgets["Password:"].get().strip()
-        delete_list_raw = form_widgets["Delete List:"].get("1.0", tk.END).strip()
-        delete_list = [line.strip() for line in delete_list_raw.splitlines() if line.strip()]
-        path_guide_text = form_widgets["Path Guide:"].get("1.0", tk.END).strip()
-        launch_file_name = form_widgets["Launch File:"].get().strip()
-        # 2. Tạo đối tượng data (Giờ 'name' ở bên trong)
-        new_data = {
-            "name": option_name_display, # <-- TÊN MỚI Ở ĐÂY
-            "url": final_url,
-            "version": version,
-            "game": game_name if game_name else "Khác",
-            "type": option_type,
-            "password": password if password else None, 
-            "delete_before_extract": delete_list,
-            "path_guide": path_guide_text if path_guide_text else None,
-            "launch_file": launch_file_name if launch_file_name else None
-        }
-
-        # --- 3. LOGIC MỚI: KIỂM TRA UPDATE HAY LÀ ADD ---
-        target_key = None
-
-        if g_currently_selected_id:
-            # --- CHẾ ĐỘ UPDATE ---
-            # (Đang chọn 1 item trong list)
-            target_key = g_currently_selected_id
-            print(f"Đang cập nhật ID: {target_key}")
-            current_config_data[target_key] = new_data
-        else:
-            # --- CHẾ ĐỘ THÊM MỚI ---
-            # (Không chọn item nào, hoặc bấm "Xóa Hết")
-
-            # Kiểm tra xem tên này đã tồn tại chưa
-            for k, v in current_config_data.items():
-                if v.get("name") == option_name_display:
-                    custom_showwarning("Trùng Tên", f"Tên '{option_name_display}' đã tồn tại (với ID {k}).\nNếu bạn muốn SỬA nó, hãy click vào nó trong danh sách.")
-                    return
-
-            # Tìm ID mới (số lớn nhất + 1)
-            new_id = 0
-            for key_str in current_config_data.keys():
-                if key_str.isdigit(): # Chỉ kiểm tra các key là số
-                    new_id = max(new_id, int(key_str))
-
-            target_key = str(new_id + 1) # Key mới (dạng string)
-            print(f"Đang thêm mới với ID: {target_key}")
-            current_config_data[target_key] = new_data
-
-        # --- HẾT LOGIC MỚI ---
-
-        populate_treeview() # Refresh
-
-        # Select và focus vào item
-        if target_key:
-            options_treeview.selection_set(target_key)
-            options_treeview.focus(target_key)
-
-        upload_status_label.config(text=f"'{option_name_display}' (ID: {target_key}) đã được thêm/cập nhật.", style="White.TLabel")
-
-    def action_delete_option():
-        global current_config_data
-        selected_items = options_treeview.selection()
-        if not selected_items:
-            custom_showwarning("Chưa chọn", "Vui lòng chọn một option trong danh sách để xóa.")
-            return
-        selected_key = selected_items[0] # Đây là ID (ví dụ: "1")
-
-        # --- SỬA: Lấy tên để hiển thị ---
-        option_name_display = current_config_data.get(selected_key, {}).get("name", selected_key)
-
-        if custom_askyesno("Xác nhận xóa", f"Bạn có chắc chắn muốn xóa option '{option_name_display}' (ID: {selected_key})?"):
-            if selected_key in current_config_data:
-                del current_config_data[selected_key]
-                populate_treeview()
-                clear_form()
-                upload_status_label.config(text=f"'{option_name_display}' đã được xóa cục bộ.", foreground="red")
-            else: custom_showerror("Lỗi", "Option đã chọn không còn tồn tại?")
-
-    # --- THÊM MỚI: HÀM DI CHUYỂN ITEM ---
-    def action_move_option(direction):
-        """Di chuyển item đã chọn lên hoặc xuống trong danh sách."""
-        global current_config_data
-
-        selected_items = options_treeview.selection()
-        if not selected_items:
-            custom_showwarning("Chưa chọn", "Vui lòng chọn một option để di chuyển.")
-            return
-
-        selected_key = selected_items[0] # Đây là ID (ví dụ: "2")
-
-        # Chuyển dict thành list (để giữ trật tự)
-        items_list = list(current_config_data.items())
-
-        # Tìm vị trí (index) của item đã chọn
-        current_index = -1
-        for i, (key, data) in enumerate(items_list):
-            if key == selected_key:
-                current_index = i
-                break
-
-        if current_index == -1:
-            print(f"Lỗi: Không tìm thấy key {selected_key} trong list")
-            return # Không tìm thấy (lỗi)
-
-        # Tính vị trí mới
-        if direction == "up":
-            new_index = current_index - 1
-            if new_index < 0:
-                print("Đã ở trên cùng")
-                return # Đã ở trên cùng
-        else: # "down"
-            new_index = current_index + 1
-            if new_index >= len(items_list):
-                print("Đã ở dưới cùng")
-                return # Đã ở dưới cùng
-
-        # Di chuyển item
-        item_to_move = items_list.pop(current_index)
-        items_list.insert(new_index, item_to_move)
-
-        # Tạo lại dictionary (đã sắp xếp lại)
-        # (Dùng dict() sẽ giữ trật tự chèn (insertion order) trong Python 3.7+)
-        current_config_data = dict(items_list)
-
-        # Cập nhật UI
-        populate_treeview()
-
-        # Chọn lại item vừa di chuyển
-        options_treeview.selection_set(selected_key)
-        options_treeview.focus(selected_key)
-
-        upload_status_label.config(text="Đã thay đổi thứ tự. (Nhớ 'Lưu Config')")
 
     # --- THÊM MỚI: HÀM LOGIC SEARCH (DEBOUNCED) ---
     def do_game_search():
@@ -6779,65 +7137,7 @@ if __name__ == '__main__':
             # Xóa lựa chọn "Thêm Game..."
             g_admin_game_combobox.set("")
 
-    def open_game_theme_manager():
-        """Mở cửa sổ modal để Thêm/Xóa game theme."""
-        global g_theme_manager_window, g_theme_listbox, g_theme_name_entry, g_theme_url_entry
-
-        if g_theme_manager_window is not None:
-            try: g_theme_manager_window.destroy()
-            except: pass
-
-        g_theme_manager_window = tk.Toplevel(root)
-        g_theme_manager_window.title("Quản lý Game Theme")
-        g_theme_manager_window.geometry("600x400")
-        g_theme_manager_window.transient(root)
-        g_theme_manager_window.grab_set()
-
-        main_frame = ttk.Frame(g_theme_manager_window, padding=10)
-        main_frame.pack(fill=tk.BOTH, expand=True)
-
-        # Cột trái: Danh sách
-        list_frame = ttk.LabelFrame(main_frame, text="Game Themes Hiện tại")
-        list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-
-        list_scroll = ttk.Scrollbar(list_frame, orient="vertical")
-        list_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        g_theme_listbox = tk.Listbox(list_frame, yscrollcommand=list_scroll.set)
-        g_theme_listbox.pack(fill=tk.BOTH, expand=True)
-        list_scroll.config(command=g_theme_listbox.yview)
-
-        # Điền vào listbox
-        populate_theme_listbox()
-
-        # Cột phải: Form
-        form_frame = ttk.Frame(main_frame, width=250)
-        form_frame.pack(side=tk.LEFT, fill=tk.Y)
-
-        # Form Thêm
-        add_frame = ttk.LabelFrame(form_frame, text="Thêm Game Mới")
-        add_frame.pack(fill=tk.X)
-
-        ttk.Label(add_frame, text="Tên Game:").pack(anchor=tk.W, padx=5, pady=(5,0))
-        g_theme_name_entry = ttk.Entry(add_frame)
-        g_theme_name_entry.pack(fill=tk.X, padx=5, pady=5)
-
-        ttk.Label(add_frame, text="URL Hình ảnh:").pack(anchor=tk.W, padx=5, pady=(5,0))
-        g_theme_url_entry = ttk.Entry(add_frame)
-        g_theme_url_entry.pack(fill=tk.X, padx=5, pady=5)
-
-        add_button = ttk.Button(add_frame, text="Thêm Mới", 
-                                style="Accent.TButton",
-                                command=action_add_game_theme)
-        add_button.pack(pady=10, padx=5)
-
-        # Form Xóa
-        delete_frame = ttk.LabelFrame(form_frame, text="Xóa Game")
-        delete_frame.pack(fill=tk.X, pady=20)
-
-        delete_button = ttk.Button(delete_frame, text="Xóa Game Đã Chọn",
-                                style="Danger.TButton",
-                                command=action_delete_game_theme)
-        delete_button.pack(pady=10, padx=5)
+    
 
     def populate_theme_listbox():
         """Làm mới Listbox trong modal."""
@@ -6907,100 +7207,6 @@ if __name__ == '__main__':
 
 
     add_update_button.config(command=action_add_update_option)
-    clear_button.config(command=clear_form)
-
-    # --- Top Button Functions ---
-    def action_load_from_github_wrapper():
-        """(ĐÃ SỬA) Tải cả config Mod và config Theme VÀ CẢ 2 SHA."""
-        global current_config_data, current_github_sha, g_game_themes, g_game_theme_sha
-        upload_status_label.config(text="Đang tải từ GitHub...", style="White.TLabel")
-        root.update_idletasks()
-
-        repo = get_github_repo()
-        if not repo:
-            upload_status_label.config(text="Lỗi kết nối repo.", foreground="red")
-            return
-
-        # 1. Tải Config Mod (như cũ)
-        json_content, sha = load_json_from_github_api(repo)
-
-        # 2. Tải Config Theme (MỚI)
-        theme_content, theme_sha = load_theme_json_from_github_api(repo)
-
-        # 3. Xử lý Config Theme
-        if theme_content and theme_sha:
-            try:
-                g_game_themes = json.loads(theme_content)
-                g_game_theme_sha = theme_sha # <-- LƯU SHA THEME
-
-                global g_master_game_list
-                g_master_game_list = sorted(list(g_game_themes.keys())) # Lưu gốc
-
-                game_list_with_add = g_master_game_list + ["Thêm Game..."] 
-                g_admin_game_combobox['values'] = game_list_with_add
-            except Exception as e:
-                custom_showerror("Lỗi", f"Lỗi đọc file game_themes.json: {e}")
-                g_game_themes = {}
-                g_admin_game_combobox['values'] = ["Thêm Game..."]
-        else:
-            g_game_themes = {}
-            g_admin_game_combobox['values'] = ["Thêm Game..."]
-
-        # 4. Xử lý Config Mod (như cũ)
-        if json_content is not None and sha is not None:
-            try:
-                current_config_data = json.loads(json_content)
-                current_github_sha = sha # <-- LƯU SHA MOD
-                populate_treeview()
-                clear_form()
-                upload_status_label.config(text="Đã tải config từ database", foreground="green")
-            except Exception as e:
-                custom_showerror("Lỗi", f"Lỗi không xác định khi xử lý JSON: {e}")
-                upload_status_label.config(text="Lỗi xử lý JSON.", foreground="red")
-        else:
-            upload_status_label.config(text="Tải JSON từ GitHub thất bại.", foreground="red")
-            current_config_data = {}; current_github_sha = None; populate_treeview()
-
-    def action_upload_to_github_wrapper():
-        global current_github_sha
-        if not current_config_data:
-            custom_showwarning("Chưa có dữ liệu", "Không có dữ liệu config để upload.")
-            return
-        if current_github_sha is None:
-            custom_showwarning("Thiếu SHA", "Vui lòng 'Tải Config' trước khi upload.")
-            return
-        repo = get_github_repo()
-        if not repo: return
-        if custom_askyesno("Xác nhận Cập Nhật", "Bạn có chắc chắn muốn ghi đè file config bằng dữ liệu hiện tại?"):
-            entered_pin = custom_askstring("Xác nhận PIN", "Nhập mã PIN quản trị:", show='*')
-            correct_pin = "2408" # Mã PIN cứng
-
-            if entered_pin != correct_pin:
-                custom_showerror("Sai PIN", "Mã PIN không chính xác. Đã hủy upload.")
-                return # Dừng nếu PIN sai
-            upload_status_label.config(text="Đang upload lên GitHub...", style="White.TLabel")
-            root.update_idletasks()
-            success, new_sha = upload_json_to_github(repo, current_config_data, current_github_sha)
-            if success:
-                if new_sha:
-                    current_github_sha = new_sha
-                    upload_status_label.config(text="Upload thành công!", foreground="green")
-                else:
-                    current_github_sha = None
-                    upload_status_label.config(text="Upload thành công! (Nên tải lại config)", style="White.TLabel") # Dùng style
-            else:
-                upload_status_label.config(text="Upload thất bại.", foreground="red") # Dùng style
-
-    # --- Create Top Buttons ---
-    load_button_top = ttk.Button(top_button_frame, text="Tải Config (Làm mới)", command=action_load_from_github_wrapper)
-    load_button_top.pack(side=tk.LEFT, padx=5)
-    delete_button_top = ttk.Button(top_button_frame, text="Xóa Option Đã Chọn", command=action_delete_option)
-    delete_button_top.pack(side=tk.LEFT, padx=5)
-    upload_button_top = ttk.Button(top_button_frame, text="Lưu Config", command=action_upload_to_github_wrapper, style="Accent.TButton")
-    upload_button_top.pack(side=tk.LEFT, padx=5)
-    # --- Hết phần sửa cho Tab 2 ---
-
-    upload_button_top.pack(side=tk.LEFT, padx=5)
     # --- Hết phần sửa cho Tab 2 ---
 
 
