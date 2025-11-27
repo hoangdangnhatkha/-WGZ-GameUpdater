@@ -1,68 +1,165 @@
 # Save this file as 'CapNhatNightReignMod_Ui.py'
 import sys
 import os
+if sys.platform == "win32":
+    class NullWriter:
+        def write(self, data): pass
+        def flush(self): pass
+        def fileno(self): return -1
+        def reconfigure(self, *args, **kwargs): pass
+    # Gán đè ngay lập tức nếu chúng không tồn tại (chế độ --windowed)
+    if sys.stdin is None: sys.stdin = NullWriter()
+    if sys.stdout is None: sys.stdout = NullWriter()
+    if sys.stderr is None: sys.stderr = NullWriter()
 import tkinter as tk
 import tkinter.ttk as ttk
 from PIL import Image, ImageTk
 from tkinterdnd2 import DND_FILES, TkinterDnD
 import ctypes
+import io
+import platform
+import shutil
+import zipfile
+import pyperclip
+import threading
+import webview
+import queue
+import gdown
+
+
+
+from google.auth.transport.requests import AuthorizedSession
+from tkinter import filedialog, messagebox, simpledialog # Added simpledialog
+import pyautogui
+import pygetwindow as gw
+import re
+import io
+import requests
+import json
+import rarfile
+import winreg
+import winshell  # <-- THÊM MỚI
+import glob
+import pythoncom
+import pywinstyles
+import sv_ttk
+import hashlib
+# --- THÊM IMPORT CHO GITHUB ---
+import github
+from github import Github, InputGitAuthor, GithubException
+import base64
+import time
+import math
+import multiprocessing
+from datetime import datetime
+import concurrent.futures
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload, MediaIoBaseUpload
+from PIL import Image, ImageTk, ImageGrab, ImageDraw
+import random # Đảm bảo đã có random
+import httplib2 
+from google_auth_httplib2 import AuthorizedHttp
+import webbrowser
+from packaging import version
+import subprocess
+import winsound
+
+if sys.platform.startswith('win'):
+    import io
+    if sys.stdout and hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+    if sys.stderr and hasattr(sys.stderr, 'reconfigure'):
+        sys.stderr.reconfigure(encoding='utf-8')
+
+if sys.platform == "win32":
+    class NullWriter:
+        def write(self, data): pass
+        def flush(self): pass
+        
+    if sys.stdin is None:
+        sys.stdin = NullWriter()
+    if sys.stdout is None:
+        sys.stdout = NullWriter()
+    if sys.stderr is None:
+        sys.stderr = NullWriter()
+
+global root
+root = None
 
 def enforce_admin_rights():
     """
-    Kiểm tra xem App có chạy quyền Admin không.
-    Nếu không -> Tự động khởi động lại App với quyền Admin (hiện bảng UAC).
-    Đã FIX: Lỗi crash do sai đường dẫn khi chạy file .py
+    Kiểm tra và yêu cầu quyền Admin.
+    Phiên bản Safe-Unicode: Chống crash khi đường dẫn có Tiếng Việt.
     """
     try:
-        # Kiểm tra quyền Admin hiện tại
-        is_admin = ctypes.windll.shell32.IsUserAnAdmin()
-        
+        # Kiểm tra quyền Admin
+        try:
+            is_admin = ctypes.windll.shell32.IsUserAnAdmin()
+        except:
+            is_admin = False
+
         if is_admin:
-            print("App đã có quyền Admin")
-            return True # Đã là Admin, chạy tiếp bình thường
-            
+            # Đã là admin -> Chạy tiếp
+            return True
         else:
-            print("App chưa có quyền Admin. Đang yêu cầu cấp quyền...")
+            # Chưa là admin -> Yêu cầu quyền
             
-            # Chuẩn bị đường dẫn và tham số
+            # Lấy đường dẫn file thực thi (EXE hoặc PY)
+            executable = sys.executable
+            
             if getattr(sys, 'frozen', False):
-                # Nếu đang chạy file .exe (đã đóng gói)
-                executable = sys.executable
-                params = ""
-                cwd = os.path.dirname(executable)
+                # Trường hợp chạy file .EXE
+                # Chúng ta dùng chính file exe làm target
+                target_exe = sys.executable
+                params = "" # Không cần tham số phụ cho exe
+                
+                # Lấy thư mục làm việc (quan trọng để load file config)
+                cwd = os.path.dirname(target_exe)
             else:
-                # Nếu đang chạy file .py (môi trường dev)
-                executable = sys.executable
-                
-                # QUAN TRỌNG: Chuyển đường dẫn script thành tuyệt đối (Absolute Path)
-                # Để khi Windows đổi thư mục về System32, nó vẫn tìm thấy file
+                # Trường hợp chạy file .PY (Dev)
+                target_exe = sys.executable
+                # Lấy đường dẫn script tuyệt đối
                 script_path = os.path.abspath(sys.argv[0])
-                args = sys.argv[1:]
-                
-                # Tạo lại chuỗi params với đường dẫn tuyệt đối
-                params = f'"{script_path}" ' + " ".join([f'"{arg}"' for arg in args])
-                
-                # Lấy thư mục hiện tại để truyền vào ShellExecute
-                cwd = os.getcwd()
+                # Bọc đường dẫn trong ngoặc kép để tránh lỗi khoảng trắng
+                params = f'"{script_path}"'
+                cwd = os.path.dirname(script_path)
+
+            print("Dang yeu cau quyen Admin (Re-launching)...")
             
-            # Gọi lệnh ShellExecute của Windows với verb 'runas'
-            # Tham số thứ 5 (cwd) RẤT QUAN TRỌNG: Đặt lại thư mục làm việc đúng chỗ cũ
-            ctypes.windll.shell32.ShellExecuteW(
+            # Sử dụng ShellExecuteW (W = Wide String = Hỗ trợ Unicode/Tiếng Việt)
+            ret = ctypes.windll.shell32.ShellExecuteW(
                 None, 
                 "runas", 
-                executable, 
+                target_exe, 
                 params, 
-                cwd, # <--- Fix: Truyền thư mục làm việc vào đây
+                cwd, 
                 1
             )
             
-            # Tắt instance hiện tại
-            sys.exit()
+            # Nếu người dùng bấm Yes (ret > 32), thoát app cũ
+            # Nếu bấm No hoặc lỗi, ret <= 32
+            if int(ret) > 32:
+                sys.exit(0)
+            else:
+                # Người dùng bấm No hoặc lỗi
+                return False
             
     except Exception as e:
-        print(f"Lỗi khi xin quyền Admin: {e}")
-        # Nếu lỗi (người dùng bấm No), hiện thông báo
-        custom_showerror("Cảnh Báo", "Ứng dụng cần quyền Admin để hoạt động ổn định.\nVui lòng khởi động lại và chọn 'Run as Administrator'.")
+        # Dùng try-except khi print lỗi để tránh crash chồng crash
+        try:
+            print(f"Loi khi xin quyen Admin: {e}")
+        except:
+            pass # Nếu print cũng lỗi thì bỏ qua luôn
+        
+        # Hiện popup báo lỗi (dùng tiếng Việt không dấu hoặc tiếng Anh để an toàn)
+        try:
+            ctypes.windll.user32.MessageBoxW(0, f"Khong the lay quyen Admin:\n{e}", "Loi Quyen", 0x10)
+        except: pass
+        
         return False
 
 ES_CONTINUOUS = 0x80000000
@@ -99,9 +196,7 @@ def prevent_system_sleep_and_boost_priority():
         print(f"Không thể set quyền ưu tiên: {e}")
 
 
-enforce_admin_rights()
 
-prevent_system_sleep_and_boost_priority()
 
 def center_window_on_screen(window, width, height):
     """Tính toán và đặt Toplevel (cửa sổ con) vào giữa màn hình."""
@@ -124,18 +219,23 @@ def center_window_on_screen(window, width, height):
 def _show_custom_dialog(title, message, dialog_type="info", parent=None):
     """
     Hàm lõi để hiển thị popup tùy chỉnh.
-    dialog_type: "info", "error", "warning", "yesno"
-    Trả về: True/False (cho yesno) hoặc None.
     """
+    # Use the passed parent, or the global root, or create a hidden temporary root if needed
+    current_parent = parent if parent else root
+    
+    if current_parent is None:
+        print("Error: Dialog called before root window created.")
+        return None
+
     # 1. Biến lưu kết quả
     result = [None]
     
     # 2. Tạo cửa sổ
-    dlg = tk.Toplevel(parent if parent else root)
+    dlg = tk.Toplevel(current_parent)
     dlg.title(title)
     
     # Kích thước & Căn giữa
-    w, h = 400, 200 # Kích thước mặc định rộng hơn xíu cho đẹp
+    w, h = 400, 250 # Kích thước mặc định rộng hơn xíu cho đẹp
     center_window_on_screen(dlg, w, h)
     
     dlg.transient(parent if parent else root)
@@ -230,19 +330,18 @@ def custom_askyesno(title, message, parent=None):
     return _show_custom_dialog(title, message, "yesno", parent)
 
 def custom_askstring(title, prompt, parent=None, show=None, initialvalue=None):
-    """
-    Thay thế hoàn toàn custom_askstring.
-    Hỗ trợ giao diện Dark Mode, Titlebar đen, và nút bấm Accent.
-    """
+    current_parent = parent if parent else root
+    if current_parent is None: return None
+
     # 1. Biến lưu kết quả
     result = [None]
     
     # 2. Tạo cửa sổ
-    dlg = tk.Toplevel(parent if parent else root)
+    dlg = tk.Toplevel(current_parent)
     dlg.title(title)
     
     # Kích thước & Căn giữa
-    w, h = 400, 180
+    w, h = 400, 210
     center_window_on_screen(dlg, w, h)
     
     dlg.transient(parent if parent else root)
@@ -313,108 +412,6 @@ def resource_path(relative_path):
         base_path = os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base_path, relative_path)
 # Thử tải logo cho splash (nếu lỗi thì bỏ qua)
-
-# --- Cài đặt cửa sổ Giao diện (UI) ---
-root = TkinterDnD.Tk()
-root.withdraw()
-# --- SPLASH SCREEN (BEGIN) ---
-if __name__ == '__main__':
-    splash = tk.Toplevel(root)
-    splash.title("Loading")
-
-    # Kích thước splash screen
-    splash_width = 350
-    splash_height = 200
-
-    center_window_on_screen(splash, splash_width, splash_height)
-
-    # Xóa viền cửa sổ
-    splash.overrideredirect(True) 
-
-    # Thêm style cho splash (dùng màu nền tối)
-    splash_style = ttk.Style()
-    splash_style.configure("Splash.TFrame", background="#2b2b2b")
-    splash_style.configure("Splash.TLabel", background="#2b2b2b", foreground="white", font=("Segoe UI", 10))
-    splash_style.configure("Splash.Header.TLabel", background="#2b2b2b", foreground="white", font=("Segoe UI", 14, "bold"))
-
-    # Dùng Frame để có thể thêm viền
-    splash_frame = ttk.Frame(splash, style="Splash.TFrame", borderwidth=1, relief="solid")
-    splash_frame.pack(fill=tk.BOTH, expand=True)
-
-    ttk.Label(splash_frame, text="WGZ Game Updater", style="Splash.Header.TLabel").pack(pady=(20, 10))
-    try:
-        # Giả sử bạn có file 'logo.png' trong resource
-        icon_path = resource_path("logo.png") 
-        splash_img = Image.open(icon_path).resize((50, 50), Image.Resampling.LANCZOS)
-        # Phải lưu lại, nếu không sẽ bị Python xóa mất
-        root.splash_logo_tk = ImageTk.PhotoImage(splash_img) 
-        ttk.Label(splash_frame, image=root.splash_logo_tk, style="Splash.TLabel").pack(pady=5)
-    except Exception as e:
-        print(f"Không thể tải logo cho splash (bỏ qua): {e}")
-
-    status_label_splash = ttk.Label(splash_frame, text="Đang khởi động core system...", style="Splash.TLabel")
-    status_label_splash.pack(pady=10)
-    splash.update()
-    root.update_idletasks()
-
-
-    status_label_splash.config(text="Đang tải thư viện: Google Drive & GitHub...")
-    splash.update()
-
-
-
-
-import io
-import platform
-import shutil
-import zipfile
-import pyperclip
-import threading
-import webview
-import queue
-import gdown
-
-
-
-from google.auth.transport.requests import AuthorizedSession
-from tkinter import filedialog, messagebox, simpledialog # Added simpledialog
-import pyautogui
-import pygetwindow as gw
-import re
-import io
-import requests
-import json
-import rarfile
-import winreg
-import winshell  # <-- THÊM MỚI
-import glob
-import pythoncom
-import pywinstyles
-import sv_ttk
-import hashlib
-# --- THÊM IMPORT CHO GITHUB ---
-import github
-from github import Github, InputGitAuthor, GithubException
-import base64
-import time
-import math
-import multiprocessing
-from datetime import datetime
-import concurrent.futures
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload, MediaIoBaseUpload
-from PIL import Image, ImageTk, ImageGrab, ImageDraw
-import random # Đảm bảo đã có random
-import httplib2 
-from google_auth_httplib2 import AuthorizedHttp
-import webbrowser
-from packaging import version
-import subprocess
-import winsound
 
 g_translator_process = None # Lưu trữ tiến trình đang chạy
 
@@ -2743,176 +2740,188 @@ def get_system_info_text():
     return "\n".join(info_text)
 
 def _process_run_gemini():
+    """
+    Tiến trình chạy Gemini AI (Phiên bản Hardcoded Cookie - Bảo mật hơn).
+    """
+    import sys
     import os
     import time
-    import sys
+    import traceback
+    import threading
+    import ctypes
+    import base64 # <--- Cần import cái này
+    
+    # --- 1. SINGLETON CHECK ---
+    kernel32 = ctypes.windll.kernel32
+    mutex_name = "WGZ_Gemini_Singleton_Mutex"
+    mutex = kernel32.CreateMutexA(None, False, mutex_name.encode("utf-8"))
+    if kernel32.GetLastError() == 183:
+        return
+    
+    # --- LOGGING ---
+    temp_dir = os.environ.get('TEMP', os.path.expanduser('~'))
+    log_path = os.path.join(temp_dir, "wgz_gemini_logic.txt")
 
-    # --- HÀM LẤY ĐƯỜNG DẪN FILE COOKIE ---
-    def get_cookie_file_path():
-        # Xác định thư mục chứa file chạy
-        if getattr(sys, 'frozen', False):
-            base_path = os.path.dirname(sys.executable)
-        else:
-            base_path = os.path.dirname(os.path.abspath(__file__))
-        return os.path.join(base_path, "gemini_cookie.txt")
-
-    # --- HÀM ĐỌC COOKIE TỪ FILE ---
-    def load_cookie_from_file():
-        cookie_path = get_cookie_file_path()
-        if os.path.exists(cookie_path):
-            try:
-                with open(cookie_path, "r", encoding="utf-8") as f:
-                    # Đọc và xóa khoảng trắng thừa
-                    return f.read().strip()
-            except:
-                return None
-        return None
-
-    # --- CẤU HÌNH USER AGENT ---
-    FAKE_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0'
-
-    # --- CẤU HÌNH PROFILE (VẪN GIỮ ĐỂ TỐI ƯU CHO MÁY CỤC BỘ) ---
-    app_data = os.getenv('APPDATA')
-    profile_path = os.path.join(app_data, "NightreignModUpdater", "webview_profile")
-    if not os.path.exists(profile_path):
-        try: os.makedirs(profile_path, exist_ok=True)
+    def log_debug(msg):
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                timestamp = time.strftime("%H:%M:%S")
+                f.write(f"[{timestamp}] {msg}\n")
         except: pass
 
-    def logic_handler(window):
-        # 1. Đọc cookie từ file text bên ngoài
-        loading_html = """
-            // 1. Đặt nền đen ngay lập tức
+    try: os.remove(log_path)
+    except: pass
+
+    log_debug(f"--- PROCESS STARTED (PID: {os.getpid()}) ---")
+
+    try:
+        import webview
+    except Exception as e:
+        log_debug(f"CRASH: Import webview error: {e}")
+        return
+
+    try:
+        # --- CẤU HÌNH ---
+        FAKE_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0'
+        app_data = os.getenv('APPDATA')
+        profile_path = os.path.join(app_data, "NightreignModUpdater", "webview_profile")
+        os.makedirs(profile_path, exist_ok=True)
+
+        # --- HTML LOADER ---
+        INITIAL_HTML = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body { background-color: #131314; color: #E3E3E3; display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: sans-serif; }
+                    .loader { width: 50px; height: 50px; border: 4px solid #444746; border-top: 4px solid #4D9CFF; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
+                    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                </style>
+            </head>
+            <body>
+                <div class="loader"></div>
+                <div style="font-size: 18px;">Đang kết nối Gemini AI...</div>
+            </body>
+            </html>
+        """
+
+        # --- JS GHI ĐÈ ---
+        OVERRIDE_JS = """
             document.documentElement.style.backgroundColor = "#131314";
-            document.body.style.backgroundColor = "#131314";
-            
-            // 2. Xóa sạch nội dung trang Google
-            document.body.innerHTML = ''; 
-            
-            // 3. Chèn giao diện Loading vào
-            var loader = document.createElement('div');
-            loader.innerHTML = `
-                <div style="
-                    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-                    display: flex; flex-direction: column;
-                    justify-content: center; align-items: center;
-                    background-color: #131314; color: #E3E3E3;
-                    font-family: 'Segoe UI', sans-serif; z-index: 999999;
-                ">
-                    <div style="
-                        width: 50px; height: 50px;
-                        border: 4px solid #444746;
-                        border-top: 4px solid #4D9CFF; /* Màu xanh Gemini */
-                        border-radius: 50%;
-                        animation: spin 1s linear infinite;
-                        margin-bottom: 20px;
-                    "></div>
-                    <div style="font-size: 20px; font-weight: 500;">Đang khởi động Gemini AI...</div>
-                    <div style="font-size: 14px; color: #888; margin-top: 10px;">Đang xác thực cookie...</div>
-                    <style>
-                        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-                    </style>
-                </div>
-            `;
-            document.body.appendChild(loader);
-        """
-        # Chạy ngay lập tức!
-        window.evaluate_js(loading_html)
-        time.sleep(1.0)
-        window.show()
-        external_cookie = load_cookie_from_file()
-        
-        if external_cookie:
-            print(f"Tìm thấy file cookie! Đang xử lý...")
-            time.sleep(1)
-            
-            # --- [MỚI] BƯỚC 1: XÓA SẠCH COOKIE CŨ ---
-            # Chạy lệnh này để xóa toàn bộ cookie hiện có trên domain google.com
-            window.evaluate_js("""
-                var cookies = document.cookie.split(";");
-                for (var i = 0; i < cookies.length; i++) {
-                    var cookie = cookies[i];
-                    var eqPos = cookie.indexOf("=");
-                    var name = eqPos > -1 ? cookie.substr(0, eqPos) : cookie;
-                    document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.google.com";
-                    document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=google.com";
-                }
-            """)
-            print("Đã dọn dẹp cookie cũ.")
-            time.sleep(0.5) # Nghỉ một chút cho trình duyệt xử lý
-            
-            # --- BƯỚC 2: TIÊM COOKIE MỚI (Như cũ) ---
-            cookie_list = external_cookie.split(';')
-            for cookie in cookie_list:
-                if "=" in cookie:
-                    js_code = f"document.cookie = '{cookie.strip()}; path=/; domain=.google.com; Secure; SameSite=None';"
-                    window.evaluate_js(js_code)
-            
-            print("Đã tiêm cookie mới thành công.")
-            window.load_url("https://gemini.google.com/app")
-        else:
-            print("Không tìm thấy file gemini_cookie.txt. Sử dụng profile cũ hoặc yêu cầu đăng nhập.")
-            # Nếu không có file, vẫn vào Gemini (hy vọng Profile cũ còn sống)
-            window.load_url("https://gemini.google.com/app")
+            while(document.body.firstChild) { document.body.removeChild(document.body.firstChild); }
+            document.body.style.cssText = "background-color: #131314; margin: 0; height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; font-family: sans-serif; color: #E3E3E3; overflow: hidden;";
 
-        # --- XỬ LÝ GIAO DIỆN (NHƯ CŨ) ---
-        time.sleep(4)
-        
-        # CSS Chặn click Avatar
-        css_killer = """
             var style = document.createElement('style');
-            var cssContent = `
-                a[href^="https://accounts.google.com"],
-                button[aria-label*="Google Account"],
-                button[aria-label*="Tài khoản Google"],
-                div[aria-label*="Google Account"],
-                div[aria-label*="Tài khoản Google"] {
-                    pointer-events: none !important;
-                    cursor: default !important;
-                }
-                img[src*="googleusercontent.com"],
-                img[alt*="Profile"],
-                img[class*="gb_"] { 
-                    opacity: 1 !important;
-                    display: inline-block !important;
-                    visibility: visible !important;
-                }
+            style.textContent = `
+                .loader { width: 50px; height: 50px; border: 4px solid #444746; border-top: 4px solid #4D9CFF; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
+                @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
             `;
-            style.appendChild(document.createTextNode(cssContent));
             document.head.appendChild(style);
+
+            var loaderDiv = document.createElement('div');
+            loaderDiv.className = 'loader';
+            var textDiv = document.createElement('div');
+            textDiv.style.fontSize = '18px';
+            textDiv.textContent = 'Đang xác kết nối với Gemini AI';
+            
+            document.body.appendChild(loaderDiv);
+            document.body.appendChild(textDiv);
         """
-        window.evaluate_js(css_killer)
+
+        # --- [QUAN TRỌNG] HÀM GIẢI MÃ COOKIE TỪ CODE ---
+        def get_embedded_cookie():
+            try:
+                # Dán chuỗi Base64 bạn vừa tạo ở Bước 1 vào đây:
+                encrypted_cookie = "X19TZWN1cmUtMVBTSUQ9Zy5hMDAwM3doMC1HOTV5WHkwajdQVGJKbUtGb3pmVDNzN2NPM28tTG8wX1k4NmhMcVVGTVpCbVkzaEQwRlBEZnR6ekM0M1hUcDY4Z0FDZ1lLQVRrU0FSQVNGUUhHWDJNaVpmV0UzV2tMYXZHZ3VZYTdwNzNFSVJvVkFVRjh5S3F2YWh6YWNjUlZIR01XQkxZaEdyNEMwMDc2OyBfX1NlY3VyZS0zUFNJRD1nLmEwMDAzd2gwLUc5NXlYeTBqN1BUYkptS0ZvemZUM3M3Y08zby1MbzBfWTg2aExxVUZNWkIyYlFmeTRlaDNjdVlkS2pwdkR6MFBnQUNnWUtBZjRTQVJBU0ZRSEdYMk1pWU9ydHREaWxPVlFIQ1FzbU9hU3hxUm9WQVVGOHlLbzBDYl9TRWk1WG10djVmX2hFcXhEODAwNzY=" 
+                
+                # Giải mã về dạng text thường để sử dụng
+                decoded_bytes = base64.b64decode(encrypted_cookie)
+                return decoded_bytes.decode("utf-8").strip()
+            except Exception as e:
+                log_debug(f"Cookie Decode Error: {e}")
+                return None
+
+        # --- LUỒNG ĐIỀU KHIỂN ---
+        def start_navigation(window):
+            time.sleep(1.5)
+            log_debug("Step 1: Navigating to robots.txt...")
+            window.load_url("https://www.google.com/robots.txt")
+
+        # --- XỬ LÝ SỰ KIỆN ---
+        def on_loaded(window):
+            try:
+                current_url = window.get_current_url()
+                log_debug(f"Event: Loaded -> {current_url}")
+
+                if "robots.txt" in current_url:
+                    log_debug("Step 2: Overriding UI...")
+                    window.evaluate_js(OVERRIDE_JS)
+                    time.sleep(1.0)
+                    window.show()
+                    # Lấy cookie từ hàm nội bộ thay vì đọc file
+                    external_cookie = get_embedded_cookie()
+                    
+                    if external_cookie:
+                        cookie_parts = external_cookie.split(';')
+                        for part in cookie_parts:
+                            if "=" in part:
+                                key, value = part.split('=', 1)
+                                js = f'document.cookie = "{key.strip()}={value.strip()}; domain=.google.com; path=/; Secure; SameSite=None";'
+                                window.evaluate_js(js)
+                    
+                    time.sleep(0.5)
+                    log_debug("Step 3: To Gemini...")
+                    window.load_url("https://gemini.google.com/app")
+
+                elif "gemini.google.com" in current_url:
+                    log_debug("Step 4: Gemini Loaded. Locking Avatar...")
+                    css_fix = """
+                        var style = document.createElement('style');
+                        style.textContent = `
+                            a[href^="https://accounts.google.com"],
+                            button[aria-label*="Google Account"],
+                            button[aria-label*="Tài khoản Google"],
+                            div[aria-label*="Google Account"],
+                            div[aria-label*="Tài khoản Google"] {
+                                pointer-events: none !important;
+                                cursor: default !important;
+                                opacity: 1 !important;
+                            }
+                        `;
+                        document.head.appendChild(style);
+                    """
+                    window.evaluate_js(css_fix)
+
+            except Exception as e:
+                log_debug(f"OnLoaded Error: {e}")
+
+        # --- KHỞI TẠO ---
+        log_debug("Creating Window...")
+        window = webview.create_window(
+            'Gemini AI PRO', 
+            html=INITIAL_HTML, 
+            width=1200, height=800, 
+            background_color='#131314',
+            hidden=True 
+        )
         
-        # Vòng lặp canh gác
-        keep_hiding_script = """
-            setInterval(function() {
-                var targets = document.querySelectorAll('button[aria-label*="Google Account"], button[aria-label*="Tài khoản Google"]');
-                targets.forEach(function(el) {
-                    el.style.pointerEvents = 'none';
-                    el.style.cursor = 'default';
-                    el.style.opacity = '1';
-                });
-            }, 2000);
-        """
-        window.evaluate_js(keep_hiding_script)
+        window.events.loaded += lambda: on_loaded(window)
 
-    # --- KHỞI TẠO CỬA SỔ ---
-    # Mở Google.com trước để có quyền tiêm cookie
-    window = webview.create_window(
-        'Gemini AI PRO', 
-        'https://google.com', 
-        width=1200, 
-        height=800,
-        hidden=True
-    )
-    
-    webview.start(
-        func=logic_handler, 
-        args=(window,), 
-        private_mode=False, 
-        storage_path=profile_path,
-        user_agent=FAKE_USER_AGENT
-    )
+        t = threading.Thread(target=start_navigation, args=(window,))
+        t.daemon = True
+        t.start()
 
+        webview.start(
+            private_mode=False, 
+            storage_path=profile_path,
+            user_agent=FAKE_USER_AGENT,
+            debug=False 
+        )
+
+    except Exception as e:
+        log_debug(f"MAIN CRASH: {e}")
+
+        
 def action_flush_dns():
     """Chạy lệnh ipconfig /flushdns để sửa lỗi kết nối mạng."""
     try:
@@ -4213,346 +4222,1252 @@ def apply_theme_to_titlebar(root_window):
 
 
 
-# Bắt buộc Tkinter phải vẽ splash screen ngay lập tức
-
-app_width = 1050
-app_height = 950
-
-# Lấy kích thước màn hình
-screen_width = root.winfo_screenwidth()
-screen_height = root.winfo_screenheight()
-
-# Tính toán vị trí x, y để căn giữa
-x = (screen_width // 2) - (app_width // 2)
-y = (screen_height // 2) - (app_height // 2)
-
-# Đặt kích thước VÀ vị trí cho cửa sổ
-root.geometry(f'{app_width}x{app_height}+{x}+{y}')
-root.minsize(800, 550)
-root.resizable(False,False)
-
-g_backup_enabled = tk.BooleanVar(value=local_config.get("backup_enabled", False))
-root.cached_images = {}
-# --- Định nghĩa Style ---
-
-style = ttk.Style()
-style.configure("Red.TLabel", foreground="red")
-style.configure("Green.TLabel", foreground="green")
-style.configure("White.TLabel", foreground="white") # Cho theme tối
-style.configure("New.TLabel", foreground="red", font=('TkDefaultFont', 9, 'bold'))
-style.configure("Green.TRadiobutton", foreground="green")
-style.configure("Installed.TLabel", foreground="green")
 
 
+# --- Chạy ứng dụng ---
+if __name__ == '__main__':
 
-try: rarfile.UNRAR_TOOL = resource_path("UnRAR.exe")
-except Exception as e: print(f"Lỗi nghiêm trọng: Không tìm thấy UnRAR.exe đã đóng gói: {e}")
-try:
-    icon_path = resource_path("logo.ico")
-    root.iconbitmap(icon_path)
-    root.iconbitmap(default=icon_path)
-except Exception as e: 
-    print(f"Lỗi khi tải icon: {e}")
+    if "--gemini" in sys.argv:
+        try:
+            _process_run_gemini()
+        except Exception as e:
+            # Ghi log lỗi ra file nếu cần vì không có console
+            with open("gemini_crash.log", "w") as f:
+                f.write(str(e))
+        sys.exit(0)
 
-# --- Tạo Notebook và Tab 1 ---
-notebook = ttk.Notebook(root, padding=(15, 15))
-notebook.pack(expand=True, fill="both")
-
-main_tab_frame = ttk.Frame(notebook, padding=(10, 10))
-notebook.add(main_tab_frame, text=" Tải/Cập Nhật Game ")
-
-# --- BẮT ĐẦU CODE CHO TAB 2 ("Quản lý Account") ---
-account_tab_frame = ttk.Frame(notebook, padding=(10, 10))
-# (Lưu ý: Dòng notebook.add() đã được di chuyển lên trên)
-notebook.add(account_tab_frame, text=" Share Acc Game ")
-# --- Biến Global cho Tab Account ---
-g_acct_current_page = None
-g_acct_page_1_grid = None
-g_acct_page_2_list = None
-g_acct_grid_container = None
-g_acct_list_treeview = None
-g_acct_current_game = None # Tên game đang xem
-
-
-g_user_accounts_data = {} 
-g_user_accounts_file_id = None
-g_accounts_loaded = False
-g_dynamic_account_buttons = []
-g_login_overlay_popup = None
-g_login_overlay_label = None
-g_accounts_data_loaded = False
-g_images_preloaded = False
-g_acct_has_unsaved_changes = False
-g_acct_page_2_save_btn = None
-# --- Hai trang (Frames) cho Tab Account ---
-g_acct_page_1_grid = ttk.Frame(account_tab_frame, padding=(10, 10))
-g_acct_page_1_grid.place(relx=0, rely=0, relwidth=1, relheight=1)
-
-g_tab2_loading_frame = ttk.Frame(g_acct_page_1_grid, name="tab2_loading_frame")
-g_tab2_loading_frame.pack(expand=True, anchor=tk.CENTER)
-        
-ttk.Label(g_tab2_loading_frame, text="Đang tải dữ liệu tài khoản...").pack(pady=5)
-tab2_loader = ttk.Progressbar(g_tab2_loading_frame, orient="horizontal", length=200, mode="indeterminate")
-tab2_loader.pack(pady=10)
-tab2_loader.start(10)
-
-g_acct_page_1_top_frame = ttk.Frame(g_acct_page_1_grid)
-g_acct_page_1_top_frame.pack(fill=tk.X, pady=(0, 10))
-        
-# --- DI CHUYỂN NÚT: "Thêm Account Mới" (từ Trang 2) ---
-g_acct_page_2_add_btn = ttk.Button(
-    g_acct_page_1_top_frame, # <-- THAY ĐỔI: Parent là g_acct_page_1_top_frame
-    text="➕ Thêm Account Mới", 
-    command=lambda: open_add_edit_account_popup(None), # None = Thêm mới
-    style="Accent.TButton"
-)
-g_acct_page_2_add_btn.pack(side=tk.RIGHT)
-
-g_acct_page_2_list = ttk.Frame(account_tab_frame, padding=(10, 10))
-g_acct_page_2_list.place(relx=1, rely=0, relwidth=1, relheight=1) # Ẩn bên phải
-
-g_acct_current_page = g_acct_page_1_grid
-
-def switch_account_page(page_to_show):
-    """Chuyển đổi giữa 2 trang (Grid và List) - Không animation."""
-    global g_acct_current_page
+    multiprocessing.freeze_support()
     
-    if g_acct_current_page == page_to_show:
-        return
+    if sys.platform.startswith('win'):
+        multiprocessing.set_executable(sys.executable)
+    if sys.stdout is None:
+        import io
+        sys.stdout = io.StringIO()
+        sys.stderr = io.StringIO()
+    try:
+        app_mutex_name = b"WGZ_GameUpdater_Singleton_Mutex"
+        g_singleton_lock = SingleInstance(app_mutex_name)
         
-    # Ẩn trang cũ
-    g_acct_current_page.place(relx=1, rely=0, relwidth=1, relheight=1)
+    except Exception as e:
+        print(f"Cảnh báo: Không thể tạo singleton mutex: {e}")
+    # --- Cài đặt cửa sổ Giao diện (UI) ---
+    enforce_admin_rights()
+
+    prevent_system_sleep_and_boost_priority()
     
-    # Hiện trang mới
-    page_to_show.place(relx=0, rely=0, relwidth=1, relheight=1)
-    
-    g_acct_current_page = page_to_show
+    root = TkinterDnD.Tk()
+    root.withdraw()
+    # --- SPLASH SCREEN (BEGIN) ---
+    splash = tk.Toplevel(root)
+    splash.title("Loading")
 
-# --- Trang 1: Lưới Game/Dịch vụ ---
+    # Kích thước splash screen
+    splash_width = 350
+    splash_height = 200
 
-# (Chúng ta sẽ tạo canvas và grid trong hàm populate)
+    center_window_on_screen(splash, splash_width, splash_height)
 
-# --- Trang 2: Danh sách Tài khoản ---
-g_acct_page_2_top_frame = ttk.Frame(g_acct_page_2_list)
-g_acct_page_2_top_frame.pack(fill=tk.X, pady=(0, 10))
+    # Xóa viền cửa sổ
+    splash.overrideredirect(True) 
 
-g_acct_page_2_back_btn = ttk.Button(
-    g_acct_page_2_top_frame, 
-    text="❮ Quay lại", 
-    command=lambda: switch_account_page(g_acct_page_1_grid)
-)
-g_acct_page_2_back_btn.pack(side=tk.LEFT)
+    # Thêm style cho splash (dùng màu nền tối)
+    splash_style = ttk.Style()
+    splash_style.configure("Splash.TFrame", background="#2b2b2b")
+    splash_style.configure("Splash.TLabel", background="#2b2b2b", foreground="white", font=("Segoe UI", 10))
+    splash_style.configure("Splash.Header.TLabel", background="#2b2b2b", foreground="white", font=("Segoe UI", 14, "bold"))
 
-global g_acct_save_status_label
-g_acct_save_status_label = ttk.Label(g_acct_page_1_top_frame, text="", anchor=tk.W)
-g_acct_save_status_label.pack(side=tk.LEFT, padx=5)
+    # Dùng Frame để có thể thêm viền
+    splash_frame = ttk.Frame(splash, style="Splash.TFrame", borderwidth=1, relief="solid")
+    splash_frame.pack(fill=tk.BOTH, expand=True)
 
-g_acct_page_2_add_btn_DUPLICATE = ttk.Button( # Đặt tên biến khác một chút
-    g_acct_page_2_top_frame, 
-    text="➕ Thêm Account Mới", 
-    command=lambda: open_add_edit_account_popup(None), # None = Thêm mới
-    style="Accent.TButton"
-)
+    ttk.Label(splash_frame, text="WGZ Game Updater", style="Splash.Header.TLabel").pack(pady=(20, 10))
+    try:
+        # Giả sử bạn có file 'logo.png' trong resource
+        icon_path = resource_path("logo.png") 
+        splash_img = Image.open(icon_path).resize((50, 50), Image.Resampling.LANCZOS)
+        # Phải lưu lại, nếu không sẽ bị Python xóa mất
+        root.splash_logo_tk = ImageTk.PhotoImage(splash_img) 
+        ttk.Label(splash_frame, image=root.splash_logo_tk, style="Splash.TLabel").pack(pady=5)
+    except Exception as e:
+        print(f"Không thể tải logo cho splash (bỏ qua): {e}")
 
-g_acct_page_2_save_btn = ttk.Button(
-    g_acct_page_1_top_frame,
-    text="💾 Lưu Thay Đổi",
-    command=save_accounts_to_drive_thread, # <-- Gọi thẳng hàm upload
-    style="Accent.TButton", # Nút "Lưu" sẽ là nút chính
-    state=tk.DISABLED # Bắt đầu ở trạng thái mờ
-)
-g_acct_page_2_save_btn.pack(side=tk.RIGHT, padx=(0, 5))
-g_acct_page_2_add_btn_DUPLICATE.pack(side=tk.RIGHT)
+    status_label_splash = ttk.Label(splash_frame, text="Đang khởi động core system...", style="Splash.TLabel")
+    status_label_splash.pack(pady=10)
+    splash.update()
 
-global g_acct_login_status_label
-g_acct_login_status_label = ttk.Label(g_acct_page_2_top_frame, text="", anchor=tk.CENTER)
-g_acct_login_status_label.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
+    # Bắt buộc Tkinter phải vẽ splash screen ngay lập tức
 
-# Khung Treeview (danh sách)
-# Khung chứa Canvas và Scrollbar
-g_acct_list_frame = ttk.LabelFrame(g_acct_page_2_list, text="Accounts đã lưu")
-g_acct_list_frame.pack(fill=tk.BOTH, expand=True)
+    app_width = 1050
+    app_height = 950
 
-# 1. Tạo Canvas và Scrollbar (giống Tab 1)
-g_acct_list_canvas = tk.Canvas(g_acct_list_frame, borderwidth=0, highlightthickness=0)
-g_acct_list_scrollbar = ttk.Scrollbar(g_acct_list_frame, orient="vertical", command=g_acct_list_canvas.yview)
-g_acct_list_canvas.configure(yscrollcommand=g_acct_list_scrollbar.set)
+    # Lấy kích thước màn hình
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
 
-g_acct_list_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-g_acct_list_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    # Tính toán vị trí x, y để căn giữa
+    x = (screen_width // 2) - (app_width // 2)
+    y = (screen_height // 2) - (app_height // 2)
 
-# 2. Tạo Frame nội dung BÊN TRONG Canvas (để chứa các Card)
-global g_acct_list_container
-g_acct_list_container = ttk.Frame(g_acct_list_canvas, padding=(10, 10))
+    # Đặt kích thước VÀ vị trí cho cửa sổ
+    root.geometry(f'{app_width}x{app_height}+{x}+{y}')
+    root.minsize(800, 550)
+    root.resizable(False,False)
 
-# 3. Đặt Frame nội dung vào Canvas
-g_acct_list_canvas_window_id = g_acct_list_canvas.create_window((0, 0), window=g_acct_list_container, anchor="nw")
+    g_backup_enabled = tk.BooleanVar(value=local_config.get("backup_enabled", False))
+    root.cached_images = {}
+    # --- Định nghĩa Style ---
 
-# --- Các hàm helper cho việc cuộn (Tương tự Tab 1) ---
-def on_acct_list_content_frame_configure(event):
-    """Cập nhật scroll region của canvas."""
-    g_acct_list_canvas.configure(scrollregion=g_acct_list_canvas.bbox("all"))
+    style = ttk.Style()
+    style.configure("Red.TLabel", foreground="red")
+    style.configure("Green.TLabel", foreground="green")
+    style.configure("White.TLabel", foreground="white") # Cho theme tối
+    style.configure("New.TLabel", foreground="red", font=('TkDefaultFont', 9, 'bold'))
+    style.configure("Green.TRadiobutton", foreground="green")
+    style.configure("Installed.TLabel", foreground="green")
 
-def on_acct_list_canvas_configure(event):
-    """Đảm bảo frame nội dung luôn fill chiều rộng của canvas."""
-    g_acct_list_canvas.itemconfig(g_acct_list_canvas_window_id, width=event.width - 4)
 
-# 4. Bind (gắn) các sự kiện cuộn
-g_acct_list_container.bind("<Configure>", on_acct_list_content_frame_configure)
-g_acct_list_canvas.bind("<Configure>", on_acct_list_canvas_configure)
 
-def mark_accounts_as_dirty():
-    """Kích hoạt nút 'Lưu' và hiển thị trạng thái 'chưa lưu'."""
-    global g_acct_has_unsaved_changes, g_acct_page_2_save_btn, g_acct_save_status_label
-    g_acct_has_unsaved_changes = True
-    if 'g_acct_page_2_save_btn' in globals() and g_acct_page_2_save_btn:
-        g_acct_page_2_save_btn.config(state=tk.NORMAL)
-    if 'g_acct_save_status_label' in globals() and g_acct_save_status_label:
-        g_acct_save_status_label.config(text="Có thay đổi chưa lưu...", foreground="red")
+    try: rarfile.UNRAR_TOOL = resource_path("UnRAR.exe")
+    except Exception as e: print(f"Lỗi nghiêm trọng: Không tìm thấy UnRAR.exe đã đóng gói: {e}")
+    try:
+        icon_path = resource_path("logo.ico")
+        root.iconbitmap(icon_path)
+        root.iconbitmap(default=icon_path)
+    except Exception as e: 
+        print(f"Lỗi khi tải icon: {e}")
 
-def mark_accounts_as_saved():
-    """Vô hiệu hóa nút 'Lưu' (được gọi sau khi tải hoặc lưu thành công)."""
-    global g_acct_has_unsaved_changes, g_acct_page_2_save_btn
+    # --- Tạo Notebook và Tab 1 ---
+    notebook = ttk.Notebook(root, padding=(15, 15))
+    notebook.pack(expand=True, fill="both")
+
+    main_tab_frame = ttk.Frame(notebook, padding=(10, 10))
+    notebook.add(main_tab_frame, text=" Tải/Cập Nhật Game ")
+
+    # --- BẮT ĐẦU CODE CHO TAB 2 ("Quản lý Account") ---
+    account_tab_frame = ttk.Frame(notebook, padding=(10, 10))
+    # (Lưu ý: Dòng notebook.add() đã được di chuyển lên trên)
+    notebook.add(account_tab_frame, text=" Share Acc Game ")
+    # --- Biến Global cho Tab Account ---
+    g_acct_current_page = None
+    g_acct_page_1_grid = None
+    g_acct_page_2_list = None
+    g_acct_grid_container = None
+    g_acct_list_treeview = None
+    g_acct_current_game = None # Tên game đang xem
+
+
+    g_user_accounts_data = {} 
+    g_user_accounts_file_id = None
+    g_accounts_loaded = False
+    g_dynamic_account_buttons = []
+    g_login_overlay_popup = None
+    g_login_overlay_label = None
+    g_accounts_data_loaded = False
+    g_images_preloaded = False
     g_acct_has_unsaved_changes = False
-    if 'g_acct_page_2_save_btn' in globals() and g_acct_page_2_save_btn:
-        g_acct_page_2_save_btn.config(state=tk.DISABLED)
+    g_acct_page_2_save_btn = None
+    # --- Hai trang (Frames) cho Tab Account ---
+    g_acct_page_1_grid = ttk.Frame(account_tab_frame, padding=(10, 10))
+    g_acct_page_1_grid.place(relx=0, rely=0, relwidth=1, relheight=1)
 
-# --- Các hàm Logic cho Tab Account ---
-def check_and_draw_account_grid():
-    """
-    (Hàm Mới) Kiểm tra xem cả hai luồng (Tải ảnh và Tải account)
-    đã hoàn thành chưa. Nếu rồi, mới vẽ Tab 2.
-    """
-    global g_images_preloaded, g_accounts_data_loaded
-    
-    if g_images_preloaded and g_accounts_data_loaded:
-        print("--- ĐIỀU KIỆN ĐỦ: Cả ảnh và account đã sẵn sàng. Đang vẽ Tab 2... ---")
-        populate_account_game_grid()
-    else:
-        # Báo cáo trạng thái hiện tại (để debug)
-        print(f"--- ĐIỀU KIỆN CHƯA ĐỦ: Images={g_images_preloaded}, Accounts={g_accounts_data_loaded}. Đang chờ... ---")
+    g_tab2_loading_frame = ttk.Frame(g_acct_page_1_grid, name="tab2_loading_frame")
+    g_tab2_loading_frame.pack(expand=True, anchor=tk.CENTER)
+            
+    ttk.Label(g_tab2_loading_frame, text="Đang tải dữ liệu tài khoản...").pack(pady=5)
+    tab2_loader = ttk.Progressbar(g_tab2_loading_frame, orient="horizontal", length=200, mode="indeterminate")
+    tab2_loader.pack(pady=10)
+    tab2_loader.start(10)
 
-def populate_account_game_grid():
-    """
-    (ĐÃ VIẾT LẠI)
-    Tạo lưới game dựa trên các key (Game) từ g_user_accounts_data.
-    """
-    global g_acct_grid_container, g_acct_page_1_grid
-    global g_game_themes, g_user_accounts_data 
+    g_acct_page_1_top_frame = ttk.Frame(g_acct_page_1_grid)
+    g_acct_page_1_top_frame.pack(fill=tk.X, pady=(0, 10))
+            
+    # --- DI CHUYỂN NÚT: "Thêm Account Mới" (từ Trang 2) ---
+    g_acct_page_2_add_btn = ttk.Button(
+        g_acct_page_1_top_frame, # <-- THAY ĐỔI: Parent là g_acct_page_1_top_frame
+        text="➕ Thêm Account Mới", 
+        command=lambda: open_add_edit_account_popup(None), # None = Thêm mới
+        style="Accent.TButton"
+    )
+    g_acct_page_2_add_btn.pack(side=tk.RIGHT)
 
-    try:
-        # Tìm widget có tên 'tab2_loading_frame' và xóa nó
-        loading_frame = g_acct_page_1_grid.nametowidget("tab2_loading_frame")
-        if loading_frame:
-            loading_frame.destroy()
-    except KeyError:
-        pass # Không tìm thấy (đã bị xóa từ trước), bỏ qua
-    # --- HẾT THÊM MỚI ---
-    
-    # --- SỬA LOGIC: Quyết định hiển thị Prompt hay Lưới ---
-    if not drive_service:
-        # 1. TẠO PROMPT (Nếu chưa có)
-        global g_acct_login_prompt_label
-        if not 'g_acct_login_prompt_label' in globals():
-            g_acct_login_prompt_label = ttk.Label(
-                g_acct_page_1_grid, 
-                text="Vui lòng Đăng nhập Google Drive (ở Tab 'Upload Lên Drive')\nđể tải và quản lý tài khoản.",
-                justify=tk.CENTER,
-                style="secondary.TLabel"
-            )
-        # 2. HIỂN THỊ PROMPT (Luôn luôn)
-        g_acct_login_prompt_label.pack(expand=True)
-        return # <-- QUAN TRỌNG: Dừng hàm tại đây
-    else:
-        # 3. ẨN PROMPT (Nếu tồn tại)
-        if 'g_acct_login_prompt_label' in globals():
-            try:
-                g_acct_login_prompt_label.pack_forget()
-            except: pass
+    g_acct_page_2_list = ttk.Frame(account_tab_frame, padding=(10, 10))
+    g_acct_page_2_list.place(relx=1, rely=0, relwidth=1, relheight=1) # Ẩn bên phải
 
-    # 1. Tạo Canvas Scroll (CHỈ 1 LẦN)
-    if g_acct_grid_container is None:
-        canvas_host_frame = ttk.Frame(g_acct_page_1_grid)
-        canvas_host_frame.pack(fill=tk.BOTH, expand=True, pady=5, padx=5)
-        page_1_scrollbar = ttk.Scrollbar(canvas_host_frame, orient="vertical")
-        page_1_canvas = tk.Canvas(canvas_host_frame, borderwidth=0, highlightthickness=0, yscrollcommand=page_1_scrollbar.set)
-        page_1_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        page_1_scrollbar.config(command=page_1_canvas.yview)
-        g_acct_grid_container = ttk.Frame(page_1_canvas)
-        canvas_window_id = page_1_canvas.create_window((0, 0), window=g_acct_grid_container, anchor="n")
-        g_acct_grid_container.bind("<Configure>", lambda e, c=page_1_canvas: c.configure(scrollregion=c.bbox("all")))
-        page_1_canvas.bind("<Configure>", lambda e, c=page_1_canvas, w=canvas_window_id: c.itemconfig(w, width=e.width - 4))
-    
-    # 2. Xóa các card game CŨ
-    for widget in g_acct_grid_container.winfo_children():
-        widget.destroy()
+    g_acct_current_page = g_acct_page_1_grid
 
-    # 3. Lấy danh sách game CÓ account (Code không đổi)
-    user_accounts_data = g_user_accounts_data 
-    game_names_with_accounts = sorted(user_accounts_data.keys())
-
-    # 6. Vẽ lưới game
-    MAX_COLS = 4    
-    col = 0
-    row = 0
-    
-    # --- SỬA LOGIC: XÓA NÚT "Thêm Dịch vụ" ---
-    # (Vì giờ đây chúng ta thêm bằng cách chọn game trong pop-up)
-
-    # --- SỬA LOGIC: LẶP QUA CÁC KEY GAME ---
-    for game_name in game_names_with_accounts: # (Key giờ là "Elden Ring", "Steam", v.v.)
-        icon_img = None 
+    def switch_account_page(page_to_show):
+        """Chuyển đổi giữa 2 trang (Grid và List) - Không animation."""
+        global g_acct_current_page
         
-        # 1. Ưu tiên icon Steam/Riot (đã được cache bởi preload)
-        if game_name == "Steam":
-            icon_img = root.steam_icon_small
-        elif game_name == "Riot":
-            icon_img = root.riot_icon_small
+        if g_acct_current_page == page_to_show:
+            return
+            
+        # Ẩn trang cũ
+        g_acct_current_page.place(relx=1, rely=0, relwidth=1, relheight=1)
         
-        # 2. Lấy icon game (từ cache, thông qua load_image_from_url)
-        if not icon_img:
-            image_url = g_game_themes.get(game_name)
-            if image_url:
-                # Hàm này sẽ tự động lấy từ cache (vì preload đã chạy)
-                icon_img = load_image_from_url(image_url, size=(192, 89))
+        # Hiện trang mới
+        page_to_show.place(relx=0, rely=0, relwidth=1, relheight=1)
         
-        # 3. Dùng icon mặc định (từ cache)
-        if not icon_img:
-            icon_img = root.default_game_icon_small
-        
-        # (Code tạo Card Frame, img_label, name_label... không đổi)
-        card_frame = ttk.Frame(g_acct_grid_container, style="Card.TFrame", cursor="hand2")
-        card_frame.grid(row=row, column=col, padx=10, pady=10, sticky="ew")
-        card_frame.columnconfigure(0, weight=1)
+        g_acct_current_page = page_to_show
 
-        if icon_img:
-            img_label = ttk.Label(card_frame, image=icon_img, cursor="hand2")
-            img_label.grid(row=0, column=0, pady=(10, 5), padx=10)
+    # --- Trang 1: Lưới Game/Dịch vụ ---
+
+    # (Chúng ta sẽ tạo canvas và grid trong hàm populate)
+
+    # --- Trang 2: Danh sách Tài khoản ---
+    g_acct_page_2_top_frame = ttk.Frame(g_acct_page_2_list)
+    g_acct_page_2_top_frame.pack(fill=tk.X, pady=(0, 10))
+
+    g_acct_page_2_back_btn = ttk.Button(
+        g_acct_page_2_top_frame, 
+        text="❮ Quay lại", 
+        command=lambda: switch_account_page(g_acct_page_1_grid)
+    )
+    g_acct_page_2_back_btn.pack(side=tk.LEFT)
+
+    global g_acct_save_status_label
+    g_acct_save_status_label = ttk.Label(g_acct_page_1_top_frame, text="", anchor=tk.W)
+    g_acct_save_status_label.pack(side=tk.LEFT, padx=5)
+
+    g_acct_page_2_add_btn_DUPLICATE = ttk.Button( # Đặt tên biến khác một chút
+        g_acct_page_2_top_frame, 
+        text="➕ Thêm Account Mới", 
+        command=lambda: open_add_edit_account_popup(None), # None = Thêm mới
+        style="Accent.TButton"
+    )
+
+    g_acct_page_2_save_btn = ttk.Button(
+        g_acct_page_1_top_frame,
+        text="💾 Lưu Thay Đổi",
+        command=save_accounts_to_drive_thread, # <-- Gọi thẳng hàm upload
+        style="Accent.TButton", # Nút "Lưu" sẽ là nút chính
+        state=tk.DISABLED # Bắt đầu ở trạng thái mờ
+    )
+    g_acct_page_2_save_btn.pack(side=tk.RIGHT, padx=(0, 5))
+    g_acct_page_2_add_btn_DUPLICATE.pack(side=tk.RIGHT)
+
+    global g_acct_login_status_label
+    g_acct_login_status_label = ttk.Label(g_acct_page_2_top_frame, text="", anchor=tk.CENTER)
+    g_acct_login_status_label.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=10)
+
+    # Khung Treeview (danh sách)
+    # Khung chứa Canvas và Scrollbar
+    g_acct_list_frame = ttk.LabelFrame(g_acct_page_2_list, text="Accounts đã lưu")
+    g_acct_list_frame.pack(fill=tk.BOTH, expand=True)
+
+    # 1. Tạo Canvas và Scrollbar (giống Tab 1)
+    g_acct_list_canvas = tk.Canvas(g_acct_list_frame, borderwidth=0, highlightthickness=0)
+    g_acct_list_scrollbar = ttk.Scrollbar(g_acct_list_frame, orient="vertical", command=g_acct_list_canvas.yview)
+    g_acct_list_canvas.configure(yscrollcommand=g_acct_list_scrollbar.set)
+
+    g_acct_list_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    g_acct_list_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    # 2. Tạo Frame nội dung BÊN TRONG Canvas (để chứa các Card)
+    global g_acct_list_container
+    g_acct_list_container = ttk.Frame(g_acct_list_canvas, padding=(10, 10))
+
+    # 3. Đặt Frame nội dung vào Canvas
+    g_acct_list_canvas_window_id = g_acct_list_canvas.create_window((0, 0), window=g_acct_list_container, anchor="nw")
+
+    # --- Các hàm helper cho việc cuộn (Tương tự Tab 1) ---
+    def on_acct_list_content_frame_configure(event):
+        """Cập nhật scroll region của canvas."""
+        g_acct_list_canvas.configure(scrollregion=g_acct_list_canvas.bbox("all"))
+
+    def on_acct_list_canvas_configure(event):
+        """Đảm bảo frame nội dung luôn fill chiều rộng của canvas."""
+        g_acct_list_canvas.itemconfig(g_acct_list_canvas_window_id, width=event.width - 4)
+
+    # 4. Bind (gắn) các sự kiện cuộn
+    g_acct_list_container.bind("<Configure>", on_acct_list_content_frame_configure)
+    g_acct_list_canvas.bind("<Configure>", on_acct_list_canvas_configure)
+
+    def mark_accounts_as_dirty():
+        """Kích hoạt nút 'Lưu' và hiển thị trạng thái 'chưa lưu'."""
+        global g_acct_has_unsaved_changes, g_acct_page_2_save_btn, g_acct_save_status_label
+        g_acct_has_unsaved_changes = True
+        if 'g_acct_page_2_save_btn' in globals() and g_acct_page_2_save_btn:
+            g_acct_page_2_save_btn.config(state=tk.NORMAL)
+        if 'g_acct_save_status_label' in globals() and g_acct_save_status_label:
+            g_acct_save_status_label.config(text="Có thay đổi chưa lưu...", foreground="red")
+
+    def mark_accounts_as_saved():
+        """Vô hiệu hóa nút 'Lưu' (được gọi sau khi tải hoặc lưu thành công)."""
+        global g_acct_has_unsaved_changes, g_acct_page_2_save_btn
+        g_acct_has_unsaved_changes = False
+        if 'g_acct_page_2_save_btn' in globals() and g_acct_page_2_save_btn:
+            g_acct_page_2_save_btn.config(state=tk.DISABLED)
+
+    # --- Các hàm Logic cho Tab Account ---
+    def check_and_draw_account_grid():
+        """
+        (Hàm Mới) Kiểm tra xem cả hai luồng (Tải ảnh và Tải account)
+        đã hoàn thành chưa. Nếu rồi, mới vẽ Tab 2.
+        """
+        global g_images_preloaded, g_accounts_data_loaded
+        
+        if g_images_preloaded and g_accounts_data_loaded:
+            print("--- ĐIỀU KIỆN ĐỦ: Cả ảnh và account đã sẵn sàng. Đang vẽ Tab 2... ---")
+            populate_account_game_grid()
         else:
-            img_label = ttk.Label(card_frame, text="[Lỗi Tải Ảnh]", style="secondary.TLabel", cursor="hand2")
-            img_label.grid(row=0, column=0, pady=(10, 5), padx=10)
+            # Báo cáo trạng thái hiện tại (để debug)
+            print(f"--- ĐIỀU KIỆN CHƯA ĐỦ: Images={g_images_preloaded}, Accounts={g_accounts_data_loaded}. Đang chờ... ---")
 
-        name_label = ttk.Label(card_frame, text=game_name, anchor=tk.CENTER, cursor="hand2", font=("Segoe UI", 10, "bold"))
-        name_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky="ew")
+    def populate_account_game_grid():
+        """
+        (ĐÃ VIẾT LẠI)
+        Tạo lưới game dựa trên các key (Game) từ g_user_accounts_data.
+        """
+        global g_acct_grid_container, g_acct_page_1_grid
+        global g_game_themes, g_user_accounts_data 
 
-        # (Code Click -> Mở Trang 2 không đổi)
-        cmd = lambda e, g=game_name: show_account_list_for_game(g)
+        try:
+            # Tìm widget có tên 'tab2_loading_frame' và xóa nó
+            loading_frame = g_acct_page_1_grid.nametowidget("tab2_loading_frame")
+            if loading_frame:
+                loading_frame.destroy()
+        except KeyError:
+            pass # Không tìm thấy (đã bị xóa từ trước), bỏ qua
+        # --- HẾT THÊM MỚI ---
+        
+        # --- SỬA LOGIC: Quyết định hiển thị Prompt hay Lưới ---
+        if not drive_service:
+            # 1. TẠO PROMPT (Nếu chưa có)
+            global g_acct_login_prompt_label
+            if not 'g_acct_login_prompt_label' in globals():
+                g_acct_login_prompt_label = ttk.Label(
+                    g_acct_page_1_grid, 
+                    text="Vui lòng Đăng nhập Google Drive (ở Tab 'Upload Lên Drive')\nđể tải và quản lý tài khoản.",
+                    justify=tk.CENTER,
+                    style="secondary.TLabel"
+                )
+            # 2. HIỂN THỊ PROMPT (Luôn luôn)
+            g_acct_login_prompt_label.pack(expand=True)
+            return # <-- QUAN TRỌNG: Dừng hàm tại đây
+        else:
+            # 3. ẨN PROMPT (Nếu tồn tại)
+            if 'g_acct_login_prompt_label' in globals():
+                try:
+                    g_acct_login_prompt_label.pack_forget()
+                except: pass
 
-        card_frame.bind("<Button-1>", cmd)
-        img_label.bind("<Button-1>", cmd)
-        name_label.bind("<Button-1>", cmd)
+        # 1. Tạo Canvas Scroll (CHỈ 1 LẦN)
+        if g_acct_grid_container is None:
+            canvas_host_frame = ttk.Frame(g_acct_page_1_grid)
+            canvas_host_frame.pack(fill=tk.BOTH, expand=True, pady=5, padx=5)
+            page_1_scrollbar = ttk.Scrollbar(canvas_host_frame, orient="vertical")
+            page_1_canvas = tk.Canvas(canvas_host_frame, borderwidth=0, highlightthickness=0, yscrollcommand=page_1_scrollbar.set)
+            page_1_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            page_1_scrollbar.config(command=page_1_canvas.yview)
+            g_acct_grid_container = ttk.Frame(page_1_canvas)
+            canvas_window_id = page_1_canvas.create_window((0, 0), window=g_acct_grid_container, anchor="n")
+            g_acct_grid_container.bind("<Configure>", lambda e, c=page_1_canvas: c.configure(scrollregion=c.bbox("all")))
+            page_1_canvas.bind("<Configure>", lambda e, c=page_1_canvas, w=canvas_window_id: c.itemconfig(w, width=e.width - 4))
+        
+        # 2. Xóa các card game CŨ
+        for widget in g_acct_grid_container.winfo_children():
+            widget.destroy()
 
-        col += 1
-        if col >= MAX_COLS:
-            col = 0
-            row += 1
+        # 3. Lấy danh sách game CÓ account (Code không đổi)
+        user_accounts_data = g_user_accounts_data 
+        game_names_with_accounts = sorted(user_accounts_data.keys())
 
-    for i in range(MAX_COLS): g_acct_grid_container.columnconfigure(i, weight=0)
+        # 6. Vẽ lưới game
+        MAX_COLS = 4    
+        col = 0
+        row = 0
+        
+        # --- SỬA LOGIC: XÓA NÚT "Thêm Dịch vụ" ---
+        # (Vì giờ đây chúng ta thêm bằng cách chọn game trong pop-up)
 
-def on_acct_list_mouse_wheel(event):
-    """(HÀM MỚI) Cho phép cuộn bằng bánh xe chuột trên Tab Account."""
-    global g_acct_list_canvas
-    try:
+        # --- SỬA LOGIC: LẶP QUA CÁC KEY GAME ---
+        for game_name in game_names_with_accounts: # (Key giờ là "Elden Ring", "Steam", v.v.)
+            icon_img = None 
+            
+            # 1. Ưu tiên icon Steam/Riot (đã được cache bởi preload)
+            if game_name == "Steam":
+                icon_img = root.steam_icon_small
+            elif game_name == "Riot":
+                icon_img = root.riot_icon_small
+            
+            # 2. Lấy icon game (từ cache, thông qua load_image_from_url)
+            if not icon_img:
+                image_url = g_game_themes.get(game_name)
+                if image_url:
+                    # Hàm này sẽ tự động lấy từ cache (vì preload đã chạy)
+                    icon_img = load_image_from_url(image_url, size=(192, 89))
+            
+            # 3. Dùng icon mặc định (từ cache)
+            if not icon_img:
+                icon_img = root.default_game_icon_small
+            
+            # (Code tạo Card Frame, img_label, name_label... không đổi)
+            card_frame = ttk.Frame(g_acct_grid_container, style="Card.TFrame", cursor="hand2")
+            card_frame.grid(row=row, column=col, padx=10, pady=10, sticky="ew")
+            card_frame.columnconfigure(0, weight=1)
+
+            if icon_img:
+                img_label = ttk.Label(card_frame, image=icon_img, cursor="hand2")
+                img_label.grid(row=0, column=0, pady=(10, 5), padx=10)
+            else:
+                img_label = ttk.Label(card_frame, text="[Lỗi Tải Ảnh]", style="secondary.TLabel", cursor="hand2")
+                img_label.grid(row=0, column=0, pady=(10, 5), padx=10)
+
+            name_label = ttk.Label(card_frame, text=game_name, anchor=tk.CENTER, cursor="hand2", font=("Segoe UI", 10, "bold"))
+            name_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky="ew")
+
+            # (Code Click -> Mở Trang 2 không đổi)
+            cmd = lambda e, g=game_name: show_account_list_for_game(g)
+
+            card_frame.bind("<Button-1>", cmd)
+            img_label.bind("<Button-1>", cmd)
+            name_label.bind("<Button-1>", cmd)
+
+            col += 1
+            if col >= MAX_COLS:
+                col = 0
+                row += 1
+
+        for i in range(MAX_COLS): g_acct_grid_container.columnconfigure(i, weight=0)
+
+    def on_acct_list_mouse_wheel(event):
+        """(HÀM MỚI) Cho phép cuộn bằng bánh xe chuột trên Tab Account."""
+        global g_acct_list_canvas
+        try:
+            scroll_amount = 0
+            if sys.platform == "win32":
+                scroll_amount = int(-1 * (event.delta / 120))
+            elif sys.platform == "darwin": # macOS
+                scroll_amount = event.delta
+            else: # Linux
+                if event.num == 4:
+                    scroll_amount = -1
+                elif event.num == 5:
+                    scroll_amount = 1
+            
+            g_acct_list_canvas.yview_scroll(scroll_amount, "units")
+        except Exception as e:
+            print(f"Lỗi cuộn chuột Tab Account: {e}")
+
+    def show_account_list_for_game(game_name):
+        """
+        (ĐÃ VIẾT LẠI)
+        Vẽ các card tài khoản VÀ GẮN SỰ KIỆN CUỘN CHUỘT.
+        """
+        global g_user_accounts_data, g_acct_list_container, g_acct_current_game, g_dynamic_account_buttons
+        
+        g_acct_current_game = game_name 
+        
+        g_acct_list_frame.config(text=f"Accounts đã lưu cho: {game_name}")
+
+        for widget in g_acct_list_container.winfo_children():
+            widget.destroy()
+            
+        g_dynamic_account_buttons.clear()
+        
+        game_accounts = g_user_accounts_data.get(game_name, [])
+        
+        if not game_accounts:
+            ttk.Label(g_acct_list_container, 
+                    text="Không có tài khoản nào được lưu cho dịch vụ này.", 
+                    style="secondary.TLabel").pack(pady=10)
+
+        # --- LẤY ICON DỊCH VỤ (Làm ảnh dự phòng) ---
+        service_icon_img = None 
+        if g_acct_current_game == "Steam":
+            service_icon_img = root.steam_icon_small
+        elif g_acct_current_game == "Riot":
+            service_icon_img = root.riot_icon_small
+        else:
+            service_icon_img = root.cached_game_icons_small.get(g_acct_current_game, root.default_game_icon_small)
+
+        # --- THÊM MỚI: Danh sách widget để bind ---
+        widgets_to_bind = [g_acct_list_container]
+
+        # --- Vẽ các Card mới ---
+        for i, acc_info in enumerate(game_accounts):
+            
+            # 1. Tạo Card (Frame) cho mỗi account
+            card = ttk.Frame(g_acct_list_container, style="Card.TFrame", padding=10)
+            card.pack(fill=tk.X, expand=True, pady=(0, 10))
+            widgets_to_bind.append(card)
+            
+            # 2. Frame bên trái (Nút Đăng nhập)
+            left_frame = ttk.Frame(card)
+            left_frame.pack(side=tk.LEFT, padx=(0, 15), fill=tk.Y)
+            widgets_to_bind.append(left_frame)
+            
+
+            acc_type = acc_info.get('type', 'steam').lower()
+            btn_icon = None
+            
+            if acc_type == 'steam':
+                btn_icon = getattr(root, 'steam_icon_tiny', None)
+            elif acc_type == 'riot':
+                btn_icon = getattr(root, 'riot_icon_tiny', None)
+
+            login_btn = ttk.Button(
+                left_frame, 
+                text="Đăng nhập", 
+                image=btn_icon,    # Icon dịch vụ (Steam/Riot)
+                compound=tk.BOTTOM,
+                style="Accent.TButton",
+                command=lambda index=i: action_login_by_index(index)
+            )
+            login_btn.pack(expand=True, fill=tk.BOTH)
+            g_dynamic_account_buttons.append(login_btn)
+            widgets_to_bind.append(login_btn)
+
+            # 3. Frame ở giữa (Thông tin)
+            mid_frame = ttk.Frame(card)
+            mid_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            widgets_to_bind.append(mid_frame)
+
+            nickname = acc_info.get('nickname', 'N/A')
+            username = acc_info.get('username', 'N/A')
+            acc_type = acc_info.get('type', 'N/A').capitalize()
+            game_display_tag = acc_info.get('game', None) 
+            
+            icon_to_use = None
+            if game_display_tag:
+                icon_to_use = root.cached_game_icons_small.get(game_display_tag)
+                if not icon_to_use:
+                    image_url = g_game_themes.get(game_display_tag)
+                    if image_url:
+                        try:
+                            icon_to_use = load_image_from_url(image_url, size=(192, 89))
+                            if icon_to_use:
+                                root.cached_game_icons_small[game_display_tag] = icon_to_use
+                        except Exception as e:
+                            print(f"Lỗi tải ảnh game '{game_display_tag}': {e}")
+                            icon_to_use = None 
+            
+            if not icon_to_use:
+                icon_to_use = service_icon_img
+
+            if icon_to_use:
+                img_label = ttk.Label(mid_frame, image=icon_to_use)
+                img_label.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky=tk.W)
+                widgets_to_bind.append(img_label)
+
+            # Dùng grid để căn chỉnh thông tin
+            # (Tạo và bind các label)
+            l1 = ttk.Label(mid_frame, text="Nickname:", style="secondary.TLabel")
+            l1.grid(row=1, column=0, sticky=tk.W)
+            v1 = ttk.Label(mid_frame, text=nickname, font=("Segoe UI", 10, "bold"))
+            v1.grid(row=1, column=1, sticky=tk.W, padx=5)
+            
+            l2 = ttk.Label(mid_frame, text="Game (Tag):", style="secondary.TLabel")
+            l2.grid(row=2, column=0, sticky=tk.W)
+            v2 = ttk.Label(mid_frame, text=(game_display_tag if game_display_tag else "(Không gán Game)"))
+            v2.grid(row=2, column=1, sticky=tk.W, padx=5)
+
+            l3 = ttk.Label(mid_frame, text="Dịch vụ:", style="secondary.TLabel")
+            l3.grid(row=3, column=0, sticky=tk.W)
+            v3 = ttk.Label(mid_frame, text=acc_type)
+            v3.grid(row=3, column=1, sticky=tk.W, padx=5)
+            
+            widgets_to_bind.extend([l1, v1, l2, v2, l3, v3])
+
+            # 4. Frame bên phải (Nút Sửa/Xóa)
+            right_frame = ttk.Frame(card)
+            right_frame.pack(side=tk.RIGHT, fill=tk.Y)
+            widgets_to_bind.append(right_frame)
+
+            edit_btn = tk.Button(
+                right_frame, 
+                text="Sửa",
+                width=10,         # Màu nền Đỏ (Thay cho style Danger)
+                fg="white",                 # Màu chữ Trắng
+                activeforeground="white",   # Màu chữ khi nhấn
+                relief='groove',
+                borderwidth=1,              # Đặt độ dày viền bằng 0
+                highlightthickness=0,              # (Tùy chọn) Làm phẳng nút cho đẹp
+                cursor="hand2", 
+                command=lambda index=i: open_add_edit_account_popup(index)
+            )
+            edit_btn.pack(pady=(0, 5))
+            
+            delete_btn = tk.Button(
+                right_frame, 
+                text="Xóa", 
+                width=10,
+                bg="#c94e4e",               # Màu nền Đỏ (Thay cho style Danger)
+                fg="white",                 # Màu chữ Trắng
+                activebackground="#a13e3e", # Màu khi nhấn vào (Đỏ đậm hơn)
+                activeforeground="white",   # Màu chữ khi nhấn
+                relief='groove',              # (Tùy chọn) Làm phẳng nút cho đẹp
+                borderwidth=1,              # Đặt độ dày viền bằng 0
+                highlightthickness=0,
+                cursor="hand2",             # (Tùy chọn) Con trỏ bàn tay
+                command=lambda index=i: delete_selected_account_by_index(index)
+            )
+            delete_btn.pack()
+            
+            g_dynamic_account_buttons.append(edit_btn)
+            g_dynamic_account_buttons.append(delete_btn)
+            widgets_to_bind.extend([edit_btn, delete_btn])
+
+        # --- THÊM MỚI: GẮN (BIND) TẤT CẢ WIDGETS ---
+        for widget in widgets_to_bind:
+            try:
+                widget.bind("<MouseWheel>", on_acct_list_mouse_wheel)
+                widget.bind("<Button-4>", on_acct_list_mouse_wheel) # Linux scroll up
+                widget.bind("<Button-5>", on_acct_list_mouse_wheel) # Linux scroll down
+            except tk.TclError as e:
+                print(f"Lỗi khi bind widget: {e}")
+        
+        # Cũng bind canvas chính
+        g_acct_list_canvas.bind("<MouseWheel>", on_acct_list_mouse_wheel)
+        g_acct_list_canvas.bind("<Button-4>", on_acct_list_mouse_wheel)
+        g_acct_list_canvas.bind("<Button-5>", on_acct_list_mouse_wheel)
+        # --- HẾT THÊM MỚI ---
+
+        # Chuyển trang
+        switch_account_page(g_acct_page_2_list)
+
+    # --- Xử lý Đăng nhập, Thêm, Sửa, Xóa ---
+
+    def action_login_by_index(item_index):
+        """
+        (Hàm MỚI thay thế on_account_double_click)
+        Lấy thông tin từ index và chạy đăng nhập.
+        """
+        print("--- DEBUG: 1. Đã bấm nút 'Đăng nhập' ---") # DEBUG 1
+        global local_config, g_user_accounts_data, g_acct_current_game
+        global g_login_overlay_popup, g_login_overlay_label
+        
+        # Lấy thông tin account từ config
+        try:
+            acc_info = g_user_accounts_data[g_acct_current_game][item_index]
+            username = acc_info.get("username")
+            password = acc_info.get("password", "")
+            acc_type = acc_info.get("type", "steam")
+            print(f"--- DEBUG: 2. Lấy thông tin thành công. Type: {acc_type}, User: {username} ---") # DEBUG 2
+            
+        except Exception as e:
+            print(f"--- DEBUG: LỖI NGHIÊM TRỌNG. Không thể lấy thông tin account: {e} ---") # DEBUG 3
+            custom_showerror("Lỗi", "Không thể lấy thông tin account này.")
+            return
+
+        # --- LOGIC ĐĂNG NHẬP (Giữ nguyên từ code cũ) ---
+        if acc_type == "steam":
+            print("--- DEBUG: 3a. Bắt đầu logic Steam ---")
+            steam_path = local_config.get("steam_path", "")
+            if not steam_path or not os.path.exists(steam_path):
+                custom_showerror("Lỗi", "Đường dẫn 'steam.exe' không hợp lệ.")
+                return
+            
+            print(f"Đang chạy Steam cho user: {username}")
+            try:
+                subprocess.Popen([steam_path, "-shutdown"]) 
+                time.sleep(3) 
+                subprocess.Popen([steam_path, "-login", username, password])
+            except Exception as e:
+                custom_showerror("Lỗi", f"Không thể chạy Steam: {e}")
+
+        elif acc_type == "riot":
+            # (Giữ lại các DEBUG print của bạn nếu muốn)
+            print("--- DEBUG: 3b. Bắt đầu logic Riot ---") 
+            riot_path = local_config.get("riot_path", "")
+            print(f"--- DEBUG: 4. Lấy Riot Path từ config: '{riot_path}' ---")
+            
+            # Bước kiểm tra đường dẫn (Giữ nguyên)
+            if not riot_path:
+                print("--- DEBUG: LỖI 5a. Riot Path BỊ RỖNG. Dừng lại. ---")
+                custom_showerror("Lỗi", "Đường dẫn Riot Client BỊ RỖNG.\nVui lòng vào Tab 'Credit' -> 'Cài Đặt' để thiết lập.")
+                return
+                
+            if not os.path.exists(riot_path):
+                print(f"--- DEBUG: LỖI 5b. Path '{riot_path}' KHÔNG TỒN TẠI. Dừng lại. ---")
+                custom_showerror("Lỗi", f"Đường dẫn Riot Client KHÔNG TỒN TẠI:\n{riot_path}\n\nVui lòng kiểm tra lại.")
+                return
+
+            # --- SỬA: KHÔNG TẠO POP-UP, CHỈ SET LABEL ---
+            print("--- DEBUG: 6. Đường dẫn HỢP LỆ. Cập nhật label và chạy Thread... ---")
+            try:
+                # Cập nhật nhãn trạng thái ngay lập tức
+                if 'g_acct_login_status_label' in globals():
+                    g_acct_login_status_label.config(text="Đang bắt đầu...", style="White.TLabel")
+                    global g_dynamic_account_buttons
+
+                if 'g_acct_page_2_back_btn' in globals():
+                    g_acct_page_2_back_btn.config(state=tk.DISABLED)
+                if 'g_acct_page_2_add_btn' in globals():
+                    g_acct_page_2_add_btn.config(state=tk.DISABLED)
+                    
+                for btn in g_dynamic_account_buttons:
+                    try:
+                        btn.config(state=tk.DISABLED)
+                    except tk.TclError:
+                        pass
+            except Exception as e:
+                print(f"Lỗi khi set label: {e}")
+
+            # --- BẮT ĐẦU THREAD (NHƯ CŨ) ---
+            print(f"Bắt đầu thread đăng nhập Riot cho: {username}")
+            threading.Thread(
+                target=launch_riot_login_thread, 
+                args=(riot_path, username, password), 
+                daemon=True
+            ).start()
+            print("--- DEBUG: 9. Đã khởi động Thread. Hàm action_login_by_index kết thúc. ---")
+
+    def delete_selected_account_by_index(item_index):
+        """(Hàm MỚI thay thế delete_selected_account)"""
+        global g_user_accounts_data, g_acct_current_game
+        
+        # Lấy nickname để xác nhận
+        try:
+            nickname = g_user_accounts_data[g_acct_current_game][item_index]["nickname"]
+        except Exception:
+            nickname = "Account đã chọn"
+            
+        if custom_askyesno("Xác nhận Xóa", f"Bạn có chắc chắn muốn xóa '{nickname}'?"):
+            try:
+                g_user_accounts_data[g_acct_current_game].pop(item_index)
+                
+                if not g_user_accounts_data[g_acct_current_game]:
+                    del g_user_accounts_data[g_acct_current_game]
+                
+                mark_accounts_as_dirty()
+                
+                # Refresh
+                show_account_list_for_game(g_acct_current_game) # Refresh danh sách
+                populate_account_game_grid() # Refresh lưới (vì game có thể bị xóa)
+                
+            except Exception as e:
+                custom_showerror("Lỗi", f"Không thể xóa account: {e}")
+
+
+
+    def open_add_edit_account_popup(edit_index):
+        """
+        (ĐÃ SỬA LOGIC LƯU)
+        Pop-up Thêm/Sửa.
+        """
+        global g_acct_current_game, g_user_accounts_data, g_game_themes
+
+        popup = tk.Toplevel(root)
+        popup.transient(root)
+        popup.grab_set()
+        form_frame = ttk.Frame(popup, padding=20)
+        form_frame.pack()
+
+        # --- Lấy dữ liệu cũ (nếu là Sửa) ---
+        is_editing = (edit_index is not None)
+        old_data = {}
+        if is_editing:
+            popup.title(f"Sửa Account (từ {g_acct_current_game})")
+            try:
+                old_data = g_user_accounts_data[g_acct_current_game][edit_index]
+            except:
+                custom_showerror("Lỗi", "Không thể tìm thấy dữ liệu account để sửa.")
+                popup.destroy()
+                return
+        else:
+            popup.title(f"Thêm Account vào {g_acct_current_game}")
+
+        # --- Tạo Form (Code không đổi) ---
+        widgets = {}
+        
+        # 1. DỊCH VỤ (Service) (BẮT BUỘC)
+        ttk.Label(form_frame, text="Dịch vụ (Service):").pack()
+        service_list = ["Steam", "Riot"] 
+        service_combo = ttk.Combobox(form_frame, values=service_list, state="readonly", width=38)
+        service_combo.pack(pady=5)
+        
+        default_service = g_acct_current_game # Mặc định
+        if is_editing:
+            default_service = old_data.get("type", "steam").capitalize() 
+        if default_service not in service_list:
+            default_service = "Steam"
+            
+        service_combo.set(default_service)
+        widgets["service"] = service_combo 
+
+        # 2. GAME (Tag) (BẮT BUỘC)
+        ttk.Label(form_frame, text="Game (Key chính):").pack()
+        
+        # --- SỬA LỖI: Chuyển .keys() thành set() TRƯỚC khi dùng | ---
+        game_list = sorted(list(set(g_game_themes.keys()) | {"Steam", "Riot"}))
+        # --- HẾT SỬA LỖI ---
+        
+        game_combo = ttk.Combobox(form_frame, values=game_list, state="readonly", width=38)
+        game_combo.pack(pady=5)
+        
+        default_game_to_set = "" # Mặc định là chuỗi rỗng (an toàn)
+
+        if is_editing:
+            # Nếu đang SỬA, lấy game đã lưu (fallback về game đang xem)
+            default_game_to_set = old_data.get("game", g_acct_current_game)
+        else:
+            # Nếu đang THÊM MỚI, chỉ đặt game mặc định nếu nó không phải là None
+            if g_acct_current_game is not None:
+                default_game_to_set = g_acct_current_game
+                
+        # Giờ đây default_game_to_set sẽ là Tên Game (str) hoặc "" (str), không bao giờ là None
+        game_combo.set(default_game_to_set)
+        widgets["game"] = game_combo 
+        
+        # 3. Nickname (Code không đổi)
+        ttk.Label(form_frame, text="Tên gợi nhớ (Nickname):").pack()
+        nickname_entry = ttk.Entry(form_frame, width=40)
+        nickname_entry.pack(pady=5)
+        nickname_entry.insert(0, old_data.get("nickname", ""))
+        widgets["nickname"] = nickname_entry
+
+        # 4. Username (Code không đổi)
+        ttk.Label(form_frame, text="Username Đăng nhập:").pack()
+        username_entry = ttk.Entry(form_frame, width=40)
+        username_entry.pack(pady=5)
+        username_entry.insert(0, old_data.get("username", ""))
+        widgets["username"] = username_entry
+        
+        # 5. Password (Code không đổi)
+        ttk.Label(form_frame, text="Password:").pack()
+        password_entry = ttk.Entry(form_frame, width=40, show="*")
+        password_entry.pack(pady=5)
+        password_entry.insert(0, old_data.get("password", ""))
+        widgets["password"] = password_entry
+        
+        # --- Hàm Lưu (Code không đổi) ---
+        def save_account():
+            global g_user_accounts_data
+            
+            selected_service = widgets["service"].get()
+            selected_game = widgets["game"].get()
+
+            if not selected_game:
+                custom_showwarning("Thiếu thông tin", "Bạn phải chọn một Game.", parent=popup)
+                return
+                
+            account_type = selected_service.lower()
+            game_to_save = selected_game
+            
+            new_data = {
+                "nickname": widgets["nickname"].get().strip(),
+                "username": widgets["username"].get().strip(),
+                "password": widgets["password"].get().strip(),
+                "type": account_type,
+                "game": game_to_save
+            }
+            
+            if not new_data["nickname"] or not new_data["username"]:
+                custom_showwarning("Thiếu thông tin", "Nickname và Username là bắt buộc.", parent=popup)
+                return
+
+            if is_editing:
+                original_game_key = g_acct_current_game 
+                
+                if selected_game == original_game_key:
+                    account_list = g_user_accounts_data.setdefault(original_game_key, [])
+                    account_list[edit_index] = new_data
+                else:
+                    g_user_accounts_data.setdefault(selected_game, []).append(new_data)
+                    try:
+                        g_user_accounts_data[original_game_key].pop(edit_index)
+                        if not g_user_accounts_data[original_game_key]:
+                            del g_user_accounts_data[original_game_key]
+                    except Exception as e:
+                        print(f"Lỗi khi xóa item cũ trong lúc di chuyển: {e}")
+            else:
+                g_user_accounts_data.setdefault(selected_game, []).append(new_data)
+
+            mark_accounts_as_dirty()
+
+            populate_account_game_grid()
+            
+            show_account_list_for_game(g_acct_current_game) 
+            
+            popup.destroy()
+
+        # --- Nút Bấm ---
+        save_button = ttk.Button(form_frame, text="Lưu", command=save_account, style="Accent.TButton")
+        save_button.pack(pady=10)
+        popup.update_idletasks() # Bắt Toplevel tính toán kích thước
+        width = popup.winfo_width()
+        height = popup.winfo_height()
+        center_window_on_screen(popup, width, height)
+
+    def action_go_back_and_refresh_grid():
+        """
+        (HÀM MỚI) Refresh Lưới Game (Trang 1) và quay lại đó.
+        """
+        global download_options, g_game_search_entry
+
+        print("Đang quay lại và làm mới Lưới Game (Trang 1)...")
+        try:
+            # Lấy từ khóa tìm kiếm hiện tại (nếu có)
+            search_term = ""
+            if g_game_search_entry:
+                search_term = g_game_search_entry.get().lower()
+
+            # 1. Gọi hàm vẽ lại Trang 1
+            # (download_options là biến toàn cục đã có)
+            populate_page_1_grid(download_options, search_term)
+
+            # 2. Quay lại Trang 1
+            show_page(page_1_game_grid)
+        except Exception as e:
+            print(f"Lỗi khi quay lại và làm mới Lưới Game: {e}")
+            # Fallback: Dù lỗi cũng quay lại
+            show_page(page_1_game_grid)
+
+
+    # --- HẾT CODE CHO TAB 2 ("Quản lý Account") ---
+    # --- THÊM MỚI: TẠO 3 KHUNG TRANG (PAGE) ---
+    page_1_game_grid = ttk.Frame(main_tab_frame, padding=(10, 10))
+    page_2_mod_list = ttk.Frame(main_tab_frame, padding=(10, 10))
+    page_3_progress = ttk.Frame(main_tab_frame, padding=(10, 10))
+
+    page_1_game_grid.place(relx=0, rely=0, relwidth=1, relheight=1)
+    g_tab1_loading_frame = ttk.Frame(page_1_game_grid, name="tab1_loading_frame")
+    g_tab1_loading_frame.pack(expand=True, anchor=tk.CENTER)
+
+    ttk.Label(g_tab1_loading_frame, text="Đang tải danh sách game và themes...").pack(pady=5)
+    tab1_loader = ttk.Progressbar(g_tab1_loading_frame, orient="horizontal", length=200, mode="indeterminate")
+    tab1_loader.pack(pady=10)
+    tab1_loader.start(10)
+
+    page_2_mod_list.place(relx=1, rely=0, relwidth=1, relheight=1) # Bắt đầu ở bên phải
+    page_3_progress.place(relx=1, rely=0, relwidth=1, relheight=1) # Bắt đầu ở bên phải
+
+    # Biến global để theo dõi trang/animation
+    global g_current_page, g_is_animating
+    g_current_page = page_1_game_grid # Bắt đầu ở Trang 1
+    g_is_animating = False
+
+    global g_launch_game_button
+    g_current_launch_path = None
+
+    # 1. Tạo khung cố định (placeholder) với kích thước LỚN
+    image_placeholder_frame = ttk.Frame(
+        page_2_mod_list, 
+        width=460, 
+        height=215
+    )
+    image_placeholder_frame.pack(pady=(0, 10))
+
+    # 2. Ngăn khung co lại (RẤT QUAN TRỌNG)
+    image_placeholder_frame.pack_propagate(False) 
+
+    # 3. Tạo Label ảnh BÊN TRONG khung placeholder (KHÔNG .pack() ở đây)
+    global g_game_image_label
+    g_game_image_label = ttk.Label(image_placeholder_frame, anchor=tk.CENTER)
+
+    # --- THÊM MỚI: TẠO LABEL CHO GIF ---
+    global g_gif_label
+    g_gif_label = ttk.Label(page_3_progress)
+    root.gif_frames = [] # Nơi lưu các frame
+    root.gif_frame_index = 0
+
+    page_2_top_nav_frame = ttk.Frame(page_2_mod_list)
+    page_2_top_nav_frame.pack(fill=tk.X, pady=(0, 10))
+
+    # 1. Nút "Quay lại" (Bên trái)
+    page_2_back_button = ttk.Button(page_2_top_nav_frame, text="❮ Quay lại (Chọn Game)", 
+                                    command=action_go_back_and_refresh_grid)
+    page_2_back_button.pack(side=tk.LEFT)
+
+    g_launch_game_button = ttk.Button(
+        page_2_top_nav_frame, 
+        text="🚀 Chạy Game", 
+        command=action_launch_game, 
+        style="Accent.TButton"
+    )
+
+    global g_set_path_button
+    g_set_path_button = ttk.Button(
+        page_2_top_nav_frame,
+        text="⚙️", 
+        command=action_set_game_path_from_page_2,
+        width=2 
+    )
+    CreateToolTip(g_set_path_button, "Chọn đường dẫn đến file khởi động game")
+
+    # 2. Nút "Bắt đầu Cài đặt" (Bên phải)
+    # (Đã di chuyển từ dưới lên đây)
+
+    # Cấu hình grid của main_tab_frame
+    main_tab_frame.grid_rowconfigure(0, weight=1)
+    main_tab_frame.grid_columnconfigure(0, weight=1)
+
+
+    def show_page(page_to_show):
+        """(ĐÃ SỬA) Chuyển trang (KHÔNG có hiệu ứng trượt)."""
+        global g_current_page, page_2_back_button, g_set_path_button
+        
+        # Nếu đang ở trang đó, không làm gì
+        if g_current_page == page_to_show:
+            return 
+        
+        # Ẩn các nút nếu rời Trang 2
+        if g_current_page == page_2_mod_list and page_to_show != page_3_progress:
+            if 'g_launch_game_button' in globals():
+                g_launch_game_button.pack_forget()
+            if 'page_2_back_button' in globals():
+                page_2_back_button.pack_forget()
+            if 'g_set_path_button' in globals():
+                g_set_path_button.pack_forget()
+
+        print(f"Đang chuyển trang: {g_current_page.winfo_name()} -> {page_to_show.winfo_name()}")
+
+        # --- SỬA LỖI: Bỏ animation ---
+        # 1. Ẩn trang hiện tại (đặt nó ở relx=1, bên phải)
+        g_current_page.place(relx=1, rely=0, relwidth=1, relheight=1)
+        
+        # 2. Hiển thị trang mới (đặt nó ở relx=0, ngay giữa)
+        page_to_show.place(relx=0, rely=0, relwidth=1, relheight=1)
+        page_to_show.tkraise() # Đảm bảo nó ở trên cùng
+        
+        # 3. Cập nhật trang hiện tại
+        g_current_page = page_to_show
+        # --- HẾT SỬA ---
+
+    # --- THÊM MỚI: HÀM ANIMATION TRƯỢT ---
+    def animate_slide(page_from, page_to, direction="left"):
+        """
+        Hàm animation chính. Di chuyển page_from ra và page_to vào.
+        'direction' quyết định hướng trượt.
+        """
+        global g_is_animating, g_current_page
+        if g_is_animating:
+            return # Nếu đang chạy, không làm gì cả
+        g_is_animating = True
+
+        # ---- Cài đặt vị trí ----
+        # Vị trí bắt đầu của trang mới (page_to)
+        start_relx_to = 1.0 if direction == "left" else -1.0
+        # Vị trí kết thúc của trang cũ (page_from)
+        target_relx_from = -1.0 if direction == "left" else 1.0
+        
+        # Đặt trang mới vào vị trí bắt đầu và đưa nó lên trên
+        page_to.place(relx=start_relx_to, rely=0, relwidth=1, relheight=1)
+        page_to.tkraise()
+
+        # ---- Cài đặt Animation Loop ----
+        steps = 30 # Tổng số bước cho animation
+        delay_ms = 16 # Thời gian mỗi bước (ms). 8ms ~ 120 FPS
+                    # Bạn có thể tăng lên 16ms (~60 FPS) nếu thấy giật
+
+        def step_loop(current_step):
+            """Hàm con được gọi lặp lại cho mỗi bước animation."""
+            global g_is_animating, g_current_page
+
+            # 1. Tính toán tiến trình (progress)
+            progress = current_step / steps
+            # Dùng công thức "Ease-Out" để animation mượt hơn ở cuối
+            ease_progress = (1 - math.cos(progress * math.pi)) / 2
+
+            # 2. Tính vị trí X mới
+            if direction == "left":
+                # Trang cũ (từ 0) -> (tới -1)
+                new_relx_from = 0.0 - ease_progress
+                # Trang mới (từ 1) -> (tới 0)
+                new_relx_to = 1.0 - ease_progress
+            else: # "right"
+                # Trang cũ (từ 0) -> (tới 1)
+                new_relx_from = 0.0 + ease_progress
+                # Trang mới (từ -1) -> (tới 0)
+                new_relx_to = -1.0 + ease_progress
+
+            # 3. Cập nhật vị trí 2 trang
+            page_from.place(relx=new_relx_from, rely=0, relwidth=1, relheight=1)
+            page_to.place(relx=new_relx_to, rely=0, relwidth=1, relheight=1)
+
+            # 4. Lặp lại hoặc Kết thúc
+            if current_step < steps:
+                # Nếu chưa xong, gọi lại hàm này sau 'delay_ms'
+                root.after(delay_ms, step_loop, current_step + 1)
+            else:
+                # Hoàn tất!
+                # Đặt dứt điểm 2 trang vào vị trí cuối cùng
+                page_from.place(relx=target_relx_from, rely=0, relwidth=1, relheight=1)
+                page_to.place(relx=0, rely=0, relwidth=1, relheight=1) 
+                
+                # Cập nhật trạng thái
+                g_is_animating = False
+                g_current_page = page_to # Cập nhật trang hiện tại là trang mới
+        
+        # Bắt đầu vòng lặp animation từ bước 1
+        step_loop(1)
+
+    # --- THÊM MỚI: HÀM CONFIGURE CHO CANVAS TRANG 1 ---
+    def on_page_1_content_configure(event):
+        """Cập nhật scroll region của canvas Trang 1."""
+        page_1_canvas.configure(scrollregion=page_1_canvas.bbox("all"))
+
+    def on_page_1_canvas_configure(event):
+        """(SỬA) Căn giữa lưới game (g_game_grid_container) theo chiều ngang."""
+        canvas_width = event.width
+        page_1_canvas.coords(page_1_canvas_window_id, (canvas_width / 2) - 35 , 0)
+    # --- Nội dung Tab 1 ---
+
+
+
+
+    # --- THÊM MỚI: Tải các icon file chung ---
+    def load_drive_icon(filename, size=(32, 32)):
+        """Hàm helper để tải và resize icon, trả về None nếu lỗi."""
+        try:
+            icon_path = resource_path(filename)
+            icon_img = Image.open(icon_path).resize(size, Image.Resampling.LANCZOS)
+            return ImageTk.PhotoImage(icon_img)
+        except Exception as e:
+            print(f"Lỗi tải {filename} (bỏ qua): {e}")
+            return None
+
+
+
+    # --- THÊM MỚI: HÀM TẢI ẢNH TỪ URL ---
+    def load_image_from_url(url, size=(192, 89)):
+        """
+        Tải ảnh từ URL, resize, và trả về PhotoImage.
+        Sử dụng 3 cấp cache: RAM -> Ổ cứng -> Internet.
+        """
+        global g_cache_dir # Lấy thư mục cache
+        
+        # 1. TẠO KEY VÀ FILE PATH
+        # Tạo một key duy nhất (gồm URL và kích thước)
+        cache_key = f"{url}_{size[0]}x{size[1]}"
+        
+        # Tạo tên file an toàn bằng cách "băm" (hash) key đó
+        # (Điều này tránh các ký tự không hợp lệ trong tên file)
+        cache_filename = f"{hashlib.sha256(cache_key.encode('utf-8')).hexdigest()}.png"
+        cache_file_path = os.path.join(g_cache_dir, cache_filename)
+
+        # 2. KIỂM TRA CACHE CẤP 1 (RAM)
+        if cache_key in root.cached_images:
+            return root.cached_images[cache_key]
+
+        # 3. KIỂM TRA CACHE CẤP 2 (Ổ CỨNG)
+        try:
+            if os.path.exists(cache_file_path):
+                # print(f"Cache HIT (Ổ cứng): {cache_key}")
+                # Tải ảnh từ file cache
+                img = Image.open(cache_file_path)
+                # (Không cần resize vì chúng ta đã lưu file đã resize)
+                
+                img_tk = ImageTk.PhotoImage(img)
+                root.cached_images[cache_key] = img_tk # Lưu vào RAM cho lần sau
+                return img_tk
+        except Exception as e:
+            print(f"Lỗi đọc file cache (sẽ tải lại): {cache_file_path}. Lỗi: {e}")
+            try:
+                os.remove(cache_file_path) # Xóa file cache hỏng
+            except:
+                pass # Bỏ qua nếu xóa lỗi
+
+        # 4. KIỂM TRA CACHE CẤP 3 (INTERNET) - (Cache MISS)
+        try:
+            # print(f"Cache MISS (Internet): {cache_key}")
+            response = requests.get(url, timeout=5)
+            response.raise_for_status()
+
+            image_data = response.content
+            img = Image.open(io.BytesIO(image_data))
+            
+            # --- SỬA LOGIC: Đảm bảo ảnh có kênh Alpha (RGBA) ---
+            # Điều này rất quan trọng để lưu file PNG trong suốt
+            if img.mode != 'RGBA':
+                img = img.convert('RGBA')
+            # --- HẾT SỬA ---
+
+            img = img.resize(size, Image.Resampling.LANCZOS)
+            
+            # --- LƯU VÀO Ổ CỨNG ---
+            try:
+                img.save(cache_file_path, "PNG") # Lưu file .png đã resize
+            except Exception as e:
+                print(f"Lỗi lưu file cache: {e}")
+            # --- HẾT LƯU ---
+            
+            img_tk = ImageTk.PhotoImage(img)
+            root.cached_images[cache_key] = img_tk # Lưu vào RAM
+            return img_tk
+            
+        except Exception as e:
+            print(f"Lỗi khi tải ảnh từ URL '{url}': {e}")
+            root.cached_images[cache_key] = None # Lưu lỗi (None) vào RAM
+            return None
+
+    # Lưu vào root để không bị garbage-collected
+    root.drive_icon_zip = load_drive_icon("zip_icon.png")
+    root.drive_icon_exe = load_drive_icon("exe_icon.png")
+    root.drive_icon_rar = load_drive_icon("rar_icon.png")
+    root.drive_icon_unknown = load_drive_icon("unknown_icon.png")
+    # --- HẾT THÊM MỚI ---
+    # 1. Tạo options_frame (LabelFrame) làm frame host CỐ ĐỊNH
+    # Frame này sẽ có chiều cao CỐ ĐỊNH và chứa cả canvas lẫn scrollbar
+    options_frame = ttk.LabelFrame(page_2_mod_list, text="Bro muốn làm gì?", padding=(5, 5), height=275)
+    options_frame.pack(fill=tk.X, expand=False, pady=10, padx=(10, 0))
+    options_frame.pack_propagate(False) # RẤT QUAN TRỌNG: Giữ chiều cao cố định
+
+    # --- THÊM MỚI: KHUNG HƯỚNG DẪN CHỌN ĐƯỜNG DẪN ---
+    # 1. Đặt chiều cao cố định (ví dụ: 100px)
+    guide_frame = ttk.LabelFrame(page_2_mod_list, text="💡 Hướng dẫn chọn đường dẫn", padding=(5, 5), height=100)
+    guide_frame.pack(fill=tk.X, pady=(0, 5), padx=(10, 0))
+    # 2. Ngăn frame tự co dãn theo nội dung
+    guide_frame.pack_propagate(False) 
+
+    # 3. Thêm Scrollbar
+    guide_scrollbar = ttk.Scrollbar(guide_frame, orient="vertical")
+    guide_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(0, 2), padx=(0, 2)) 
+
+    # 4. Thay thế Label bằng Text widget
+    guide_text_widget = tk.Text(
+        guide_frame, 
+        wrap="word", # Tự động xuống dòng
+        relief=tk.FLAT, # Bỏ viền
+        borderwidth=0,
+        highlightthickness=0,
+        yscrollcommand=guide_scrollbar.set
+    )
+    guide_text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    # 5. Gắn scrollbar
+    guide_scrollbar.config(command=guide_text_widget.yview)
+
+    # 6. Chèn text mặc định và khóa widget
+    guide_text_widget.insert(tk.END, "Hãy chọn một mod ở trên để xem hướng dẫn...")
+    guide_text_widget.config(state=tk.DISABLED)
+
+    # 2. Tạo Scrollbar BÊN TRONG options_frame
+    scrollbar = ttk.Scrollbar(options_frame, orient="vertical")
+    # Pack scrollbar BÊN PHẢI. Thêm padding nhỏ để không dính viền
+    # scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(0, 2), padx=(0, 2)) 
+
+    # 3. Tạo Canvas BÊN TRONG options_frame
+    canvas = tk.Canvas(options_frame, borderwidth=0, highlightthickness=0, yscrollcommand=scrollbar.set)
+    # Pack canvas vào không gian còn lại
+    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    # 4. Liên kết scrollbar với canvas (làm ở bước 3 rồi)
+    scrollbar.config(command=canvas.yview)
+
+    # 5. Tạo content_frame (Frame MỚI) BÊN TRONG Canvas
+    # Đây là frame sẽ chứa các radio button
+    # Nó thay thế vai trò của options_frame cũ
+    content_frame = ttk.Frame(canvas, padding=(10, 5)) # Bạn có thể chỉnh padding ở đây
+
+    # 6. Đặt content_frame vào trong canvas
+    canvas_window_id = canvas.create_window((0, 0), window=content_frame, anchor="nw")
+
+    # --- Các hàm Helper cho việc cuộn ---
+
+    def on_content_frame_configure(event):
+        """Cập nhật scroll region của canvas khi kích thước options_frame thay đổi."""
+        canvas.configure(scrollregion=canvas.bbox("all"))
+
+    def on_canvas_configure(event):
+        """Đảm bảo options_frame luôn fill chiều rộng của canvas."""
+        # Trừ đi một chút để tránh thanh cuộn ngang không cần thiết
+        canvas.itemconfig(canvas_window_id, width=event.width - 4)
+
+    def on_mouse_wheel(event):
+        """Cho phép cuộn bằng bánh xe chuột trên các hệ điều hành."""
         scroll_amount = 0
         if sys.platform == "win32":
             scroll_amount = int(-1 * (event.delta / 120))
@@ -4564,4603 +5479,3784 @@ def on_acct_list_mouse_wheel(event):
             elif event.num == 5:
                 scroll_amount = 1
         
-        g_acct_list_canvas.yview_scroll(scroll_amount, "units")
-    except Exception as e:
-        print(f"Lỗi cuộn chuột Tab Account: {e}")
+        canvas.yview_scroll(scroll_amount, "units")
 
-def show_account_list_for_game(game_name):
-    """
-    (ĐÃ VIẾT LẠI)
-    Vẽ các card tài khoản VÀ GẮN SỰ KIỆN CUỘN CHUỘT.
-    """
-    global g_user_accounts_data, g_acct_list_container, g_acct_current_game, g_dynamic_account_buttons
-    
-    g_acct_current_game = game_name 
-    
-    g_acct_list_frame.config(text=f"Accounts đã lưu cho: {game_name}")
+    # 7. Bind (gắn) các sự kiện
+    # Khi content_frame thay đổi (thêm radio), cập nhật scrollregion
+    content_frame.bind("<Configure>", on_content_frame_configure) # <-- ĐỔI TÊN FRAME VÀ HÀM
+    # Khi canvas thay đổi (resize cửa sổ), chỉnh lại chiều rộng của content_frame
+    canvas.bind("<Configure>", on_canvas_configure)
+    # Bind mousewheel để cuộn (áp dụng cho canvas và frame bên trong)
+    canvas.bind("<MouseWheel>", on_mouse_wheel)
+    content_frame.bind("<MouseWheel>", on_mouse_wheel) # <-- ĐỔI TÊN FRAME
+    # Cho Linux
+    canvas.bind("<Button-4>", on_mouse_wheel)
+    canvas.bind("<Button-5>", on_mouse_wheel)
+    content_frame.bind("<Button-4>", on_mouse_wheel) # <-- ĐỔI TÊN FRAME
+    content_frame.bind("<Button-5>", on_mouse_wheel)
+    selected_option = tk.StringVar()
+    radio_buttons = []
 
-    for widget in g_acct_list_container.winfo_children():
-        widget.destroy()
-        
-    g_dynamic_account_buttons.clear()
-    
-    game_accounts = g_user_accounts_data.get(game_name, [])
-    
-    if not game_accounts:
-        ttk.Label(g_acct_list_container, 
-                  text="Không có tài khoản nào được lưu cho dịch vụ này.", 
-                  style="secondary.TLabel").pack(pady=10)
+    # --- THÊM MỚI: HÀM CẬP NHẬT TEXT HƯỚNG DẪN ---
+    def update_guide_text():
+        """
+        (ĐÃ VIẾT LẠI) 
+        1. Cập nhật text hướng dẫn.
+        2. Kiểm tra file khởi chạy và Ẩn/Hiện nút "Khởi chạy".
+        """
+        global g_current_launch_path, g_all_mods_flat, g_launch_game_button, path_entry
 
-    # --- LẤY ICON DỊCH VỤ (Làm ảnh dự phòng) ---
-    service_icon_img = None 
-    if g_acct_current_game == "Steam":
-        service_icon_img = root.steam_icon_small
-    elif g_acct_current_game == "Riot":
-        service_icon_img = root.riot_icon_small
-    else:
-        service_icon_img = root.cached_game_icons_small.get(g_acct_current_game, root.default_game_icon_small)
-
-    # --- THÊM MỚI: Danh sách widget để bind ---
-    widgets_to_bind = [g_acct_list_container]
-
-    # --- Vẽ các Card mới ---
-    for i, acc_info in enumerate(game_accounts):
-        
-        # 1. Tạo Card (Frame) cho mỗi account
-        card = ttk.Frame(g_acct_list_container, style="Card.TFrame", padding=10)
-        card.pack(fill=tk.X, expand=True, pady=(0, 10))
-        widgets_to_bind.append(card)
-        
-        # 2. Frame bên trái (Nút Đăng nhập)
-        left_frame = ttk.Frame(card)
-        left_frame.pack(side=tk.LEFT, padx=(0, 15), fill=tk.Y)
-        widgets_to_bind.append(left_frame)
-        
-
-        acc_type = acc_info.get('type', 'steam').lower()
-        btn_icon = None
-        
-        if acc_type == 'steam':
-            btn_icon = getattr(root, 'steam_icon_tiny', None)
-        elif acc_type == 'riot':
-            btn_icon = getattr(root, 'riot_icon_tiny', None)
-
-        login_btn = ttk.Button(
-            left_frame, 
-            text="Đăng nhập", 
-            image=btn_icon,    # Icon dịch vụ (Steam/Riot)
-            compound=tk.BOTTOM,
-            style="Accent.TButton",
-            command=lambda index=i: action_login_by_index(index)
-        )
-        login_btn.pack(expand=True, fill=tk.BOTH)
-        g_dynamic_account_buttons.append(login_btn)
-        widgets_to_bind.append(login_btn)
-
-        # 3. Frame ở giữa (Thông tin)
-        mid_frame = ttk.Frame(card)
-        mid_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        widgets_to_bind.append(mid_frame)
-
-        nickname = acc_info.get('nickname', 'N/A')
-        username = acc_info.get('username', 'N/A')
-        acc_type = acc_info.get('type', 'N/A').capitalize()
-        game_display_tag = acc_info.get('game', None) 
-        
-        icon_to_use = None
-        if game_display_tag:
-            icon_to_use = root.cached_game_icons_small.get(game_display_tag)
-            if not icon_to_use:
-                image_url = g_game_themes.get(game_display_tag)
-                if image_url:
-                    try:
-                        icon_to_use = load_image_from_url(image_url, size=(192, 89))
-                        if icon_to_use:
-                            root.cached_game_icons_small[game_display_tag] = icon_to_use
-                    except Exception as e:
-                        print(f"Lỗi tải ảnh game '{game_display_tag}': {e}")
-                        icon_to_use = None 
-        
-        if not icon_to_use:
-            icon_to_use = service_icon_img
-
-        if icon_to_use:
-            img_label = ttk.Label(mid_frame, image=icon_to_use)
-            img_label.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky=tk.W)
-            widgets_to_bind.append(img_label)
-
-        # Dùng grid để căn chỉnh thông tin
-        # (Tạo và bind các label)
-        l1 = ttk.Label(mid_frame, text="Nickname:", style="secondary.TLabel")
-        l1.grid(row=1, column=0, sticky=tk.W)
-        v1 = ttk.Label(mid_frame, text=nickname, font=("Segoe UI", 10, "bold"))
-        v1.grid(row=1, column=1, sticky=tk.W, padx=5)
-        
-        l2 = ttk.Label(mid_frame, text="Game (Tag):", style="secondary.TLabel")
-        l2.grid(row=2, column=0, sticky=tk.W)
-        v2 = ttk.Label(mid_frame, text=(game_display_tag if game_display_tag else "(Không gán Game)"))
-        v2.grid(row=2, column=1, sticky=tk.W, padx=5)
-
-        l3 = ttk.Label(mid_frame, text="Dịch vụ:", style="secondary.TLabel")
-        l3.grid(row=3, column=0, sticky=tk.W)
-        v3 = ttk.Label(mid_frame, text=acc_type)
-        v3.grid(row=3, column=1, sticky=tk.W, padx=5)
-        
-        widgets_to_bind.extend([l1, v1, l2, v2, l3, v3])
-
-        # 4. Frame bên phải (Nút Sửa/Xóa)
-        right_frame = ttk.Frame(card)
-        right_frame.pack(side=tk.RIGHT, fill=tk.Y)
-        widgets_to_bind.append(right_frame)
-
-        edit_btn = tk.Button(
-            right_frame, 
-            text="Sửa",
-            width=10,         # Màu nền Đỏ (Thay cho style Danger)
-            fg="white",                 # Màu chữ Trắng
-            activeforeground="white",   # Màu chữ khi nhấn
-            relief='groove',
-            borderwidth=1,              # Đặt độ dày viền bằng 0
-            highlightthickness=0,              # (Tùy chọn) Làm phẳng nút cho đẹp
-            cursor="hand2", 
-            command=lambda index=i: open_add_edit_account_popup(index)
-        )
-        edit_btn.pack(pady=(0, 5))
-        
-        delete_btn = tk.Button(
-            right_frame, 
-            text="Xóa", 
-            width=10,
-            bg="#c94e4e",               # Màu nền Đỏ (Thay cho style Danger)
-            fg="white",                 # Màu chữ Trắng
-            activebackground="#a13e3e", # Màu khi nhấn vào (Đỏ đậm hơn)
-            activeforeground="white",   # Màu chữ khi nhấn
-            relief='groove',              # (Tùy chọn) Làm phẳng nút cho đẹp
-            borderwidth=1,              # Đặt độ dày viền bằng 0
-            highlightthickness=0,
-            cursor="hand2",             # (Tùy chọn) Con trỏ bàn tay
-            command=lambda index=i: delete_selected_account_by_index(index)
-        )
-        delete_btn.pack()
-        
-        g_dynamic_account_buttons.append(edit_btn)
-        g_dynamic_account_buttons.append(delete_btn)
-        widgets_to_bind.extend([edit_btn, delete_btn])
-
-    # --- THÊM MỚI: GẮN (BIND) TẤT CẢ WIDGETS ---
-    for widget in widgets_to_bind:
-        try:
-            widget.bind("<MouseWheel>", on_acct_list_mouse_wheel)
-            widget.bind("<Button-4>", on_acct_list_mouse_wheel) # Linux scroll up
-            widget.bind("<Button-5>", on_acct_list_mouse_wheel) # Linux scroll down
-        except tk.TclError as e:
-            print(f"Lỗi khi bind widget: {e}")
-    
-    # Cũng bind canvas chính
-    g_acct_list_canvas.bind("<MouseWheel>", on_acct_list_mouse_wheel)
-    g_acct_list_canvas.bind("<Button-4>", on_acct_list_mouse_wheel)
-    g_acct_list_canvas.bind("<Button-5>", on_acct_list_mouse_wheel)
-    # --- HẾT THÊM MỚI ---
-
-    # Chuyển trang
-    switch_account_page(g_acct_page_2_list)
-
-# --- Xử lý Đăng nhập, Thêm, Sửa, Xóa ---
-
-def action_login_by_index(item_index):
-    """
-    (Hàm MỚI thay thế on_account_double_click)
-    Lấy thông tin từ index và chạy đăng nhập.
-    """
-    print("--- DEBUG: 1. Đã bấm nút 'Đăng nhập' ---") # DEBUG 1
-    global local_config, g_user_accounts_data, g_acct_current_game
-    global g_login_overlay_popup, g_login_overlay_label
-    
-    # Lấy thông tin account từ config
-    try:
-        acc_info = g_user_accounts_data[g_acct_current_game][item_index]
-        username = acc_info.get("username")
-        password = acc_info.get("password", "")
-        acc_type = acc_info.get("type", "steam")
-        print(f"--- DEBUG: 2. Lấy thông tin thành công. Type: {acc_type}, User: {username} ---") # DEBUG 2
-        
-    except Exception as e:
-        print(f"--- DEBUG: LỖI NGHIÊM TRỌNG. Không thể lấy thông tin account: {e} ---") # DEBUG 3
-        custom_showerror("Lỗi", "Không thể lấy thông tin account này.")
-        return
-
-    # --- LOGIC ĐĂNG NHẬP (Giữ nguyên từ code cũ) ---
-    if acc_type == "steam":
-        print("--- DEBUG: 3a. Bắt đầu logic Steam ---")
-        steam_path = local_config.get("steam_path", "")
-        if not steam_path or not os.path.exists(steam_path):
-            custom_showerror("Lỗi", "Đường dẫn 'steam.exe' không hợp lệ.")
-            return
-        
-        print(f"Đang chạy Steam cho user: {username}")
-        try:
-            subprocess.Popen([steam_path, "-shutdown"]) 
-            time.sleep(3) 
-            subprocess.Popen([steam_path, "-login", username, password])
-        except Exception as e:
-            custom_showerror("Lỗi", f"Không thể chạy Steam: {e}")
-
-    elif acc_type == "riot":
-        # (Giữ lại các DEBUG print của bạn nếu muốn)
-        print("--- DEBUG: 3b. Bắt đầu logic Riot ---") 
-        riot_path = local_config.get("riot_path", "")
-        print(f"--- DEBUG: 4. Lấy Riot Path từ config: '{riot_path}' ---")
-        
-        # Bước kiểm tra đường dẫn (Giữ nguyên)
-        if not riot_path:
-            print("--- DEBUG: LỖI 5a. Riot Path BỊ RỖNG. Dừng lại. ---")
-            custom_showerror("Lỗi", "Đường dẫn Riot Client BỊ RỖNG.\nVui lòng vào Tab 'Credit' -> 'Cài Đặt' để thiết lập.")
-            return
-            
-        if not os.path.exists(riot_path):
-            print(f"--- DEBUG: LỖI 5b. Path '{riot_path}' KHÔNG TỒN TẠI. Dừng lại. ---")
-            custom_showerror("Lỗi", f"Đường dẫn Riot Client KHÔNG TỒN TẠI:\n{riot_path}\n\nVui lòng kiểm tra lại.")
-            return
-
-        # --- SỬA: KHÔNG TẠO POP-UP, CHỈ SET LABEL ---
-        print("--- DEBUG: 6. Đường dẫn HỢP LỆ. Cập nhật label và chạy Thread... ---")
-        try:
-            # Cập nhật nhãn trạng thái ngay lập tức
-            if 'g_acct_login_status_label' in globals():
-                g_acct_login_status_label.config(text="Đang bắt đầu...", style="White.TLabel")
-                global g_dynamic_account_buttons
-
-            if 'g_acct_page_2_back_btn' in globals():
-                g_acct_page_2_back_btn.config(state=tk.DISABLED)
-            if 'g_acct_page_2_add_btn' in globals():
-                g_acct_page_2_add_btn.config(state=tk.DISABLED)
-                
-            for btn in g_dynamic_account_buttons:
-                try:
-                    btn.config(state=tk.DISABLED)
-                except tk.TclError:
-                    pass
-        except Exception as e:
-            print(f"Lỗi khi set label: {e}")
-
-        # --- BẮT ĐẦU THREAD (NHƯ CŨ) ---
-        print(f"Bắt đầu thread đăng nhập Riot cho: {username}")
-        threading.Thread(
-            target=launch_riot_login_thread, 
-            args=(riot_path, username, password), 
-            daemon=True
-        ).start()
-        print("--- DEBUG: 9. Đã khởi động Thread. Hàm action_login_by_index kết thúc. ---")
-
-def delete_selected_account_by_index(item_index):
-    """(Hàm MỚI thay thế delete_selected_account)"""
-    global g_user_accounts_data, g_acct_current_game
-    
-    # Lấy nickname để xác nhận
-    try:
-        nickname = g_user_accounts_data[g_acct_current_game][item_index]["nickname"]
-    except Exception:
-        nickname = "Account đã chọn"
-        
-    if custom_askyesno("Xác nhận Xóa", f"Bạn có chắc chắn muốn xóa '{nickname}'?"):
-        try:
-            g_user_accounts_data[g_acct_current_game].pop(item_index)
-            
-            if not g_user_accounts_data[g_acct_current_game]:
-                del g_user_accounts_data[g_acct_current_game]
-            
-            mark_accounts_as_dirty()
-            
-            # Refresh
-            show_account_list_for_game(g_acct_current_game) # Refresh danh sách
-            populate_account_game_grid() # Refresh lưới (vì game có thể bị xóa)
-            
-        except Exception as e:
-            custom_showerror("Lỗi", f"Không thể xóa account: {e}")
-
-
-
-def open_add_edit_account_popup(edit_index):
-    """
-    (ĐÃ SỬA LOGIC LƯU)
-    Pop-up Thêm/Sửa.
-    """
-    global g_acct_current_game, g_user_accounts_data, g_game_themes
-
-    popup = tk.Toplevel(root)
-    popup.transient(root)
-    popup.grab_set()
-    form_frame = ttk.Frame(popup, padding=20)
-    form_frame.pack()
-
-    # --- Lấy dữ liệu cũ (nếu là Sửa) ---
-    is_editing = (edit_index is not None)
-    old_data = {}
-    if is_editing:
-        popup.title(f"Sửa Account (từ {g_acct_current_game})")
-        try:
-            old_data = g_user_accounts_data[g_acct_current_game][edit_index]
-        except:
-            custom_showerror("Lỗi", "Không thể tìm thấy dữ liệu account để sửa.")
-            popup.destroy()
-            return
-    else:
-        popup.title(f"Thêm Account vào {g_acct_current_game}")
-
-    # --- Tạo Form (Code không đổi) ---
-    widgets = {}
-    
-    # 1. DỊCH VỤ (Service) (BẮT BUỘC)
-    ttk.Label(form_frame, text="Dịch vụ (Service):").pack()
-    service_list = ["Steam", "Riot"] 
-    service_combo = ttk.Combobox(form_frame, values=service_list, state="readonly", width=38)
-    service_combo.pack(pady=5)
-    
-    default_service = g_acct_current_game # Mặc định
-    if is_editing:
-        default_service = old_data.get("type", "steam").capitalize() 
-    if default_service not in service_list:
-        default_service = "Steam"
-        
-    service_combo.set(default_service)
-    widgets["service"] = service_combo 
-
-    # 2. GAME (Tag) (BẮT BUỘC)
-    ttk.Label(form_frame, text="Game (Key chính):").pack()
-    
-    # --- SỬA LỖI: Chuyển .keys() thành set() TRƯỚC khi dùng | ---
-    game_list = sorted(list(set(g_game_themes.keys()) | {"Steam", "Riot"}))
-    # --- HẾT SỬA LỖI ---
-    
-    game_combo = ttk.Combobox(form_frame, values=game_list, state="readonly", width=38)
-    game_combo.pack(pady=5)
-    
-    default_game_to_set = "" # Mặc định là chuỗi rỗng (an toàn)
-
-    if is_editing:
-        # Nếu đang SỬA, lấy game đã lưu (fallback về game đang xem)
-        default_game_to_set = old_data.get("game", g_acct_current_game)
-    else:
-        # Nếu đang THÊM MỚI, chỉ đặt game mặc định nếu nó không phải là None
-        if g_acct_current_game is not None:
-            default_game_to_set = g_acct_current_game
-            
-    # Giờ đây default_game_to_set sẽ là Tên Game (str) hoặc "" (str), không bao giờ là None
-    game_combo.set(default_game_to_set)
-    widgets["game"] = game_combo 
-    
-    # 3. Nickname (Code không đổi)
-    ttk.Label(form_frame, text="Tên gợi nhớ (Nickname):").pack()
-    nickname_entry = ttk.Entry(form_frame, width=40)
-    nickname_entry.pack(pady=5)
-    nickname_entry.insert(0, old_data.get("nickname", ""))
-    widgets["nickname"] = nickname_entry
-
-    # 4. Username (Code không đổi)
-    ttk.Label(form_frame, text="Username Đăng nhập:").pack()
-    username_entry = ttk.Entry(form_frame, width=40)
-    username_entry.pack(pady=5)
-    username_entry.insert(0, old_data.get("username", ""))
-    widgets["username"] = username_entry
-    
-    # 5. Password (Code không đổi)
-    ttk.Label(form_frame, text="Password:").pack()
-    password_entry = ttk.Entry(form_frame, width=40, show="*")
-    password_entry.pack(pady=5)
-    password_entry.insert(0, old_data.get("password", ""))
-    widgets["password"] = password_entry
-    
-    # --- Hàm Lưu (Code không đổi) ---
-    def save_account():
-        global g_user_accounts_data
-        
-        selected_service = widgets["service"].get()
-        selected_game = widgets["game"].get()
-
-        if not selected_game:
-             custom_showwarning("Thiếu thông tin", "Bạn phải chọn một Game.", parent=popup)
-             return
-             
-        account_type = selected_service.lower()
-        game_to_save = selected_game
-        
-        new_data = {
-            "nickname": widgets["nickname"].get().strip(),
-            "username": widgets["username"].get().strip(),
-            "password": widgets["password"].get().strip(),
-            "type": account_type,
-            "game": game_to_save
-        }
-        
-        if not new_data["nickname"] or not new_data["username"]:
-            custom_showwarning("Thiếu thông tin", "Nickname và Username là bắt buộc.", parent=popup)
-            return
-
-        if is_editing:
-            original_game_key = g_acct_current_game 
-            
-            if selected_game == original_game_key:
-                account_list = g_user_accounts_data.setdefault(original_game_key, [])
-                account_list[edit_index] = new_data
-            else:
-                g_user_accounts_data.setdefault(selected_game, []).append(new_data)
-                try:
-                    g_user_accounts_data[original_game_key].pop(edit_index)
-                    if not g_user_accounts_data[original_game_key]:
-                        del g_user_accounts_data[original_game_key]
-                except Exception as e:
-                    print(f"Lỗi khi xóa item cũ trong lúc di chuyển: {e}")
-        else:
-            g_user_accounts_data.setdefault(selected_game, []).append(new_data)
-
-        mark_accounts_as_dirty()
-
-        populate_account_game_grid()
-        
-        show_account_list_for_game(g_acct_current_game) 
-        
-        popup.destroy()
-
-    # --- Nút Bấm ---
-    save_button = ttk.Button(form_frame, text="Lưu", command=save_account, style="Accent.TButton")
-    save_button.pack(pady=10)
-    popup.update_idletasks() # Bắt Toplevel tính toán kích thước
-    width = popup.winfo_width()
-    height = popup.winfo_height()
-    center_window_on_screen(popup, width, height)
-
-def action_go_back_and_refresh_grid():
-    """
-    (HÀM MỚI) Refresh Lưới Game (Trang 1) và quay lại đó.
-    """
-    global download_options, g_game_search_entry
-
-    print("Đang quay lại và làm mới Lưới Game (Trang 1)...")
-    try:
-        # Lấy từ khóa tìm kiếm hiện tại (nếu có)
-        search_term = ""
-        if g_game_search_entry:
-            search_term = g_game_search_entry.get().lower()
-
-        # 1. Gọi hàm vẽ lại Trang 1
-        # (download_options là biến toàn cục đã có)
-        populate_page_1_grid(download_options, search_term)
-
-        # 2. Quay lại Trang 1
-        show_page(page_1_game_grid)
-    except Exception as e:
-        print(f"Lỗi khi quay lại và làm mới Lưới Game: {e}")
-        # Fallback: Dù lỗi cũng quay lại
-        show_page(page_1_game_grid)
-
-
-# --- HẾT CODE CHO TAB 2 ("Quản lý Account") ---
-# --- THÊM MỚI: TẠO 3 KHUNG TRANG (PAGE) ---
-page_1_game_grid = ttk.Frame(main_tab_frame, padding=(10, 10))
-page_2_mod_list = ttk.Frame(main_tab_frame, padding=(10, 10))
-page_3_progress = ttk.Frame(main_tab_frame, padding=(10, 10))
-
-page_1_game_grid.place(relx=0, rely=0, relwidth=1, relheight=1)
-g_tab1_loading_frame = ttk.Frame(page_1_game_grid, name="tab1_loading_frame")
-g_tab1_loading_frame.pack(expand=True, anchor=tk.CENTER)
-
-ttk.Label(g_tab1_loading_frame, text="Đang tải danh sách game và themes...").pack(pady=5)
-tab1_loader = ttk.Progressbar(g_tab1_loading_frame, orient="horizontal", length=200, mode="indeterminate")
-tab1_loader.pack(pady=10)
-tab1_loader.start(10)
-
-page_2_mod_list.place(relx=1, rely=0, relwidth=1, relheight=1) # Bắt đầu ở bên phải
-page_3_progress.place(relx=1, rely=0, relwidth=1, relheight=1) # Bắt đầu ở bên phải
-
-# Biến global để theo dõi trang/animation
-global g_current_page, g_is_animating
-g_current_page = page_1_game_grid # Bắt đầu ở Trang 1
-g_is_animating = False
-
-global g_launch_game_button
-g_current_launch_path = None
-
-# 1. Tạo khung cố định (placeholder) với kích thước LỚN
-image_placeholder_frame = ttk.Frame(
-    page_2_mod_list, 
-    width=460, 
-    height=215
-)
-image_placeholder_frame.pack(pady=(0, 10))
-
-# 2. Ngăn khung co lại (RẤT QUAN TRỌNG)
-image_placeholder_frame.pack_propagate(False) 
-
-# 3. Tạo Label ảnh BÊN TRONG khung placeholder (KHÔNG .pack() ở đây)
-global g_game_image_label
-g_game_image_label = ttk.Label(image_placeholder_frame, anchor=tk.CENTER)
-
-# --- THÊM MỚI: TẠO LABEL CHO GIF ---
-global g_gif_label
-g_gif_label = ttk.Label(page_3_progress)
-root.gif_frames = [] # Nơi lưu các frame
-root.gif_frame_index = 0
-
-page_2_top_nav_frame = ttk.Frame(page_2_mod_list)
-page_2_top_nav_frame.pack(fill=tk.X, pady=(0, 10))
-
-# 1. Nút "Quay lại" (Bên trái)
-page_2_back_button = ttk.Button(page_2_top_nav_frame, text="❮ Quay lại (Chọn Game)", 
-                                command=action_go_back_and_refresh_grid)
-page_2_back_button.pack(side=tk.LEFT)
-
-g_launch_game_button = ttk.Button(
-    page_2_top_nav_frame, 
-    text="🚀 Chạy Game", 
-    command=action_launch_game, 
-    style="Accent.TButton"
-)
-
-global g_set_path_button
-g_set_path_button = ttk.Button(
-    page_2_top_nav_frame,
-    text="⚙️", 
-    command=action_set_game_path_from_page_2,
-    width=2 
-)
-CreateToolTip(g_set_path_button, "Chọn đường dẫn đến file khởi động game")
-
-# 2. Nút "Bắt đầu Cài đặt" (Bên phải)
-# (Đã di chuyển từ dưới lên đây)
-
-# Cấu hình grid của main_tab_frame
-main_tab_frame.grid_rowconfigure(0, weight=1)
-main_tab_frame.grid_columnconfigure(0, weight=1)
-
-
-def show_page(page_to_show):
-    """(ĐÃ SỬA) Chuyển trang (KHÔNG có hiệu ứng trượt)."""
-    global g_current_page, page_2_back_button, g_set_path_button
-    
-    # Nếu đang ở trang đó, không làm gì
-    if g_current_page == page_to_show:
-        return 
-    
-    # Ẩn các nút nếu rời Trang 2
-    if g_current_page == page_2_mod_list and page_to_show != page_3_progress:
+        # 1. ẨN NÚT (Mặc định) VÀ RESET PATH
+        # (Nút sẽ được hiện lại ở Bước 5 nếu file tồn tại)
         if 'g_launch_game_button' in globals():
             g_launch_game_button.pack_forget()
-        if 'page_2_back_button' in globals():
-            page_2_back_button.pack_forget()
+            
         if 'g_set_path_button' in globals():
-            g_set_path_button.pack_forget()
-
-    print(f"Đang chuyển trang: {g_current_page.winfo_name()} -> {page_to_show.winfo_name()}")
-
-    # --- SỬA LỖI: Bỏ animation ---
-    # 1. Ẩn trang hiện tại (đặt nó ở relx=1, bên phải)
-    g_current_page.place(relx=1, rely=0, relwidth=1, relheight=1)
-    
-    # 2. Hiển thị trang mới (đặt nó ở relx=0, ngay giữa)
-    page_to_show.place(relx=0, rely=0, relwidth=1, relheight=1)
-    page_to_show.tkraise() # Đảm bảo nó ở trên cùng
-    
-    # 3. Cập nhật trang hiện tại
-    g_current_page = page_to_show
-    # --- HẾT SỬA ---
-
-# --- THÊM MỚI: HÀM ANIMATION TRƯỢT ---
-def animate_slide(page_from, page_to, direction="left"):
-    """
-    Hàm animation chính. Di chuyển page_from ra và page_to vào.
-    'direction' quyết định hướng trượt.
-    """
-    global g_is_animating, g_current_page
-    if g_is_animating:
-        return # Nếu đang chạy, không làm gì cả
-    g_is_animating = True
-
-    # ---- Cài đặt vị trí ----
-    # Vị trí bắt đầu của trang mới (page_to)
-    start_relx_to = 1.0 if direction == "left" else -1.0
-    # Vị trí kết thúc của trang cũ (page_from)
-    target_relx_from = -1.0 if direction == "left" else 1.0
-    
-    # Đặt trang mới vào vị trí bắt đầu và đưa nó lên trên
-    page_to.place(relx=start_relx_to, rely=0, relwidth=1, relheight=1)
-    page_to.tkraise()
-
-    # ---- Cài đặt Animation Loop ----
-    steps = 30 # Tổng số bước cho animation
-    delay_ms = 16 # Thời gian mỗi bước (ms). 8ms ~ 120 FPS
-                   # Bạn có thể tăng lên 16ms (~60 FPS) nếu thấy giật
-
-    def step_loop(current_step):
-        """Hàm con được gọi lặp lại cho mỗi bước animation."""
-        global g_is_animating, g_current_page
-
-        # 1. Tính toán tiến trình (progress)
-        progress = current_step / steps
-        # Dùng công thức "Ease-Out" để animation mượt hơn ở cuối
-        ease_progress = (1 - math.cos(progress * math.pi)) / 2
-
-        # 2. Tính vị trí X mới
-        if direction == "left":
-            # Trang cũ (từ 0) -> (tới -1)
-            new_relx_from = 0.0 - ease_progress
-            # Trang mới (từ 1) -> (tới 0)
-            new_relx_to = 1.0 - ease_progress
-        else: # "right"
-            # Trang cũ (từ 0) -> (tới 1)
-            new_relx_from = 0.0 + ease_progress
-            # Trang mới (từ -1) -> (tới 0)
-            new_relx_to = -1.0 + ease_progress
-
-        # 3. Cập nhật vị trí 2 trang
-        page_from.place(relx=new_relx_from, rely=0, relwidth=1, relheight=1)
-        page_to.place(relx=new_relx_to, rely=0, relwidth=1, relheight=1)
-
-        # 4. Lặp lại hoặc Kết thúc
-        if current_step < steps:
-            # Nếu chưa xong, gọi lại hàm này sau 'delay_ms'
-            root.after(delay_ms, step_loop, current_step + 1)
-        else:
-            # Hoàn tất!
-            # Đặt dứt điểm 2 trang vào vị trí cuối cùng
-            page_from.place(relx=target_relx_from, rely=0, relwidth=1, relheight=1)
-            page_to.place(relx=0, rely=0, relwidth=1, relheight=1) 
-            
-            # Cập nhật trạng thái
-            g_is_animating = False
-            g_current_page = page_to # Cập nhật trang hiện tại là trang mới
-    
-    # Bắt đầu vòng lặp animation từ bước 1
-    step_loop(1)
-
-# --- THÊM MỚI: HÀM CONFIGURE CHO CANVAS TRANG 1 ---
-def on_page_1_content_configure(event):
-    """Cập nhật scroll region của canvas Trang 1."""
-    page_1_canvas.configure(scrollregion=page_1_canvas.bbox("all"))
-
-def on_page_1_canvas_configure(event):
-    """(SỬA) Căn giữa lưới game (g_game_grid_container) theo chiều ngang."""
-    canvas_width = event.width
-    page_1_canvas.coords(page_1_canvas_window_id, (canvas_width / 2) - 35 , 0)
-# --- Nội dung Tab 1 ---
-
-
-
-
-# --- THÊM MỚI: Tải các icon file chung ---
-def load_drive_icon(filename, size=(32, 32)):
-    """Hàm helper để tải và resize icon, trả về None nếu lỗi."""
-    try:
-        icon_path = resource_path(filename)
-        icon_img = Image.open(icon_path).resize(size, Image.Resampling.LANCZOS)
-        return ImageTk.PhotoImage(icon_img)
-    except Exception as e:
-        print(f"Lỗi tải {filename} (bỏ qua): {e}")
-        return None
-
-
-
-# --- THÊM MỚI: HÀM TẢI ẢNH TỪ URL ---
-def load_image_from_url(url, size=(192, 89)):
-    """
-    Tải ảnh từ URL, resize, và trả về PhotoImage.
-    Sử dụng 3 cấp cache: RAM -> Ổ cứng -> Internet.
-    """
-    global g_cache_dir # Lấy thư mục cache
-    
-    # 1. TẠO KEY VÀ FILE PATH
-    # Tạo một key duy nhất (gồm URL và kích thước)
-    cache_key = f"{url}_{size[0]}x{size[1]}"
-    
-    # Tạo tên file an toàn bằng cách "băm" (hash) key đó
-    # (Điều này tránh các ký tự không hợp lệ trong tên file)
-    cache_filename = f"{hashlib.sha256(cache_key.encode('utf-8')).hexdigest()}.png"
-    cache_file_path = os.path.join(g_cache_dir, cache_filename)
-
-    # 2. KIỂM TRA CACHE CẤP 1 (RAM)
-    if cache_key in root.cached_images:
-        return root.cached_images[cache_key]
-
-    # 3. KIỂM TRA CACHE CẤP 2 (Ổ CỨNG)
-    try:
-        if os.path.exists(cache_file_path):
-            # print(f"Cache HIT (Ổ cứng): {cache_key}")
-            # Tải ảnh từ file cache
-            img = Image.open(cache_file_path)
-            # (Không cần resize vì chúng ta đã lưu file đã resize)
-            
-            img_tk = ImageTk.PhotoImage(img)
-            root.cached_images[cache_key] = img_tk # Lưu vào RAM cho lần sau
-            return img_tk
-    except Exception as e:
-        print(f"Lỗi đọc file cache (sẽ tải lại): {cache_file_path}. Lỗi: {e}")
-        try:
-            os.remove(cache_file_path) # Xóa file cache hỏng
-        except:
-            pass # Bỏ qua nếu xóa lỗi
-
-    # 4. KIỂM TRA CACHE CẤP 3 (INTERNET) - (Cache MISS)
-    try:
-        # print(f"Cache MISS (Internet): {cache_key}")
-        response = requests.get(url, timeout=5)
-        response.raise_for_status()
-
-        image_data = response.content
-        img = Image.open(io.BytesIO(image_data))
-        
-        # --- SỬA LOGIC: Đảm bảo ảnh có kênh Alpha (RGBA) ---
-        # Điều này rất quan trọng để lưu file PNG trong suốt
-        if img.mode != 'RGBA':
-            img = img.convert('RGBA')
-        # --- HẾT SỬA ---
-
-        img = img.resize(size, Image.Resampling.LANCZOS)
-        
-        # --- LƯU VÀO Ổ CỨNG ---
-        try:
-            img.save(cache_file_path, "PNG") # Lưu file .png đã resize
-        except Exception as e:
-            print(f"Lỗi lưu file cache: {e}")
-        # --- HẾT LƯU ---
-        
-        img_tk = ImageTk.PhotoImage(img)
-        root.cached_images[cache_key] = img_tk # Lưu vào RAM
-        return img_tk
-        
-    except Exception as e:
-        print(f"Lỗi khi tải ảnh từ URL '{url}': {e}")
-        root.cached_images[cache_key] = None # Lưu lỗi (None) vào RAM
-        return None
-
-# Lưu vào root để không bị garbage-collected
-root.drive_icon_zip = load_drive_icon("zip_icon.png")
-root.drive_icon_exe = load_drive_icon("exe_icon.png")
-root.drive_icon_rar = load_drive_icon("rar_icon.png")
-root.drive_icon_unknown = load_drive_icon("unknown_icon.png")
-# --- HẾT THÊM MỚI ---
-# 1. Tạo options_frame (LabelFrame) làm frame host CỐ ĐỊNH
-# Frame này sẽ có chiều cao CỐ ĐỊNH và chứa cả canvas lẫn scrollbar
-options_frame = ttk.LabelFrame(page_2_mod_list, text="Bro muốn làm gì?", padding=(5, 5), height=275)
-options_frame.pack(fill=tk.X, expand=False, pady=10, padx=(10, 0))
-options_frame.pack_propagate(False) # RẤT QUAN TRỌNG: Giữ chiều cao cố định
-
-# --- THÊM MỚI: KHUNG HƯỚNG DẪN CHỌN ĐƯỜNG DẪN ---
-# 1. Đặt chiều cao cố định (ví dụ: 100px)
-guide_frame = ttk.LabelFrame(page_2_mod_list, text="💡 Hướng dẫn chọn đường dẫn", padding=(5, 5), height=100)
-guide_frame.pack(fill=tk.X, pady=(0, 5), padx=(10, 0))
-# 2. Ngăn frame tự co dãn theo nội dung
-guide_frame.pack_propagate(False) 
-
-# 3. Thêm Scrollbar
-guide_scrollbar = ttk.Scrollbar(guide_frame, orient="vertical")
-guide_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(0, 2), padx=(0, 2)) 
-
-# 4. Thay thế Label bằng Text widget
-guide_text_widget = tk.Text(
-    guide_frame, 
-    wrap="word", # Tự động xuống dòng
-    relief=tk.FLAT, # Bỏ viền
-    borderwidth=0,
-    highlightthickness=0,
-    yscrollcommand=guide_scrollbar.set
-)
-guide_text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-# 5. Gắn scrollbar
-guide_scrollbar.config(command=guide_text_widget.yview)
-
-# 6. Chèn text mặc định và khóa widget
-guide_text_widget.insert(tk.END, "Hãy chọn một mod ở trên để xem hướng dẫn...")
-guide_text_widget.config(state=tk.DISABLED)
-
-# 2. Tạo Scrollbar BÊN TRONG options_frame
-scrollbar = ttk.Scrollbar(options_frame, orient="vertical")
-# Pack scrollbar BÊN PHẢI. Thêm padding nhỏ để không dính viền
-# scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(0, 2), padx=(0, 2)) 
-
-# 3. Tạo Canvas BÊN TRONG options_frame
-canvas = tk.Canvas(options_frame, borderwidth=0, highlightthickness=0, yscrollcommand=scrollbar.set)
-# Pack canvas vào không gian còn lại
-canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-# 4. Liên kết scrollbar với canvas (làm ở bước 3 rồi)
-scrollbar.config(command=canvas.yview)
-
-# 5. Tạo content_frame (Frame MỚI) BÊN TRONG Canvas
-# Đây là frame sẽ chứa các radio button
-# Nó thay thế vai trò của options_frame cũ
-content_frame = ttk.Frame(canvas, padding=(10, 5)) # Bạn có thể chỉnh padding ở đây
-
-# 6. Đặt content_frame vào trong canvas
-canvas_window_id = canvas.create_window((0, 0), window=content_frame, anchor="nw")
-
-# --- Các hàm Helper cho việc cuộn ---
-
-def on_content_frame_configure(event):
-    """Cập nhật scroll region của canvas khi kích thước options_frame thay đổi."""
-    canvas.configure(scrollregion=canvas.bbox("all"))
-
-def on_canvas_configure(event):
-    """Đảm bảo options_frame luôn fill chiều rộng của canvas."""
-    # Trừ đi một chút để tránh thanh cuộn ngang không cần thiết
-    canvas.itemconfig(canvas_window_id, width=event.width - 4)
-
-def on_mouse_wheel(event):
-    """Cho phép cuộn bằng bánh xe chuột trên các hệ điều hành."""
-    scroll_amount = 0
-    if sys.platform == "win32":
-        scroll_amount = int(-1 * (event.delta / 120))
-    elif sys.platform == "darwin": # macOS
-        scroll_amount = event.delta
-    else: # Linux
-        if event.num == 4:
-            scroll_amount = -1
-        elif event.num == 5:
-            scroll_amount = 1
-    
-    canvas.yview_scroll(scroll_amount, "units")
-
-# 7. Bind (gắn) các sự kiện
-# Khi content_frame thay đổi (thêm radio), cập nhật scrollregion
-content_frame.bind("<Configure>", on_content_frame_configure) # <-- ĐỔI TÊN FRAME VÀ HÀM
-# Khi canvas thay đổi (resize cửa sổ), chỉnh lại chiều rộng của content_frame
-canvas.bind("<Configure>", on_canvas_configure)
-# Bind mousewheel để cuộn (áp dụng cho canvas và frame bên trong)
-canvas.bind("<MouseWheel>", on_mouse_wheel)
-content_frame.bind("<MouseWheel>", on_mouse_wheel) # <-- ĐỔI TÊN FRAME
-# Cho Linux
-canvas.bind("<Button-4>", on_mouse_wheel)
-canvas.bind("<Button-5>", on_mouse_wheel)
-content_frame.bind("<Button-4>", on_mouse_wheel) # <-- ĐỔI TÊN FRAME
-content_frame.bind("<Button-5>", on_mouse_wheel)
-selected_option = tk.StringVar()
-radio_buttons = []
-
-# --- THÊM MỚI: HÀM CẬP NHẬT TEXT HƯỚNG DẪN ---
-def update_guide_text():
-    """
-    (ĐÃ VIẾT LẠI) 
-    1. Cập nhật text hướng dẫn.
-    2. Kiểm tra file khởi chạy và Ẩn/Hiện nút "Khởi chạy".
-    """
-    global g_current_launch_path, g_all_mods_flat, g_launch_game_button, path_entry
-
-    # 1. ẨN NÚT (Mặc định) VÀ RESET PATH
-    # (Nút sẽ được hiện lại ở Bước 5 nếu file tồn tại)
-    if 'g_launch_game_button' in globals():
-        g_launch_game_button.pack_forget()
-        
-    if 'g_set_path_button' in globals():
-        try:
-            g_set_path_button.pack_forget()
-        except tk.TclError:
-            pass
-    g_current_launch_path = None 
-
-    try:
-        guide_text_widget.config(state=tk.NORMAL) # Mở khóa để sửa
-        guide_text_widget.delete("1.0", tk.END) # Xóa text cũ
-
-        selected_key = selected_option.get()
-
-        # 2. KIỂM TRA XEM CÓ CHỌN MOD KHÔNG
-        if selected_key and selected_key in g_all_mods_flat:
-
-            # 3. LẤY DATA
-            selected_option_data = g_all_mods_flat[selected_key] 
-
-            # 4. CẬP NHẬT HƯỚNG DẪN PATH
-            raw_guide = selected_option_data.get("path_guide")
-            if raw_guide:
-                guide_text = str(raw_guide) # Đảm bảo là string
-            else:
-                guide_text = "Không có hướng dẫn cho mod này."
-            guide_text_widget.insert(tk.END, guide_text)
-
-            # 5. KIỂM TRA FILE KHỞI CHẠY (LOGIC MỚI)
-            if 'game_launchers' in local_config:
-                found_launch_file = local_config['game_launchers'].get(g_current_game_name)
-                if found_launch_file:
-                    print(f"Đã tìm thấy launch file do người dùng cài đặt: {found_launch_file}")
-
-
-            # Ưu tiên 2: Lấy từ JSON (nếu local không có)
-            if not found_launch_file:
-                mod_list = download_options.get(g_current_game_name, [])
-                for _key, mod_data in mod_list:
-                    if mod_data.get("launch_file"):
-                        found_launch_file = mod_data.get("launch_file")
-                        print(f"Đã tìm thấy launch file từ JSON: {found_launch_file}")
-                        break # Lấy file đầu tiên tìm thấy
-
-            destination_folder = local_config.get("game_paths", {}).get(g_current_game_name, "")
-
-            # 6. Kiểm tra file (logic không đổi, chỉ đổi tên biến)
-            # Chỉ kiểm tra nếu:
-            # - Tìm thấy một "launch_file"
-            # - Ô đường dẫn không rỗng
-            # - Đường dẫn là một thư mục có thật
-            if found_launch_file and destination_folder and os.path.isdir(destination_folder):
-
-                full_file_path = os.path.join(destination_folder, found_launch_file)
-
-                # Nếu tìm thấy file...
-                if os.path.exists(full_file_path) and os.path.isfile(full_file_path):
-                    print(f"Persistent Check (Page 2): Tìm thấy file khởi chạy: {full_file_path}")
-                    g_current_launch_path = full_file_path
-                else:
-                    # (Debug) Báo nếu đã cấu hình nhưng không tìm thấy file
-                    print(f"Persistent Check (Page 2): Đã cấu hình '{found_launch_file}' nhưng không tìm thấy tại '{destination_folder}'")
-
-        else:
-            # (Nếu không có mod nào được chọn)
-            guide_text_widget.insert(tk.END, "Hãy chọn một mod ở trên để xem hướng dẫn...")
-
-    except Exception as e:
-        print(f"Lỗi khi cập nhật hướng dẫn/launch button: {e}")
-        guide_text_widget.delete("1.0", tk.END)
-        guide_text_widget.insert(tk.END, "Lỗi khi tải hướng dẫn.")
-    finally:
-        guide_text_widget.config(state=tk.DISABLED)
-        try:
-            # --- [SỬA ĐỔI: ĐỔI THỨ TỰ PACK] ---
-            
-            # 1. Pack nút "Đặt đường dẫn" (⚙️) TRƯỚC 
-            # -> Kết quả: Nó sẽ nằm ở NGOÀI CÙNG BÊN PHẢI
-            if 'g_set_path_button' in globals():
-                g_set_path_button.pack(side=tk.RIGHT, padx=(0, 5)) 
-
-            # 2. Pack nút "Chạy Game" (🚀) SAU
-            # -> Kết quả: Nó sẽ nằm bên TRÁI nút bánh răng
-            if 'g_launch_game_button' in globals():
-                g_launch_game_button.pack(side=tk.RIGHT, padx=(0, 10)) 
-                
-                # Cấu hình trạng thái (ENABLE/DISABLE)
-                if g_current_launch_path:
-                    g_launch_game_button.config(state=tk.NORMAL)
-                else:
-                    g_launch_game_button.config(state=tk.DISABLED)
-
-        except Exception as e:
-            print(f"Lỗi khi pack nút bên phải: {e}")
-        # --- (END) THAY ĐỔI ---
-
-
-def on_game_search(event):
-    """Lọc lưới game ở Trang 1 dựa trên nội dung ô tìm kiếm."""
-    if not g_game_search_entry: # Nếu UI chưa sẵn sàng
-        return
-
-    search_term = g_game_search_entry.get().lower()
-
-    # Gọi lại hàm populate, truyền vào dict đã nhóm và từ khóa
-    populate_page_1_grid(download_options, search_term)
-
-# --- THÊM MỚI: HÀM XÓA TÌM KIẾM (BỊ THIẾU) ---
-def action_clear_game_search():
-    """Xóa ô tìm kiếm và hiển thị lại tất cả game."""
-    if not g_game_search_entry:
-        return
-    g_game_search_entry.delete(0, tk.END) # Xóa text
-
-    # Gọi lại hàm populate với search_term rỗng
-    # (Lưu ý: 'download_options' là biến toàn cục)
-    populate_page_1_grid(download_options, search_term="")
-
-def action_delete_custom_game(game_name):
-    """Xóa game custom khỏi danh sách."""
-    if custom_askyesno("Xóa Game", f"Bạn có chắc chắn muốn xóa game '{game_name}' khỏi danh sách không?\n(File game trên máy sẽ KHÔNG bị xóa)."):
-        try:
-            # Xóa khỏi config
-            if game_name in local_config['custom_games']:
-                del local_config['custom_games'][game_name]
-                save_local_config(local_config)
-                
-                # Làm mới lưới
-                action_clear_game_search()
-                custom_showinfo("Đã xóa", f"Đã xóa '{game_name}'.")
-        except Exception as e:
-            custom_showerror("Lỗi", f"Không thể xóa: {e}")
-
-def action_change_game_image(game_name, is_custom):
-    """Đổi ảnh bìa cho game (Cả Custom và Server)."""
-    new_url = custom_askstring("Đổi Ảnh", f"Nhập URL hình ảnh mới cho '{game_name}':")
-    
-    if not new_url: return
-    
-    try:
-        # 1. Tải ảnh về
-        response = requests.get(new_url, timeout=10)
-        response.raise_for_status()
-        img_data = response.content
-        
-        # 2. Tạo tên file cache an toàn
-        safe_name = "".join([c for c in game_name if c.isalnum() or c in (' ', '-', '_')]).strip()
-        img_filename = f"override_{safe_name}.png"
-        local_img_path = os.path.join(g_cache_dir, img_filename)
-        
-        # 3. Resize và Lưu
-        if not os.path.exists(g_cache_dir): os.makedirs(g_cache_dir)
-        
-        with Image.open(io.BytesIO(img_data)) as img:
-            # Lưu bản chất lượng cao (460x215)
-            img_resized = img.resize((460, 215), Image.Resampling.LANCZOS)
-            img_resized.save(local_img_path, "PNG")
-            
-        # 4. Lưu đường dẫn vào Config
-        if is_custom:
-            # Nếu là game custom, cập nhật trực tiếp vào custom_games
-            local_config['custom_games'][game_name]['image_local_path'] = local_img_path
-        else:
-            # Nếu là game server, lưu vào theme_overrides
-            if 'theme_overrides' not in local_config:
-                local_config['theme_overrides'] = {}
-            local_config['theme_overrides'][game_name] = local_img_path
-            
-        save_local_config(local_config)
-        
-        # 5. Xóa cache RAM cũ để nó load ảnh mới
-        keys_to_remove = [k for k in root.cached_images.keys() if safe_name in k or game_name in k]
-        for k in keys_to_remove:
-            del root.cached_images[k]
-
-        # 6. Làm mới giao diện
-        action_clear_game_search()
-        custom_showinfo("Thành công", "Đã cập nhật ảnh bìa!")
-
-    except Exception as e:
-        custom_showerror("Lỗi", f"Không thể tải ảnh: {e}")
-
-def action_rename_game(game_key):
-    """Đổi tên hiển thị của game (Alias)."""
-    # Lấy tên hiện tại (nếu đã đổi thì lấy tên đổi, chưa thì lấy tên gốc)
-    current_alias = local_config.get('display_name_overrides', {}).get(game_key, game_key)
-    
-    new_name = custom_askstring("Đổi Tên", f"Nhập tên mới cho '{game_key}':", initialvalue=current_alias)
-    
-    if new_name is not None: # Nếu không bấm Cancel
-        if not new_name.strip() or new_name.strip() == game_key:
-            # Nếu để trống hoặc nhập trùng tên gốc -> Xóa Alias (Reset)
-            if game_key in local_config['display_name_overrides']:
-                del local_config['display_name_overrides'][game_key]
-        else:
-            # Lưu tên mới
-            local_config['display_name_overrides'][game_key] = new_name.strip()
-            
-        save_local_config(local_config)
-        action_clear_game_search() # Làm mới giao diện
-
-def action_remove_custom_image(game_key):
-    """Xóa ảnh custom để quay về ảnh gốc từ Server."""
-    if custom_askyesno("Khôi phục ảnh", f"Bạn muốn xóa ảnh tùy chỉnh của '{game_key}'\nvà quay lại dùng ảnh gốc từ Server?"):
-        try:
-            # Xóa khỏi config
-            if game_key in local_config['theme_overrides']:
-                del local_config['theme_overrides'][game_key]
-                save_local_config(local_config)
-            
-            # Xóa cache RAM để nó load lại ảnh gốc
-            # (Tìm các key cache chứa tên game và xóa)
-            safe_name = "".join([c for c in game_key if c.isalnum() or c in (' ', '-', '_')]).strip()
-            keys_to_del = [k for k in root.cached_images.keys() if safe_name in k]
-            for k in keys_to_del:
-                del root.cached_images[k]
-                
-            action_clear_game_search() # Làm mới giao diện
-            custom_showinfo("Thành công", "Đã khôi phục ảnh gốc.")
-            
-        except Exception as e:
-            custom_showerror("Lỗi", f"Lỗi khi xóa ảnh: {e}")
-
-def show_game_context_menu(event, game_key, is_custom):
-    """
-    Menu chuột phải thông minh:
-    - Luôn hiện: Đổi Ảnh, Đổi Tên.
-    - Nếu là Server Game + Có Ảnh Custom: Hiện nút 'Khôi phục ảnh gốc'.
-    - Nếu là Custom Game: Hiện nút 'Xóa Game'.
-    """
-    menu = tk.Menu(root, tearoff=0)
-    
-    # 1. Đổi Tên (Cho tất cả)
-    menu.add_command(label="✏️ Đổi Tên Game", command=lambda: action_rename_game(game_key))
-    
-    # 2. Đổi Ảnh (Cho tất cả)
-    menu.add_command(label="🖼️ Đổi Ảnh (URL)", command=lambda: action_change_game_image(game_key, is_custom))
-    
-    # 3. Khôi phục ảnh gốc (Chỉ cho Server Game đang dùng ảnh custom)
-    # Kiểm tra xem game này có trong danh sách override không
-    if not is_custom and game_key in local_config.get('theme_overrides', {}):
-        menu.add_command(label="↩️ Khôi phục Ảnh Gốc", command=lambda: action_remove_custom_image(game_key))
-
-    menu.add_separator()
-
-    # 4. Xóa Game (Chỉ cho Custom Game)
-    if is_custom:
-        menu.add_command(label="❌ Xóa Game Khỏi List", command=lambda: action_delete_custom_game(game_key))
-        
-    menu.post(event.x_root, event.y_root)
-
-# --- THÊM MỚI: CÁC HÀM ĐIỀU HƯỚNG MỚI ---
-def populate_page_1_grid(game_groups, search_term=""):
-    """(ĐÃ NÂNG CẤP) Hiển thị lưới game bao gồm cả Game Tùy Chỉnh."""
-    global g_game_grid_container, g_game_search_entry, page_1_canvas, page_1_canvas_window_id
-
-    style.configure("HoverAccent.TButton", background="#0078d4", foreground="white", font=("Segoe UI", 10, "bold"), borderwidth=1, focuscolor="none")
-    style.map("HoverAccent.TButton", background=[('active', '#ff0000'), ('disabled', '#cccccc')], foreground=[('active', 'cyan')])
-
-    def create_page1_launch_cmd(path):
-        def launch_and_stop_event(event=None):
-            action_launch_game_from_page_1(path)
-            return "break" 
-        return launch_and_stop_event
-    
-    try:
-        loading_frame = page_1_game_grid.nametowidget("tab1_loading_frame")
-        if loading_frame:
-            loading_frame.destroy()
-            root.update_idletasks() 
-    except KeyError: pass
-    
-    # =========================================================================
-    # [THÊM MỚI] NÚT GEMINI AI PRO (Góc Phải Trên Cùng)
-    # =========================================================================
-    gemini_btn = ttk.Button(
-        page_1_game_grid, 
-        text="✨ Gemini AI PRO", 
-        command=action_open_gemini_pro, 
-        style="Accent.TButton"
-    )
-    # relx=1.0, y=10, anchor="ne" -> Căn theo mép phải, cách trên 10px
-    gemini_btn.place(relx=1.0, x=-20, y=10, anchor="ne")
-    CreateToolTip(gemini_btn, "Mở trợ lý Google Gemini ngay trong App.")
-    # =========================================================================
-
-    # --- 1. THANH TÌM KIẾM & NÚT THÊM GAME ---
-    if g_game_search_entry is None:
-        # ... (Code logo cũ giữ nguyên) ...
-        try:
-            image_path = resource_path("logo.png")
-            my_image = Image.open(image_path).resize((150, 150), Image.Resampling.LANCZOS)
-            tk_image = ImageTk.PhotoImage(my_image)
-            ttk.Label(page_1_game_grid, image=tk_image, anchor=tk.CENTER).pack(pady=(10, 15))
-            root.tk_image = tk_image
-        except: pass
-
-        search_frame = ttk.Frame(page_1_game_grid)
-        search_frame.pack(fill=tk.X, pady=(0, 15), padx=50)
-
-        ttk.Label(search_frame, text="Tìm game:").pack(side=tk.LEFT, padx=(0, 10))
-
-        g_game_search_entry = ttk.Entry(search_frame)
-        g_game_search_entry.pack(fill=tk.X, expand=True, side=tk.LEFT)
-        g_game_search_entry.bind("<Return>", on_game_search)
-
-        ttk.Button(search_frame, text="X", command=action_clear_game_search, width=3).pack(side=tk.LEFT, padx=(5,0))
-        
-        # [MỚI] Nút Thêm Game
-        add_game_btn = ttk.Button(search_frame, text="➕ Thêm Game", command=action_add_custom_game_popup)
-        add_game_btn.pack(side=tk.LEFT, padx=(10, 0))
-        CreateToolTip(add_game_btn, "Thêm game bên ngoài vào Launcher.\n(Cần file .exe và link ảnh).")
-
-    # --- 2. TẠO CANVAS (Giữ nguyên code cũ) ---
-    if g_game_grid_container is None:
-        canvas_host_frame = ttk.Frame(page_1_game_grid)
-        canvas_host_frame.pack(fill=tk.BOTH, expand=True, pady=5, padx=5)
-        path_label_credit = ttk.Label(page_1_game_grid, text="by Mr-Mime 2025", style="secondary.TLabel")
-        path_label_credit.pack(side=tk.BOTTOM, pady=(5, 5))
-        page_1_scrollbar = ttk.Scrollbar(canvas_host_frame, orient="vertical")
-        page_1_canvas = tk.Canvas(canvas_host_frame, borderwidth=0, highlightthickness=0, yscrollcommand=page_1_scrollbar.set)
-        page_1_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        page_1_scrollbar.config(command=page_1_canvas.yview)
-        g_game_grid_container = ttk.Frame(page_1_canvas)
-        page_1_canvas_window_id = page_1_canvas.create_window((0, 0), window=g_game_grid_container, anchor="n")
-        g_game_grid_container.bind("<Configure>", on_page_1_content_configure)
-        page_1_canvas.bind("<Configure>", on_page_1_canvas_configure)
-        page_1_canvas.bind("<MouseWheel>", on_mouse_wheel)
-        g_game_grid_container.bind("<MouseWheel>", on_mouse_wheel)
-        page_1_canvas.bind("<Button-4>", on_mouse_wheel)
-        page_1_canvas.bind("<Button-5>", on_mouse_wheel)
-        g_game_grid_container.bind("<Button-4>", on_mouse_wheel)
-        g_game_grid_container.bind("<Button-5>", on_mouse_wheel)
-
-    for widget in g_game_grid_container.winfo_children(): widget.destroy()
-
-    if not hasattr(root, 'cached_game_icons_small'): root.cached_game_icons_small = {}
-
-    # --- 3. HỢP NHẤT DANH SÁCH GAME ---
-    # A. Game từ Server (GitHub)
-    server_games = sorted(game_groups.keys())
-    custom_games_data = local_config.get('custom_games', {})
-    # [MỚI] Lấy danh sách override
-    theme_overrides = local_config.get('theme_overrides', {})
-    
-    custom_game_names = sorted(custom_games_data.keys())
-    all_game_names = custom_game_names + server_games 
-    
-    if search_term:
-        search_term = search_term.lower()
-        filtered_names = [name for name in all_game_names if search_term in name.lower()]
-    else:
-        filtered_names = all_game_names
-
-    # 4. VẼ LƯỚI
-    MAX_COLS = 4
-    col = 0
-    row = 0
-
-    for game_name in filtered_names:
-        is_custom = game_name in custom_games_data
-        icon_img = None
-        full_path_to_launch = None
-        
-        # --- XỬ LÝ HÌNH ẢNH (LOGIC MỚI) ---
-        
-        # 1. Kiểm tra xem có ảnh Override (Ưu tiên cao nhất cho Server Game) không
-        override_path = theme_overrides.get(game_name)
-        
-        local_img_path_to_load = None
-        
-        if is_custom:
-            # Game Custom: Lấy path từ config của nó
-            local_img_path_to_load = custom_games_data[game_name].get("image_local_path")
-        elif override_path and os.path.exists(override_path):
-            # Game Server: Nếu có override thì dùng
-            local_img_path_to_load = override_path
-            
-        # Nếu có đường dẫn file local (Custom hoặc Override), tải nó
-        if local_img_path_to_load and os.path.exists(local_img_path_to_load):
             try:
-                cache_key = f"local_{local_img_path_to_load}"
-                if cache_key in root.cached_images:
-                    icon_img = root.cached_images[cache_key]
+                g_set_path_button.pack_forget()
+            except tk.TclError:
+                pass
+        g_current_launch_path = None 
+
+        try:
+            guide_text_widget.config(state=tk.NORMAL) # Mở khóa để sửa
+            guide_text_widget.delete("1.0", tk.END) # Xóa text cũ
+
+            selected_key = selected_option.get()
+
+            # 2. KIỂM TRA XEM CÓ CHỌN MOD KHÔNG
+            if selected_key and selected_key in g_all_mods_flat:
+
+                # 3. LẤY DATA
+                selected_option_data = g_all_mods_flat[selected_key] 
+
+                # 4. CẬP NHẬT HƯỚNG DẪN PATH
+                raw_guide = selected_option_data.get("path_guide")
+                if raw_guide:
+                    guide_text = str(raw_guide) # Đảm bảo là string
                 else:
-                    with Image.open(local_img_path_to_load) as img:
-                        img_resized = img.resize((192, 89), Image.Resampling.LANCZOS)
-                        icon_img = ImageTk.PhotoImage(img_resized)
-                        root.cached_images[cache_key] = icon_img
+                    guide_text = "Không có hướng dẫn cho mod này."
+                guide_text_widget.insert(tk.END, guide_text)
+
+                # 5. KIỂM TRA FILE KHỞI CHẠY (LOGIC MỚI)
+                if 'game_launchers' in local_config:
+                    found_launch_file = local_config['game_launchers'].get(g_current_game_name)
+                    if found_launch_file:
+                        print(f"Đã tìm thấy launch file do người dùng cài đặt: {found_launch_file}")
+
+
+                # Ưu tiên 2: Lấy từ JSON (nếu local không có)
+                if not found_launch_file:
+                    mod_list = download_options.get(g_current_game_name, [])
+                    for _key, mod_data in mod_list:
+                        if mod_data.get("launch_file"):
+                            found_launch_file = mod_data.get("launch_file")
+                            print(f"Đã tìm thấy launch file từ JSON: {found_launch_file}")
+                            break # Lấy file đầu tiên tìm thấy
+
+                destination_folder = local_config.get("game_paths", {}).get(g_current_game_name, "")
+
+                # 6. Kiểm tra file (logic không đổi, chỉ đổi tên biến)
+                # Chỉ kiểm tra nếu:
+                # - Tìm thấy một "launch_file"
+                # - Ô đường dẫn không rỗng
+                # - Đường dẫn là một thư mục có thật
+                if found_launch_file and destination_folder and os.path.isdir(destination_folder):
+
+                    full_file_path = os.path.join(destination_folder, found_launch_file)
+
+                    # Nếu tìm thấy file...
+                    if os.path.exists(full_file_path) and os.path.isfile(full_file_path):
+                        print(f"Persistent Check (Page 2): Tìm thấy file khởi chạy: {full_file_path}")
+                        g_current_launch_path = full_file_path
+                    else:
+                        # (Debug) Báo nếu đã cấu hình nhưng không tìm thấy file
+                        print(f"Persistent Check (Page 2): Đã cấu hình '{found_launch_file}' nhưng không tìm thấy tại '{destination_folder}'")
+
+            else:
+                # (Nếu không có mod nào được chọn)
+                guide_text_widget.insert(tk.END, "Hãy chọn một mod ở trên để xem hướng dẫn...")
+
+        except Exception as e:
+            print(f"Lỗi khi cập nhật hướng dẫn/launch button: {e}")
+            guide_text_widget.delete("1.0", tk.END)
+            guide_text_widget.insert(tk.END, "Lỗi khi tải hướng dẫn.")
+        finally:
+            guide_text_widget.config(state=tk.DISABLED)
+            try:
+                # --- [SỬA ĐỔI: ĐỔI THỨ TỰ PACK] ---
+                
+                # 1. Pack nút "Đặt đường dẫn" (⚙️) TRƯỚC 
+                # -> Kết quả: Nó sẽ nằm ở NGOÀI CÙNG BÊN PHẢI
+                if 'g_set_path_button' in globals():
+                    g_set_path_button.pack(side=tk.RIGHT, padx=(0, 5)) 
+
+                # 2. Pack nút "Chạy Game" (🚀) SAU
+                # -> Kết quả: Nó sẽ nằm bên TRÁI nút bánh răng
+                if 'g_launch_game_button' in globals():
+                    g_launch_game_button.pack(side=tk.RIGHT, padx=(0, 10)) 
+                    
+                    # Cấu hình trạng thái (ENABLE/DISABLE)
+                    if g_current_launch_path:
+                        g_launch_game_button.config(state=tk.NORMAL)
+                    else:
+                        g_launch_game_button.config(state=tk.DISABLED)
+
+            except Exception as e:
+                print(f"Lỗi khi pack nút bên phải: {e}")
+            # --- (END) THAY ĐỔI ---
+
+
+    def on_game_search(event):
+        """Lọc lưới game ở Trang 1 dựa trên nội dung ô tìm kiếm."""
+        if not g_game_search_entry: # Nếu UI chưa sẵn sàng
+            return
+
+        search_term = g_game_search_entry.get().lower()
+
+        # Gọi lại hàm populate, truyền vào dict đã nhóm và từ khóa
+        populate_page_1_grid(download_options, search_term)
+
+    # --- THÊM MỚI: HÀM XÓA TÌM KIẾM (BỊ THIẾU) ---
+    def action_clear_game_search():
+        """Xóa ô tìm kiếm và hiển thị lại tất cả game."""
+        if not g_game_search_entry:
+            return
+        g_game_search_entry.delete(0, tk.END) # Xóa text
+
+        # Gọi lại hàm populate với search_term rỗng
+        # (Lưu ý: 'download_options' là biến toàn cục)
+        populate_page_1_grid(download_options, search_term="")
+
+    def action_delete_custom_game(game_name):
+        """Xóa game custom khỏi danh sách."""
+        if custom_askyesno("Xóa Game", f"Bạn có chắc chắn muốn xóa game '{game_name}' khỏi danh sách không?\n(File game trên máy sẽ KHÔNG bị xóa)."):
+            try:
+                # Xóa khỏi config
+                if game_name in local_config['custom_games']:
+                    del local_config['custom_games'][game_name]
+                    save_local_config(local_config)
+                    
+                    # Làm mới lưới
+                    action_clear_game_search()
+                    custom_showinfo("Đã xóa", f"Đã xóa '{game_name}'.")
+            except Exception as e:
+                custom_showerror("Lỗi", f"Không thể xóa: {e}")
+
+    def action_change_game_image(game_name, is_custom):
+        """Đổi ảnh bìa cho game (Cả Custom và Server)."""
+        new_url = custom_askstring("Đổi Ảnh", f"Nhập URL hình ảnh mới cho '{game_name}':")
+        
+        if not new_url: return
+        
+        try:
+            # 1. Tải ảnh về
+            response = requests.get(new_url, timeout=10)
+            response.raise_for_status()
+            img_data = response.content
+            
+            # 2. Tạo tên file cache an toàn
+            safe_name = "".join([c for c in game_name if c.isalnum() or c in (' ', '-', '_')]).strip()
+            img_filename = f"override_{safe_name}.png"
+            local_img_path = os.path.join(g_cache_dir, img_filename)
+            
+            # 3. Resize và Lưu
+            if not os.path.exists(g_cache_dir): os.makedirs(g_cache_dir)
+            
+            with Image.open(io.BytesIO(img_data)) as img:
+                # Lưu bản chất lượng cao (460x215)
+                img_resized = img.resize((460, 215), Image.Resampling.LANCZOS)
+                img_resized.save(local_img_path, "PNG")
+                
+            # 4. Lưu đường dẫn vào Config
+            if is_custom:
+                # Nếu là game custom, cập nhật trực tiếp vào custom_games
+                local_config['custom_games'][game_name]['image_local_path'] = local_img_path
+            else:
+                # Nếu là game server, lưu vào theme_overrides
+                if 'theme_overrides' not in local_config:
+                    local_config['theme_overrides'] = {}
+                local_config['theme_overrides'][game_name] = local_img_path
+                
+            save_local_config(local_config)
+            
+            # 5. Xóa cache RAM cũ để nó load ảnh mới
+            keys_to_remove = [k for k in root.cached_images.keys() if safe_name in k or game_name in k]
+            for k in keys_to_remove:
+                del root.cached_images[k]
+
+            # 6. Làm mới giao diện
+            action_clear_game_search()
+            custom_showinfo("Thành công", "Đã cập nhật ảnh bìa!")
+
+        except Exception as e:
+            custom_showerror("Lỗi", f"Không thể tải ảnh: {e}")
+
+    def action_rename_game(game_key):
+        """Đổi tên hiển thị của game (Alias)."""
+        # Lấy tên hiện tại (nếu đã đổi thì lấy tên đổi, chưa thì lấy tên gốc)
+        current_alias = local_config.get('display_name_overrides', {}).get(game_key, game_key)
+        
+        new_name = custom_askstring("Đổi Tên", f"Nhập tên mới cho '{game_key}':", initialvalue=current_alias)
+        
+        if new_name is not None: # Nếu không bấm Cancel
+            if not new_name.strip() or new_name.strip() == game_key:
+                # Nếu để trống hoặc nhập trùng tên gốc -> Xóa Alias (Reset)
+                if game_key in local_config['display_name_overrides']:
+                    del local_config['display_name_overrides'][game_key]
+            else:
+                # Lưu tên mới
+                local_config['display_name_overrides'][game_key] = new_name.strip()
+                
+            save_local_config(local_config)
+            action_clear_game_search() # Làm mới giao diện
+
+    def action_remove_custom_image(game_key):
+        """Xóa ảnh custom để quay về ảnh gốc từ Server."""
+        if custom_askyesno("Khôi phục ảnh", f"Bạn muốn xóa ảnh tùy chỉnh của '{game_key}'\nvà quay lại dùng ảnh gốc từ Server?"):
+            try:
+                # Xóa khỏi config
+                if game_key in local_config['theme_overrides']:
+                    del local_config['theme_overrides'][game_key]
+                    save_local_config(local_config)
+                
+                # Xóa cache RAM để nó load lại ảnh gốc
+                # (Tìm các key cache chứa tên game và xóa)
+                safe_name = "".join([c for c in game_key if c.isalnum() or c in (' ', '-', '_')]).strip()
+                keys_to_del = [k for k in root.cached_images.keys() if safe_name in k]
+                for k in keys_to_del:
+                    del root.cached_images[k]
+                    
+                action_clear_game_search() # Làm mới giao diện
+                custom_showinfo("Thành công", "Đã khôi phục ảnh gốc.")
+                
+            except Exception as e:
+                custom_showerror("Lỗi", f"Lỗi khi xóa ảnh: {e}")
+
+    def show_game_context_menu(event, game_key, is_custom):
+        """
+        Menu chuột phải thông minh:
+        - Luôn hiện: Đổi Ảnh, Đổi Tên.
+        - Nếu là Server Game + Có Ảnh Custom: Hiện nút 'Khôi phục ảnh gốc'.
+        - Nếu là Custom Game: Hiện nút 'Xóa Game'.
+        """
+        menu = tk.Menu(root, tearoff=0)
+        
+        # 1. Đổi Tên (Cho tất cả)
+        menu.add_command(label="✏️ Đổi Tên Game", command=lambda: action_rename_game(game_key))
+        
+        # 2. Đổi Ảnh (Cho tất cả)
+        menu.add_command(label="🖼️ Đổi Ảnh (URL)", command=lambda: action_change_game_image(game_key, is_custom))
+        
+        # 3. Khôi phục ảnh gốc (Chỉ cho Server Game đang dùng ảnh custom)
+        # Kiểm tra xem game này có trong danh sách override không
+        if not is_custom and game_key in local_config.get('theme_overrides', {}):
+            menu.add_command(label="↩️ Khôi phục Ảnh Gốc", command=lambda: action_remove_custom_image(game_key))
+
+        menu.add_separator()
+
+        # 4. Xóa Game (Chỉ cho Custom Game)
+        if is_custom:
+            menu.add_command(label="❌ Xóa Game Khỏi List", command=lambda: action_delete_custom_game(game_key))
+            
+        menu.post(event.x_root, event.y_root)
+
+    # --- THÊM MỚI: CÁC HÀM ĐIỀU HƯỚNG MỚI ---
+    def populate_page_1_grid(game_groups, search_term=""):
+        """(ĐÃ NÂNG CẤP) Hiển thị lưới game bao gồm cả Game Tùy Chỉnh."""
+        global g_game_grid_container, g_game_search_entry, page_1_canvas, page_1_canvas_window_id
+
+        style.configure("HoverAccent.TButton", background="#0078d4", foreground="white", font=("Segoe UI", 10, "bold"), borderwidth=1, focuscolor="none")
+        style.map("HoverAccent.TButton", background=[('active', '#ff0000'), ('disabled', '#cccccc')], foreground=[('active', 'cyan')])
+
+        def create_page1_launch_cmd(path):
+            def launch_and_stop_event(event=None):
+                action_launch_game_from_page_1(path)
+                return "break" 
+            return launch_and_stop_event
+        
+        try:
+            loading_frame = page_1_game_grid.nametowidget("tab1_loading_frame")
+            if loading_frame:
+                loading_frame.destroy()
+                root.update_idletasks() 
+        except KeyError: pass
+        
+        # =========================================================================
+        # [THÊM MỚI] NÚT GEMINI AI PRO (Góc Phải Trên Cùng)
+        # =========================================================================
+        gemini_btn = ttk.Button(
+            page_1_game_grid, 
+            text="✨ Gemini AI PRO", 
+            command=action_open_gemini_pro, 
+            style="Accent.TButton"
+        )
+        # relx=1.0, y=10, anchor="ne" -> Căn theo mép phải, cách trên 10px
+        gemini_btn.place(relx=1.0, x=-20, y=10, anchor="ne")
+        CreateToolTip(gemini_btn, "Mở trợ lý Google Gemini ngay trong App.")
+        # =========================================================================
+
+        # --- 1. THANH TÌM KIẾM & NÚT THÊM GAME ---
+        if g_game_search_entry is None:
+            # ... (Code logo cũ giữ nguyên) ...
+            try:
+                image_path = resource_path("logo.png")
+                my_image = Image.open(image_path).resize((150, 150), Image.Resampling.LANCZOS)
+                tk_image = ImageTk.PhotoImage(my_image)
+                ttk.Label(page_1_game_grid, image=tk_image, anchor=tk.CENTER).pack(pady=(10, 15))
+                root.tk_image = tk_image
             except: pass
 
-        # Nếu vẫn chưa có ảnh (Server Game chưa override), tải từ URL Server
-        if not icon_img and not is_custom:
-            image_url = g_game_themes.get(game_name)
-            if image_url:
-                icon_img = load_image_from_url(image_url, size=(192, 89))
-        
-        # Fallback icon mặc định
-        if not icon_img:
-            icon_img = root.default_game_icon_small
+            search_frame = ttk.Frame(page_1_game_grid)
+            search_frame.pack(fill=tk.X, pady=(0, 15), padx=50)
 
-        # --- XỬ LÝ ĐƯỜNG DẪN (Giữ nguyên) ---
-        if is_custom:
-            full_path_to_launch = custom_games_data[game_name].get("launch_path")
-        else:
-            current_global_path = local_config.get("game_paths", {}).get(game_name, "")
-            found_launch_file = None
-            if 'game_launchers' in local_config:
-                found_launch_file = local_config['game_launchers'].get(game_name)
-            if not found_launch_file:
-                mod_list = game_groups.get(game_name, [])
-                for _key, mod_data in mod_list:
-                    if mod_data.get("launch_file"):
-                        found_launch_file = mod_data.get("launch_file")
-                        break
-            if found_launch_file and current_global_path and os.path.isdir(current_global_path):
-                full_path = os.path.join(current_global_path, found_launch_file)
-                if os.path.exists(full_path) and os.path.isfile(full_path):
-                    full_path_to_launch = full_path
+            ttk.Label(search_frame, text="Tìm game:").pack(side=tk.LEFT, padx=(0, 10))
 
-        # --- VẼ CARD ---
-        card_frame = ttk.Frame(g_game_grid_container, style="Card.TFrame", cursor="hand2")
-        card_frame.grid(row=row, column=col, padx=10, pady=10, sticky="ew")
-        card_frame.columnconfigure(0, weight=1)
+            g_game_search_entry = ttk.Entry(search_frame)
+            g_game_search_entry.pack(fill=tk.X, expand=True, side=tk.LEFT)
+            g_game_search_entry.bind("<Return>", on_game_search)
 
-        img_label = ttk.Label(card_frame, image=icon_img, cursor="hand2")
-        img_label.grid(row=0, column=0, pady=(10, 5), padx=10)
-
-        display_name = local_config.get('display_name_overrides', {}).get(game_name, game_name)
-        if is_custom:
-            display_name = f"★ {display_name}"
-        name_label = ttk.Label(card_frame, text=display_name, anchor=tk.CENTER, cursor="hand2", font=("Segoe UI", 10, "bold"))
-        name_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky="ew")
-
-        # Nút Chạy (Logic cũ)
-        btn_text = "Chưa Cài Đặt"
-        btn_state = tk.DISABLED
-        btn_style = "TButton"
-        
-        if full_path_to_launch:
-            btn_text = "🚀 Chạy Game"
-            btn_state = tk.NORMAL
-            btn_style = "HoverAccent.TButton"
+            ttk.Button(search_frame, text="X", command=action_clear_game_search, width=3).pack(side=tk.LEFT, padx=(5,0))
             
-        launch_button_page1 = ttk.Button(card_frame, text=btn_text, state=btn_state, style=btn_style)
-        launch_button_page1.grid(row=2, column=0, pady=(0, 10), padx=10, sticky="ew")
+            # [MỚI] Nút Thêm Game
+            add_game_btn = ttk.Button(search_frame, text="➕ Thêm Game", command=action_add_custom_game_popup)
+            add_game_btn.pack(side=tk.LEFT, padx=(10, 0))
+            CreateToolTip(add_game_btn, "Thêm game bên ngoài vào Launcher.\n(Cần file .exe và link ảnh).")
 
-        # --- BINDING EVENTS (CLICK CHUỘT TRÁI - CŨ) ---
-        if full_path_to_launch:
-            click_cmd = lambda e, p=full_path_to_launch, t=img_label: action_launch_game_from_page_1(p, t)
-            launch_button_page1.bind("<Button-1>", click_cmd)
+        # --- 2. TẠO CANVAS (Giữ nguyên code cũ) ---
+        if g_game_grid_container is None:
+            canvas_host_frame = ttk.Frame(page_1_game_grid)
+            canvas_host_frame.pack(fill=tk.BOTH, expand=True, pady=5, padx=5)
+            path_label_credit = ttk.Label(page_1_game_grid, text="by Mr-Mime 2025", style="secondary.TLabel")
+            path_label_credit.pack(side=tk.BOTTOM, pady=(5, 5))
+            page_1_scrollbar = ttk.Scrollbar(canvas_host_frame, orient="vertical")
+            page_1_canvas = tk.Canvas(canvas_host_frame, borderwidth=0, highlightthickness=0, yscrollcommand=page_1_scrollbar.set)
+            page_1_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            page_1_scrollbar.config(command=page_1_canvas.yview)
+            g_game_grid_container = ttk.Frame(page_1_canvas)
+            page_1_canvas_window_id = page_1_canvas.create_window((0, 0), window=g_game_grid_container, anchor="n")
+            g_game_grid_container.bind("<Configure>", on_page_1_content_configure)
+            page_1_canvas.bind("<Configure>", on_page_1_canvas_configure)
+            page_1_canvas.bind("<MouseWheel>", on_mouse_wheel)
+            g_game_grid_container.bind("<MouseWheel>", on_mouse_wheel)
+            page_1_canvas.bind("<Button-4>", on_mouse_wheel)
+            page_1_canvas.bind("<Button-5>", on_mouse_wheel)
+            g_game_grid_container.bind("<Button-4>", on_mouse_wheel)
+            g_game_grid_container.bind("<Button-5>", on_mouse_wheel)
+
+        for widget in g_game_grid_container.winfo_children(): widget.destroy()
+
+        if not hasattr(root, 'cached_game_icons_small'): root.cached_game_icons_small = {}
+
+        # --- 3. HỢP NHẤT DANH SÁCH GAME ---
+        # A. Game từ Server (GitHub)
+        server_games = sorted(game_groups.keys())
+        custom_games_data = local_config.get('custom_games', {})
+        # [MỚI] Lấy danh sách override
+        theme_overrides = local_config.get('theme_overrides', {})
         
-        if is_custom:
-             if full_path_to_launch:
-                card_cmd = lambda e, p=full_path_to_launch, t=img_label: action_launch_game_from_page_1(p, t)
-                card_frame.bind("<Button-1>", card_cmd)
-                img_label.bind("<Button-1>", card_cmd)
-                name_label.bind("<Button-1>", card_cmd)
+        custom_game_names = sorted(custom_games_data.keys())
+        all_game_names = custom_game_names + server_games 
+        
+        if search_term:
+            search_term = search_term.lower()
+            filtered_names = [name for name in all_game_names if search_term in name.lower()]
         else:
-            nav_cmd = lambda event, g=game_name: show_page_2_for_game(g)
-            card_frame.bind("<Button-1>", nav_cmd)
-            img_label.bind("<Button-1>", nav_cmd)
-            name_label.bind("<Button-1>", nav_cmd)
+            filtered_names = all_game_names
 
-        # --- [MỚI] BINDING CHUỘT PHẢI (CONTEXT MENU) ---
-        # Sử dụng lambda với default argument (g=game_name, c=is_custom) để bắt đúng giá trị trong vòng lặp
-        right_click_cmd = lambda e, g=game_name, c=is_custom: show_game_context_menu(e, g, c)
-    
-        card_frame.bind("<Button-3>", right_click_cmd)
-        img_label.bind("<Button-3>", right_click_cmd)
-        name_label.bind("<Button-3>", right_click_cmd)
-        # (Không bind nút chạy game để tránh bấm nhầm)
+        # 4. VẼ LƯỚI
+        MAX_COLS = 4
+        col = 0
+        row = 0
 
-        # Scroll bind
-        for w in [card_frame, img_label, name_label, launch_button_page1]:
-            w.bind("<MouseWheel>", on_mouse_wheel)
-            w.bind("<Button-4>", on_mouse_wheel)
-            w.bind("<Button-5>", on_mouse_wheel)
-
-        col += 1
-        if col >= MAX_COLS:
-            col = 0
-            row += 1
-
-    for i in range(MAX_COLS): g_game_grid_container.columnconfigure(i, weight=0)
-
-
-
-def show_page_2_for_game(game_name):
-    """(ĐÃ VIẾT LẠI) Tải ảnh, điền mod, và chuyển sang Trang 2."""
-    global g_current_game_name, g_game_image_label, g_game_themes, local_config # <-- SỬA 1: Thêm 'local_config'
-    
-    local_config = load_local_config() # <-- SỬA 2: Thêm dòng này
-    
-    g_current_game_name = game_name
-    path_entry.delete(0, tk.END)
-    # 1. Lấy path đã lưu cho game này
-    last_used_folder = local_config.get("last_used_folder", "")
-
-    path_entry.insert(0, last_used_folder)
-
-    if 'g_launch_game_button' in globals():
-        g_launch_game_button.pack_forget()
-    global page_2_back_button, g_set_path_button
-    
-    page_2_back_button.pack(side=tk.LEFT)
-    # Đặt lại tiêu đề khung
-    options_frame.config(text=f"Các mod cho: {game_name}")
-
-    # Xóa ảnh cũ (nếu có)
-    g_game_image_label.pack_forget()
-    g_game_image_label.config(image='')
-
-    # --- THÊM MỚI: LOGIC TẢI ẢNH (TRONG THREAD) ---
-    def load_game_image_thread():
-        """
-        (Chạy ngầm) Lấy ảnh cho Trang 2 (Ưu tiên ảnh Local/Override).
-        """
-        global g_game_image_label, g_game_themes, local_config
-
-        icon_img = None
-        
-        # 1. Tải lại config để đảm bảo lấy được thay đổi mới nhất
-        current_config = load_local_config()
-        custom_games = current_config.get('custom_games', {})
-        theme_overrides = current_config.get('theme_overrides', {})
-        
-        # 2. Tìm đường dẫn ảnh trong máy (Local Path)
-        local_path = None
-        
-        if game_name in custom_games:
-            # Nếu là game Custom -> Lấy path từ config custom
-            local_path = custom_games[game_name].get("image_local_path")
-        elif game_name in theme_overrides:
-            # Nếu là game Server nhưng có Override -> Lấy path override
-            local_path = theme_overrides[game_name]
+        for game_name in filtered_names:
+            is_custom = game_name in custom_games_data
+            icon_img = None
+            full_path_to_launch = None
             
-        # 3. Nếu có ảnh local -> Load từ ổ cứng
-        if local_path and os.path.exists(local_path):
+            # --- XỬ LÝ HÌNH ẢNH (LOGIC MỚI) ---
+            
+            # 1. Kiểm tra xem có ảnh Override (Ưu tiên cao nhất cho Server Game) không
+            override_path = theme_overrides.get(game_name)
+            
+            local_img_path_to_load = None
+            
+            if is_custom:
+                # Game Custom: Lấy path từ config của nó
+                local_img_path_to_load = custom_games_data[game_name].get("image_local_path")
+            elif override_path and os.path.exists(override_path):
+                # Game Server: Nếu có override thì dùng
+                local_img_path_to_load = override_path
+                
+            # Nếu có đường dẫn file local (Custom hoặc Override), tải nó
+            if local_img_path_to_load and os.path.exists(local_img_path_to_load):
+                try:
+                    cache_key = f"local_{local_img_path_to_load}"
+                    if cache_key in root.cached_images:
+                        icon_img = root.cached_images[cache_key]
+                    else:
+                        with Image.open(local_img_path_to_load) as img:
+                            img_resized = img.resize((192, 89), Image.Resampling.LANCZOS)
+                            icon_img = ImageTk.PhotoImage(img_resized)
+                            root.cached_images[cache_key] = icon_img
+                except: pass
+
+            # Nếu vẫn chưa có ảnh (Server Game chưa override), tải từ URL Server
+            if not icon_img and not is_custom:
+                image_url = g_game_themes.get(game_name)
+                if image_url:
+                    icon_img = load_image_from_url(image_url, size=(192, 89))
+            
+            # Fallback icon mặc định
+            if not icon_img:
+                icon_img = root.default_game_icon_small
+
+            # --- XỬ LÝ ĐƯỜNG DẪN (Giữ nguyên) ---
+            if is_custom:
+                full_path_to_launch = custom_games_data[game_name].get("launch_path")
+            else:
+                current_global_path = local_config.get("game_paths", {}).get(game_name, "")
+                found_launch_file = None
+                if 'game_launchers' in local_config:
+                    found_launch_file = local_config['game_launchers'].get(game_name)
+                if not found_launch_file:
+                    mod_list = game_groups.get(game_name, [])
+                    for _key, mod_data in mod_list:
+                        if mod_data.get("launch_file"):
+                            found_launch_file = mod_data.get("launch_file")
+                            break
+                if found_launch_file and current_global_path and os.path.isdir(current_global_path):
+                    full_path = os.path.join(current_global_path, found_launch_file)
+                    if os.path.exists(full_path) and os.path.isfile(full_path):
+                        full_path_to_launch = full_path
+
+            # --- VẼ CARD ---
+            card_frame = ttk.Frame(g_game_grid_container, style="Card.TFrame", cursor="hand2")
+            card_frame.grid(row=row, column=col, padx=10, pady=10, sticky="ew")
+            card_frame.columnconfigure(0, weight=1)
+
+            img_label = ttk.Label(card_frame, image=icon_img, cursor="hand2")
+            img_label.grid(row=0, column=0, pady=(10, 5), padx=10)
+
+            display_name = local_config.get('display_name_overrides', {}).get(game_name, game_name)
+            if is_custom:
+                display_name = f"★ {display_name}"
+            name_label = ttk.Label(card_frame, text=display_name, anchor=tk.CENTER, cursor="hand2", font=("Segoe UI", 10, "bold"))
+            name_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky="ew")
+
+            # Nút Chạy (Logic cũ)
+            btn_text = "Chưa Cài Đặt"
+            btn_state = tk.DISABLED
+            btn_style = "TButton"
+            
+            if full_path_to_launch:
+                btn_text = "🚀 Chạy Game"
+                btn_state = tk.NORMAL
+                btn_style = "HoverAccent.TButton"
+                
+            launch_button_page1 = ttk.Button(card_frame, text=btn_text, state=btn_state, style=btn_style)
+            launch_button_page1.grid(row=2, column=0, pady=(0, 10), padx=10, sticky="ew")
+
+            # --- BINDING EVENTS (CLICK CHUỘT TRÁI - CŨ) ---
+            if full_path_to_launch:
+                click_cmd = lambda e, p=full_path_to_launch, t=img_label: action_launch_game_from_page_1(p, t)
+                launch_button_page1.bind("<Button-1>", click_cmd)
+            
+            if is_custom:
+                if full_path_to_launch:
+                    card_cmd = lambda e, p=full_path_to_launch, t=img_label: action_launch_game_from_page_1(p, t)
+                    card_frame.bind("<Button-1>", card_cmd)
+                    img_label.bind("<Button-1>", card_cmd)
+                    name_label.bind("<Button-1>", card_cmd)
+            else:
+                nav_cmd = lambda event, g=game_name: show_page_2_for_game(g)
+                card_frame.bind("<Button-1>", nav_cmd)
+                img_label.bind("<Button-1>", nav_cmd)
+                name_label.bind("<Button-1>", nav_cmd)
+
+            # --- [MỚI] BINDING CHUỘT PHẢI (CONTEXT MENU) ---
+            # Sử dụng lambda với default argument (g=game_name, c=is_custom) để bắt đúng giá trị trong vòng lặp
+            right_click_cmd = lambda e, g=game_name, c=is_custom: show_game_context_menu(e, g, c)
+        
+            card_frame.bind("<Button-3>", right_click_cmd)
+            img_label.bind("<Button-3>", right_click_cmd)
+            name_label.bind("<Button-3>", right_click_cmd)
+            # (Không bind nút chạy game để tránh bấm nhầm)
+
+            # Scroll bind
+            for w in [card_frame, img_label, name_label, launch_button_page1]:
+                w.bind("<MouseWheel>", on_mouse_wheel)
+                w.bind("<Button-4>", on_mouse_wheel)
+                w.bind("<Button-5>", on_mouse_wheel)
+
+            col += 1
+            if col >= MAX_COLS:
+                col = 0
+                row += 1
+
+        for i in range(MAX_COLS): g_game_grid_container.columnconfigure(i, weight=0)
+
+
+
+    def show_page_2_for_game(game_name):
+        """(ĐÃ VIẾT LẠI) Tải ảnh, điền mod, và chuyển sang Trang 2."""
+        global g_current_game_name, g_game_image_label, g_game_themes, local_config # <-- SỬA 1: Thêm 'local_config'
+        
+        local_config = load_local_config() # <-- SỬA 2: Thêm dòng này
+        
+        g_current_game_name = game_name
+        path_entry.delete(0, tk.END)
+        # 1. Lấy path đã lưu cho game này
+        last_used_folder = local_config.get("last_used_folder", "")
+
+        path_entry.insert(0, last_used_folder)
+
+        if 'g_launch_game_button' in globals():
+            g_launch_game_button.pack_forget()
+        global page_2_back_button, g_set_path_button
+        
+        page_2_back_button.pack(side=tk.LEFT)
+        # Đặt lại tiêu đề khung
+        options_frame.config(text=f"Các mod cho: {game_name}")
+
+        # Xóa ảnh cũ (nếu có)
+        g_game_image_label.pack_forget()
+        g_game_image_label.config(image='')
+
+        # --- THÊM MỚI: LOGIC TẢI ẢNH (TRONG THREAD) ---
+        def load_game_image_thread():
+            """
+            (Chạy ngầm) Lấy ảnh cho Trang 2 (Ưu tiên ảnh Local/Override).
+            """
+            global g_game_image_label, g_game_themes, local_config
+
+            icon_img = None
+            
+            # 1. Tải lại config để đảm bảo lấy được thay đổi mới nhất
+            current_config = load_local_config()
+            custom_games = current_config.get('custom_games', {})
+            theme_overrides = current_config.get('theme_overrides', {})
+            
+            # 2. Tìm đường dẫn ảnh trong máy (Local Path)
+            local_path = None
+            
+            if game_name in custom_games:
+                # Nếu là game Custom -> Lấy path từ config custom
+                local_path = custom_games[game_name].get("image_local_path")
+            elif game_name in theme_overrides:
+                # Nếu là game Server nhưng có Override -> Lấy path override
+                local_path = theme_overrides[game_name]
+                
+            # 3. Nếu có ảnh local -> Load từ ổ cứng
+            if local_path and os.path.exists(local_path):
+                try:
+                    # Tạo key cache riêng cho ảnh to
+                    cache_key = f"local_big_{local_path}"
+                    
+                    if cache_key in root.cached_images:
+                        icon_img = root.cached_images[cache_key]
+                    else:
+                        with Image.open(local_path) as img:
+                            # Resize to cho Trang 2 (460x215)
+                            img_resized = img.resize((460, 215), Image.Resampling.LANCZOS)
+                            icon_img = ImageTk.PhotoImage(img_resized)
+                            root.cached_images[cache_key] = icon_img
+                            print(f"Đã load ảnh local cho Page 2: {game_name}")
+                except Exception as e:
+                    print(f"Lỗi load ảnh local Page 2: {e}")
+
+            # 4. Nếu chưa có ảnh (không có local), dùng URL từ Server
+            if not icon_img:
+                image_url = g_game_themes.get(game_name)
+                if image_url:
+                    # Hàm này sẽ tự động cache
+                    icon_img = load_image_from_url(image_url, size=(460, 215))
+
+            # 5. Nếu vẫn không có, dùng icon mặc định
+            if not icon_img:
+                icon_img = root.default_game_icon_large 
+
+            # 6. Gửi về queue để cập nhật UI
+            progress_queue.put(("game_image_loaded", icon_img))
+
+        # Bắt đầu tải ảnh ngầm (Việc này nhanh, giữ nguyên)
+        threading.Thread(target=load_game_image_thread, daemon=True).start()
+        
+        # --- SỬA LỖI TỐI ƯU HÓA (BEGIN) ---
+        
+        # 1. XÓA SẠCH WIDGET CŨ (của game trước) NGAY LẬP TỨC
+        # (Di chuyển code 'destroy' từ hàm update_radio_buttons lên đây)
+        for widget in content_frame.winfo_children(): 
+            widget.destroy()
+        
+        # 2. CHUYỂN TRANG NGAY LẬP TỨC (Khi trang còn trống)
+        # (Hàm này giờ chỉ là `place()`, rất nhanh)
+        show_page(page_2_mod_list) 
+        
+        # 3. HẸN GIỜ (10ms) ĐỂ BẮT ĐẦU VẼ CÁC NÚT MỚI
+        # Điều này cho phép UI chuyển trang mượt mà trước khi bị "khóa"
+        root.after(10, update_radio_buttons_text_for_game, game_name)
+
+    def update_mod_button_states(selected_key):
+        """Cập nhật trạng thái text và STYLE của tất cả các nút chọn mod."""
+        global g_mod_buttons, g_current_selected_key
+        g_current_selected_key = selected_key
+        
+        # --- (BEGIN) THAY ĐỔI: Unpack tuple (select_button, checkmark_button) ---
+        for key, (select_button, checkmark_button) in g_mod_buttons.items():
             try:
-                # Tạo key cache riêng cho ảnh to
-                cache_key = f"local_big_{local_path}"
-                
-                if cache_key in root.cached_images:
-                    icon_img = root.cached_images[cache_key]
+                if key == selected_key:
+                    # Nút CHỌN (bên phải): Đổi thành "✓"
+                    select_button.config(text="   ", style="Accent.TButton", state=tk.NORMAL)
+                    
+                    # Nút CHECK (bên trái): Hiện "✓" và bật
+                    checkmark_button.config(text="   ", state=tk.NORMAL)
                 else:
-                    with Image.open(local_path) as img:
-                        # Resize to cho Trang 2 (460x215)
-                        img_resized = img.resize((460, 215), Image.Resampling.LANCZOS)
-                        icon_img = ImageTk.PhotoImage(img_resized)
-                        root.cached_images[cache_key] = icon_img
-                        print(f"Đã load ảnh local cho Page 2: {game_name}")
-            except Exception as e:
-                print(f"Lỗi load ảnh local Page 2: {e}")
+                    # Nút CHỌN (bên phải): Trả về text rỗng
+                    select_button.config(text="", style="TButton", state=tk.NORMAL)
+                    
+                    # Nút CHECK (bên trái): Ẩn text và mờ
+                    checkmark_button.config(text="", state=tk.DISABLED)
+            except tk.TclError:
+                pass
 
-        # 4. Nếu chưa có ảnh (không có local), dùng URL từ Server
-        if not icon_img:
-            image_url = g_game_themes.get(game_name)
-            if image_url:
-                # Hàm này sẽ tự động cache
-                icon_img = load_image_from_url(image_url, size=(460, 215))
+    def update_radio_buttons_text_for_game(game_name_to_show):
+        """(ĐÃ VIẾT LẠI) Dùng Accent.TButton để chọn."""
+        global local_config, radio_buttons, g_mod_buttons, g_current_selected_key
+        
+        # Reset trackers
+        g_mod_buttons.clear()
+        g_current_selected_key = None
+        selected_option.set("") # Xóa lựa chọn cũ
 
-        # 5. Nếu vẫn không có, dùng icon mặc định
-        if not icon_img:
-            icon_img = root.default_game_icon_large 
+        radio_buttons = [] # Vẫn giữ, dù không dùng, để tránh lỗi ở chỗ khác
 
-        # 6. Gửi về queue để cập nhật UI
-        progress_queue.put(("game_image_loaded", icon_img))
+        style.configure("New.TLabel", foreground="red", font=('TkDefaultFont', 9, 'bold'))
+        style.configure("Installed.TLabel", foreground="green")
 
-    # Bắt đầu tải ảnh ngầm (Việc này nhanh, giữ nguyên)
-    threading.Thread(target=load_game_image_thread, daemon=True).start()
-    
-    # --- SỬA LỖI TỐI ƯU HÓA (BEGIN) ---
-    
-    # 1. XÓA SẠCH WIDGET CŨ (của game trước) NGAY LẬP TỨC
-    # (Di chuyển code 'destroy' từ hàm update_radio_buttons lên đây)
-    for widget in content_frame.winfo_children(): 
-        widget.destroy()
-    
-    # 2. CHUYỂN TRANG NGAY LẬP TỨC (Khi trang còn trống)
-    # (Hàm này giờ chỉ là `place()`, rất nhanh)
-    show_page(page_2_mod_list) 
-    
-    # 3. HẸN GIỜ (10ms) ĐỂ BẮT ĐẦU VẼ CÁC NÚT MỚI
-    # Điều này cho phép UI chuyển trang mượt mà trước khi bị "khóa"
-    root.after(10, update_radio_buttons_text_for_game, game_name)
+        # --- Hàm helper để đóng/mở (toggle) ---
+        # (Hàm này không đổi)
+        def create_toggle_function(mod_frame, button, separator_widget):
+            def toggle():
+                if mod_frame.winfo_viewable(): 
+                    mod_frame.pack_forget()    
+                    button.config(text=f"{button.game_name} ▸") 
+                else:
+                    mod_frame.pack(fill=tk.X, expand=True, before=separator_widget, padx=(15, 0)) 
+                    button.config(text=f"{button.game_name} ▾") 
+            return toggle
 
-def update_mod_button_states(selected_key):
-    """Cập nhật trạng thái text và STYLE của tất cả các nút chọn mod."""
-    global g_mod_buttons, g_current_selected_key
-    g_current_selected_key = selected_key
-    
-    # --- (BEGIN) THAY ĐỔI: Unpack tuple (select_button, checkmark_button) ---
-    for key, (select_button, checkmark_button) in g_mod_buttons.items():
-        try:
-            if key == selected_key:
-                # Nút CHỌN (bên phải): Đổi thành "✓"
-                select_button.config(text="   ", style="Accent.TButton", state=tk.NORMAL)
-                
-                # Nút CHECK (bên trái): Hiện "✓" và bật
-                checkmark_button.config(text="   ", state=tk.NORMAL)
+        first_key_to_select = None
+
+        mod_list = download_options.get(game_name_to_show, [])
+
+        # --- HÀM CLICK MỚI (Đơn giản) ---
+        def create_click_handler(key_value):
+            def handler(event=None):
+                # 1. Cập nhật biến (để nút "Bắt đầu" hoạt động)
+                selected_option.set(key_value)
+                # 2. Cập nhật hướng dẫn
+                update_guide_text()
+                # 3. Cập nhật trạng thái các nút "Chọn"
+                update_mod_button_states(key_value)
+            return handler
+        # --- KẾT THÚC HÀM CLICK ---
+
+        for (key, data) in mod_list:
+            
+            display_name = data.get("name", "LỖI: THIẾU TÊN")
+            online_version = data.get("version")
+            if not online_version: continue 
+
+            installed_version = local_config.get("installed_versions", {}).get(key, "Chưa cài đặt")
+
+            # 1. Tạo Row Frame (Card nhỏ)
+            # (Không cần cursor="hand2" nữa)
+            row_frame = ttk.Frame(content_frame, style="Card.TFrame", padding=(10, 5))
+            row_frame.pack(fill=tk.X, pady=2) 
+            
+            # --- (BEGIN) THAY ĐỔI: THÊM FRAME NÚT ✓ BÊN TRÁI ---
+            # 1.a. Tạo frame chứa nút check bên trái
+            checkmark_frame = ttk.Frame(row_frame) # Đặt chiều rộng cố định
+            checkmark_frame.pack(side=tk.LEFT,padx=(0, 0))
+            
+            # 1.b. Tạo nút check (sẽ được 'update_mod_button_states' điều khiển)
+            checkmark_button = ttk.Button(
+                checkmark_frame, 
+                text="",                # Bắt đầu rỗng
+                style="Accent.TButton", # Dùng style Accent
+                state=tk.DISABLED       # Bắt đầu mờ
+            )
+            checkmark_button.pack(fill=tk.Y, expand=True)
+            # --- (END) THAY ĐỔI ---
+
+            # --- Frame bên trái cho Text ---
+            # (Không thay đổi)
+            left_frame = ttk.Frame(row_frame)
+            left_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+            left_frame.columnconfigure(0, weight=1) 
+
+            # --- Frame bên phải cho Nút ---
+            # (Không thay đổi)
+            right_frame = ttk.Frame(row_frame)
+            right_frame.pack(side=tk.RIGHT, padx=(0, 0))
+
+            # 2. Tạo Tên Mod (Label)
+            # (Không thay đổi)
+            name_label = ttk.Label(left_frame, text=display_name, font=("Segoe UI", 10, "bold"), anchor=tk.CENTER)
+            name_label.grid(row=0, column=0, sticky="ew")
+
+            # --- (BEGIN) THAY ĐỔI: Thêm 2 widget mới vào all_widgets_to_bind ---
+            all_widgets_to_bind = [row_frame, checkmark_frame, checkmark_button, left_frame, right_frame, name_label] 
+            # --- (END) THAY ĐỔI ---
+
+            # 3. Tạo các Label Trạng thái
+            # (Không thay đổi)
+            if online_version == installed_version:
+                status_text = f"✓ Đã cài đặt ({online_version})"
+                status_label = ttk.Label(left_frame, text=status_text, style="Installed.TLabel", anchor=tk.CENTER) 
+                status_label.grid(row=1, column=0, sticky="ew", pady=(2, 0)) 
+                all_widgets_to_bind.append(status_label)
             else:
-                # Nút CHỌN (bên phải): Trả về text rỗng
-                select_button.config(text="", style="TButton", state=tk.NORMAL)
+                if installed_version == "Chưa cài đặt":
+                    status_text = f"🔥 Cần cài đặt ({online_version})"
+                else:
+                    status_text = f"🔥 Cập nhật ({online_version})" 
                 
-                # Nút CHECK (bên trái): Ẩn text và mờ
-                checkmark_button.config(text="", state=tk.DISABLED)
-        except tk.TclError:
-            pass
+                new_label = ttk.Label(left_frame, text=status_text, style="New.TLabel", anchor=tk.CENTER)
+                new_label.grid(row=1, column=0, sticky="ew", pady=(2, 0))
+                all_widgets_to_bind.append(new_label)
 
-def update_radio_buttons_text_for_game(game_name_to_show):
-    """(ĐÃ VIẾT LẠI) Dùng Accent.TButton để chọn."""
-    global local_config, radio_buttons, g_mod_buttons, g_current_selected_key
-    
-    # Reset trackers
-    g_mod_buttons.clear()
-    g_current_selected_key = None
-    selected_option.set("") # Xóa lựa chọn cũ
+            # 4. Lấy key đầu tiên để tự động chọn
+            # (Không thay đổi)
+            if first_key_to_select is None:
+                first_key_to_select = key
 
-    radio_buttons = [] # Vẫn giữ, dù không dùng, để tránh lỗi ở chỗ khác
+            # 5. TẠO NÚT "CHỌN" (Accent.TButton)
+            # (Không thay đổi)
+            click_command = create_click_handler(key)
+            
+            select_button = ttk.Button(
+                right_frame, 
+                text="Chọn", 
+                command=click_command
+            )
+            select_button.pack(fill=tk.Y, expand=True)
+            
+            # --- (BEGIN) THAY ĐỔI: Lưu cả 2 nút (dạng tuple) ---
+            g_mod_buttons[key] = (select_button, checkmark_button)
+            # --- (END) THAY ĐỔI ---
 
-    style.configure("New.TLabel", foreground="red", font=('TkDefaultFont', 9, 'bold'))
-    style.configure("Installed.TLabel", foreground="green")
+            all_widgets_to_bind.append(select_button) # Thêm vào để bind scroll
 
-    # --- Hàm helper để đóng/mở (toggle) ---
-    # (Hàm này không đổi)
-    def create_toggle_function(mod_frame, button, separator_widget):
-        def toggle():
-            if mod_frame.winfo_viewable(): 
-                mod_frame.pack_forget()    
-                button.config(text=f"{button.game_name} ▸") 
-            else:
-                mod_frame.pack(fill=tk.X, expand=True, before=separator_widget, padx=(15, 0)) 
-                button.config(text=f"{button.game_name} ▾") 
-        return toggle
+            # 6. Bind Mousewheel VÀ CLICK
+            # (Không thay đổi)
+            for widget in all_widgets_to_bind:
+                try:
+                    # Bind cuộn chuột (như cũ)
+                    widget.bind("<MouseWheel>", on_mouse_wheel)
+                    widget.bind("<Button-4>", on_mouse_wheel) 
+                    widget.bind("<Button-5>", on_mouse_wheel)
 
-    first_key_to_select = None
+                    # --- SỬA Ở ĐÂY: Bind Click chuột trái ---
+                    # (Không cần bind cho chính select_button, vì nó đã có 'command')
+                    if widget != select_button:
+                        widget.bind("<Button-1>", click_command)
 
-    mod_list = download_options.get(game_name_to_show, [])
+                except tk.TclError as e:
+                    print(f"Lỗi khi bind widget: {e}")
 
-    # --- HÀM CLICK MỚI (Đơn giản) ---
-    def create_click_handler(key_value):
-        def handler(event=None):
-            # 1. Cập nhật biến (để nút "Bắt đầu" hoạt động)
-            selected_option.set(key_value)
+        # 7. Tự động chọn mod đầu tiên
+        # (Không thay đổi)
+        if first_key_to_select:
+            # 1. Cập nhật biến
+            selected_option.set(first_key_to_select)
             # 2. Cập nhật hướng dẫn
             update_guide_text()
-            # 3. Cập nhật trạng thái các nút "Chọn"
-            update_mod_button_states(key_value)
-        return handler
-    # --- KẾT THÚC HÀM CLICK ---
+            # 3. Cập nhật trạng thái các nút
+            update_mod_button_states(first_key_to_select)
 
-    for (key, data) in mod_list:
+    def refresh_mod_list_ui():
+        """
+        (Hàm mới) Xóa và vẽ lại danh sách mod (Trang 2) 
+        để cập nhật trạng thái (ví dụ: "Đã cài đặt").
+        """
+        global content_frame, g_current_game_name
         
-        display_name = data.get("name", "LỖI: THIẾU TÊN")
-        online_version = data.get("version")
-        if not online_version: continue 
+        # Kiểm tra xem Trang 2 có đang hoạt động không
+        if not g_current_game_name or not content_frame.winfo_exists():
+            print("Lỗi: Không thể refresh mod list (UI không tồn tại).")
+            return
 
-        installed_version = local_config.get("installed_versions", {}).get(key, "Chưa cài đặt")
-
-        # 1. Tạo Row Frame (Card nhỏ)
-        # (Không cần cursor="hand2" nữa)
-        row_frame = ttk.Frame(content_frame, style="Card.TFrame", padding=(10, 5))
-        row_frame.pack(fill=tk.X, pady=2) 
+        print(f"Đang làm mới danh sách mod cho: {g_current_game_name}")
         
-        # --- (BEGIN) THAY ĐỔI: THÊM FRAME NÚT ✓ BÊN TRÁI ---
-        # 1.a. Tạo frame chứa nút check bên trái
-        checkmark_frame = ttk.Frame(row_frame) # Đặt chiều rộng cố định
-        checkmark_frame.pack(side=tk.LEFT,padx=(0, 0))
-        
-        # 1.b. Tạo nút check (sẽ được 'update_mod_button_states' điều khiển)
-        checkmark_button = ttk.Button(
-            checkmark_frame, 
-            text="",                # Bắt đầu rỗng
-            style="Accent.TButton", # Dùng style Accent
-            state=tk.DISABLED       # Bắt đầu mờ
-        )
-        checkmark_button.pack(fill=tk.Y, expand=True)
-        # --- (END) THAY ĐỔI ---
-
-        # --- Frame bên trái cho Text ---
-        # (Không thay đổi)
-        left_frame = ttk.Frame(row_frame)
-        left_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-        left_frame.columnconfigure(0, weight=1) 
-
-        # --- Frame bên phải cho Nút ---
-        # (Không thay đổi)
-        right_frame = ttk.Frame(row_frame)
-        right_frame.pack(side=tk.RIGHT, padx=(0, 0))
-
-        # 2. Tạo Tên Mod (Label)
-        # (Không thay đổi)
-        name_label = ttk.Label(left_frame, text=display_name, font=("Segoe UI", 10, "bold"), anchor=tk.CENTER)
-        name_label.grid(row=0, column=0, sticky="ew")
-
-        # --- (BEGIN) THAY ĐỔI: Thêm 2 widget mới vào all_widgets_to_bind ---
-        all_widgets_to_bind = [row_frame, checkmark_frame, checkmark_button, left_frame, right_frame, name_label] 
-        # --- (END) THAY ĐỔI ---
-
-        # 3. Tạo các Label Trạng thái
-        # (Không thay đổi)
-        if online_version == installed_version:
-            status_text = f"✓ Đã cài đặt ({online_version})"
-            status_label = ttk.Label(left_frame, text=status_text, style="Installed.TLabel", anchor=tk.CENTER) 
-            status_label.grid(row=1, column=0, sticky="ew", pady=(2, 0)) 
-            all_widgets_to_bind.append(status_label)
-        else:
-            if installed_version == "Chưa cài đặt":
-                status_text = f"🔥 Cần cài đặt ({online_version})"
-            else:
-                status_text = f"🔥 Cập nhật ({online_version})" 
+        # 1. Xóa tất cả các nút mod cũ (ĐIỀU QUAN TRỌNG NHẤT)
+        for widget in content_frame.winfo_children(): 
+            widget.destroy()
             
-            new_label = ttk.Label(left_frame, text=status_text, style="New.TLabel", anchor=tk.CENTER)
-            new_label.grid(row=1, column=0, sticky="ew", pady=(2, 0))
-            all_widgets_to_bind.append(new_label)
-
-        # 4. Lấy key đầu tiên để tự động chọn
-        # (Không thay đổi)
-        if first_key_to_select is None:
-            first_key_to_select = key
-
-        # 5. TẠO NÚT "CHỌN" (Accent.TButton)
-        # (Không thay đổi)
-        click_command = create_click_handler(key)
-        
-        select_button = ttk.Button(
-            right_frame, 
-            text="Chọn", 
-            command=click_command
-        )
-        select_button.pack(fill=tk.Y, expand=True)
-        
-        # --- (BEGIN) THAY ĐỔI: Lưu cả 2 nút (dạng tuple) ---
-        g_mod_buttons[key] = (select_button, checkmark_button)
-        # --- (END) THAY ĐỔI ---
-
-        all_widgets_to_bind.append(select_button) # Thêm vào để bind scroll
-
-        # 6. Bind Mousewheel VÀ CLICK
-        # (Không thay đổi)
-        for widget in all_widgets_to_bind:
-            try:
-                # Bind cuộn chuột (như cũ)
-                widget.bind("<MouseWheel>", on_mouse_wheel)
-                widget.bind("<Button-4>", on_mouse_wheel) 
-                widget.bind("<Button-5>", on_mouse_wheel)
-
-                # --- SỬA Ở ĐÂY: Bind Click chuột trái ---
-                # (Không cần bind cho chính select_button, vì nó đã có 'command')
-                if widget != select_button:
-                    widget.bind("<Button-1>", click_command)
-
-            except tk.TclError as e:
-                print(f"Lỗi khi bind widget: {e}")
-
-    # 7. Tự động chọn mod đầu tiên
-    # (Không thay đổi)
-    if first_key_to_select:
-        # 1. Cập nhật biến
-        selected_option.set(first_key_to_select)
-        # 2. Cập nhật hướng dẫn
-        update_guide_text()
-        # 3. Cập nhật trạng thái các nút
-        update_mod_button_states(first_key_to_select)
-
-def refresh_mod_list_ui():
-    """
-    (Hàm mới) Xóa và vẽ lại danh sách mod (Trang 2) 
-    để cập nhật trạng thái (ví dụ: "Đã cài đặt").
-    """
-    global content_frame, g_current_game_name
-    
-    # Kiểm tra xem Trang 2 có đang hoạt động không
-    if not g_current_game_name or not content_frame.winfo_exists():
-        print("Lỗi: Không thể refresh mod list (UI không tồn tại).")
-        return
-
-    print(f"Đang làm mới danh sách mod cho: {g_current_game_name}")
-    
-    # 1. Xóa tất cả các nút mod cũ (ĐIỀU QUAN TRỌNG NHẤT)
-    for widget in content_frame.winfo_children(): 
-        widget.destroy()
-        
-    # 2. Gọi hàm vẽ lại các nút mod mới
-    # (Hàm này sẽ đọc config mới và vẽ lại đúng trạng thái)
-    update_radio_buttons_text_for_game(g_current_game_name)
+        # 2. Gọi hàm vẽ lại các nút mod mới
+        # (Hàm này sẽ đọc config mới và vẽ lại đúng trạng thái)
+        update_radio_buttons_text_for_game(g_current_game_name)
 
 
-path_frame = ttk.Frame(page_2_mod_list)
-path_frame.pack(fill=tk.X, pady=(5, 10))
-path_label = ttk.Label(path_frame, text="Đường dẫn folder mod:")
-path_label.pack(side=tk.LEFT, padx=(0, 10))
-path_entry = ttk.Entry(path_frame)
-path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-path_entry.bind("<FocusOut>", lambda e: update_guide_text())
+    path_frame = ttk.Frame(page_2_mod_list)
+    path_frame.pack(fill=tk.X, pady=(5, 10))
+    path_label = ttk.Label(path_frame, text="Đường dẫn folder mod:")
+    path_label.pack(side=tk.LEFT, padx=(0, 10))
+    path_entry = ttk.Entry(path_frame)
+    path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    path_entry.bind("<FocusOut>", lambda e: update_guide_text())
 
-# --- THÊM MỚI: CHECKBOX TỰ ĐỘNG EXCLUSION ---
-# Biến lưu trạng thái checkbox
-g_auto_add_exclusion = tk.BooleanVar(value=False) 
+    # --- THÊM MỚI: CHECKBOX TỰ ĐỘNG EXCLUSION ---
+    # Biến lưu trạng thái checkbox
+    g_auto_add_exclusion = tk.BooleanVar(value=False) 
 
-# Tạo Checkbox
-defender_checkbox = ttk.Checkbutton(
-    page_2_mod_list, 
-    text="🛡️ Tự động thêm thư mục này vào Exclusion (để tránh bị xóa file)",
-    variable=g_auto_add_exclusion,
-    style="Switch.TCheckbutton" # Hoặc để trống nếu chưa định nghĩa style này
-)
-# Pack nó ngay trên button_frame
-defender_checkbox.pack(pady=(5, 0)) 
-CreateToolTip(defender_checkbox, "Nếu tích: App sẽ tự động thêm folder này vào danh sách loại trừ của Windows Defender\nnếu nó chưa nằm trong đó.")
+    # Tạo Checkbox
+    defender_checkbox = ttk.Checkbutton(
+        page_2_mod_list, 
+        text="🛡️ Tự động thêm thư mục này vào Exclusion (để tránh bị xóa file)",
+        variable=g_auto_add_exclusion,
+        style="Switch.TCheckbutton" # Hoặc để trống nếu chưa định nghĩa style này
+    )
+    # Pack nó ngay trên button_frame
+    defender_checkbox.pack(pady=(5, 0)) 
+    CreateToolTip(defender_checkbox, "Nếu tích: App sẽ tự động thêm folder này vào danh sách loại trừ của Windows Defender\nnếu nó chưa nằm trong đó.")
 
-button_frame = ttk.Frame(page_2_mod_list)
-button_frame.pack(pady=15)
-browse_button = ttk.Button(button_frame, text="Tìm đường dẫn...", command=browse_for_folder)
-browse_button.pack(side=tk.LEFT, padx=10)
+    button_frame = ttk.Frame(page_2_mod_list)
+    button_frame.pack(pady=15)
+    browse_button = ttk.Button(button_frame, text="Tìm đường dẫn...", command=browse_for_folder)
+    browse_button.pack(side=tk.LEFT, padx=10)
 
-start_button = ttk.Button(button_frame, text="Bắt đầu Cài đặt", 
-                          command=start_download_thread, style="Accent.TButton")
-start_button.pack(side=tk.LEFT, padx=10)
+    start_button = ttk.Button(button_frame, text="Bắt đầu Cài đặt", 
+                            command=start_download_thread, style="Accent.TButton")
+    start_button.pack(side=tk.LEFT, padx=10)
 
-option_label = ttk.Label(page_3_progress, text = "GG", anchor=tk.W, style="White.TLabel")
+    option_label = ttk.Label(page_3_progress, text = "GG", anchor=tk.W, style="White.TLabel")
 
-progress_bar = ttk.Progressbar(page_3_progress, orient="horizontal", length=100, mode="indeterminate")
+    progress_bar = ttk.Progressbar(page_3_progress, orient="horizontal", length=100, mode="indeterminate")
 
-status_frame = ttk.Frame(page_3_progress)
+    status_frame = ttk.Frame(page_3_progress)
 
-status_label = ttk.Label(status_frame, text="Hãy chọn đường dẫn và bấm bắt đầu.", anchor=tk.W, style="White.TLabel")
-status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
-eta_label = ttk.Label(status_frame, text="", style="secondary.TLabel", anchor=tk.E, width=8)
-eta_label.pack(side=tk.RIGHT, padx=(10,0))
-speed_label = ttk.Label(status_frame, text="", style="secondary.TLabel", anchor=tk.E, width=12)
-speed_label.pack(side=tk.RIGHT)
+    status_label = ttk.Label(status_frame, text="Hãy chọn đường dẫn và bấm bắt đầu.", anchor=tk.W, style="White.TLabel")
+    status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    eta_label = ttk.Label(status_frame, text="", style="secondary.TLabel", anchor=tk.E, width=8)
+    eta_label.pack(side=tk.RIGHT, padx=(10,0))
+    speed_label = ttk.Label(status_frame, text="", style="secondary.TLabel", anchor=tk.E, width=12)
+    speed_label.pack(side=tk.RIGHT)
 
-# --- THÊM MỚI: CĂN GIỮA CHO TRANG 3 ---
-# Thêm các frame rỗng để đẩy nội dung vào giữa
-ttk.Frame(page_3_progress).pack(side=tk.TOP, expand=True)
-option_label.pack(side=tk.TOP, pady=(5, 5))
-g_gif_label.pack(side=tk.TOP, pady=(5, 5))
-progress_bar.pack(side=tk.TOP, fill=tk.X, pady=(10, 5)) # <-- ĐÃ XÓA fill=tk.X
-status_frame.pack(side=tk.TOP, fill=tk.X, pady=(10, 5))  # <-- ĐÃ XÓA fill=tk.X
-ttk.Frame(page_3_progress).pack(side=tk.TOP, expand=True)
+    # --- THÊM MỚI: CĂN GIỮA CHO TRANG 3 ---
+    # Thêm các frame rỗng để đẩy nội dung vào giữa
+    ttk.Frame(page_3_progress).pack(side=tk.TOP, expand=True)
+    option_label.pack(side=tk.TOP, pady=(5, 5))
+    g_gif_label.pack(side=tk.TOP, pady=(5, 5))
+    progress_bar.pack(side=tk.TOP, fill=tk.X, pady=(10, 5)) # <-- ĐÃ XÓA fill=tk.X
+    status_frame.pack(side=tk.TOP, fill=tk.X, pady=(10, 5))  # <-- ĐÃ XÓA fill=tk.X
+    ttk.Frame(page_3_progress).pack(side=tk.TOP, expand=True)
 
-# --- Hết Nội dung Tab 1 ---
+    # --- Hết Nội dung Tab 1 ---
 
-# --- SỬA: Tạo UI cho Tab 2 ("Upload Config") ---
-second_tab_frame = ttk.Frame(notebook, padding=(10, 10))
-notebook.add(second_tab_frame, text="Thêm/Xóa Option Tải")
+    # --- SỬA: Tạo UI cho Tab 2 ("Upload Config") ---
+    second_tab_frame = ttk.Frame(notebook, padding=(10, 10))
+    notebook.add(second_tab_frame, text="Thêm/Xóa Option Tải")
 
-# --- Variables ---
-current_config_data = {} # Dictionary để giữ config đang sửa
-current_github_sha = None # SHA của file đã tải từ GitHub
-g_currently_selected_id = None
-g_game_theme_sha = None # BIẾN MỚI: SHA cho file game_themes.json
-g_master_game_list = []
-g_search_timer = None
-g_theme_manager_window = None
-# --- Frames ---
-top_button_frame = ttk.Frame(second_tab_frame)
-top_button_frame.pack(fill=tk.X, pady=(0, 10))
-middle_frame = ttk.Frame(second_tab_frame)
-middle_frame.pack(fill=tk.BOTH, expand=True)
-tree_frame = ttk.Frame(middle_frame)
-tree_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-edit_form_frame = ttk.LabelFrame(middle_frame, text="Thêm/Sửa Option", padding=(10, 5))
-edit_form_frame.pack(side=tk.RIGHT, fill=tk.Y)
-bottom_status_frame = ttk.Frame(second_tab_frame)
-bottom_status_frame.pack(fill=tk.X, pady=(10, 0))
-
-# --- Treeview Setup ---
-tree_scrollbar = ttk.Scrollbar(tree_frame)
-tree_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-cols = ("ID", "Option Name", "Version", "Type", "Game")
-options_treeview = ttk.Treeview(tree_frame, columns=cols, show='headings', yscrollcommand=tree_scrollbar.set, height=15)
-options_treeview.pack(expand=True, fill=tk.BOTH)
-move_button_frame = ttk.Frame(tree_frame)
-move_button_frame.pack(fill=tk.X, pady=5)
-
-# (Chúng ta sẽ thêm 'command' ở bước 3)
-move_up_button = ttk.Button(move_button_frame, text="▲ Di chuyển Lên",
-                            command=lambda: action_move_option("up"))
-move_up_button.pack(side=tk.LEFT, padx=5, expand=True)
-
-move_down_button = ttk.Button(move_button_frame, text="▼ Di chuyển Xuống",
-                              command=lambda: action_move_option("down"))
-move_down_button.pack(side=tk.LEFT, padx=5, expand=True)
-tree_scrollbar.config(command=options_treeview.yview)
-for col in cols:
-    options_treeview.heading(col, text=col)
-    options_treeview.column(col, width=100, anchor=tk.W)
-options_treeview.column("ID", width=40, anchor=tk.CENTER, stretch=tk.NO)
-options_treeview.column("Option Name", width=180)
-options_treeview.column("Version", width=100)
-options_treeview.column("Type", width=70)
-options_treeview.column("Game", width=120)
-
-# --- Edit Form Setup ---
-form_widgets = {}
-def create_form_row(parent, label_text, widget_type="Entry", options=None):
-    row = ttk.Frame(parent)
-    row.pack(fill=tk.X, pady=2)
-    label = ttk.Label(row, text=label_text, width=15, anchor=tk.W)
-    label.pack(side=tk.LEFT)
-    if widget_type == "Entry": widget = ttk.Entry(row)
-    elif widget_type == "Combobox":
-        widget = ttk.Combobox(row, values=options, state="readonly")
-        if options: widget.set(options[0])
-    elif widget_type == "Text":
-        widget = tk.Text(row, height=3, width=20, wrap="word", relief=tk.SUNKEN, borderwidth=1) # Dùng tk.Text
-        txt_scroll = ttk.Scrollbar(row, orient="vertical", command=widget.yview)
-        widget['yscrollcommand'] = txt_scroll.set
-        txt_scroll.pack(side=tk.RIGHT, fill=tk.Y) # Pack scrollbar trước
-    widget.pack(side=tk.LEFT, expand=True, fill=tk.X) # Pack widget sau
-    form_widgets[label_text] = widget
-    return widget
-
-create_form_row(edit_form_frame, "Option Name:")
-create_form_row(edit_form_frame, "URL:")
-create_form_row(edit_form_frame, "Version:")
-create_form_row(edit_form_frame, "Type:", widget_type="Combobox", options=["zip", "rar", "exe"])
-# --- THÊM MỚI: TẠO GAME COMBOBOX (Dropdown) ---
-row_game = ttk.Frame(edit_form_frame)
-row_game.pack(fill=tk.X, pady=2)
-label_game = ttk.Label(row_game, text="Game:", width=15, anchor=tk.W)
-label_game.pack(side=tk.LEFT)
-
-# Tạo Combobox (không "readonly" để cho phép gõ tên mới)
-global g_admin_game_combobox
-g_admin_game_combobox = ttk.Combobox(row_game, values=[], state="normal")
-g_admin_game_combobox.pack(side=tk.LEFT, expand=True, fill=tk.X)
-g_admin_game_combobox.bind("<<ComboboxSelected>>", lambda e: on_game_combobox_select(e))
-g_admin_game_combobox.bind("<KeyRelease>", lambda e: on_game_combobox_search(e))
-g_admin_game_combobox.bind("<FocusOut>", lambda e: on_game_combobox_validate(e))
-# Lưu nó vào form_widgets để các hàm khác có thể dùng
-form_widgets["Game:"] = g_admin_game_combobox
-create_form_row(edit_form_frame, "Password:")
-create_form_row(edit_form_frame, "Delete List:", widget_type="Text")
-delete_help = ttk.Label(edit_form_frame, text="(Nhập file/folder, mỗi cái một dòng)", style="secondary.TLabel")
-delete_help.pack(fill=tk.X)
-
-create_form_row(edit_form_frame, "Path Guide:", widget_type="Text")
-guide_help = ttk.Label(edit_form_frame, text="(Hướng dẫn chọn đường dẫn cho Tab 1)", style="secondary.TLabel")
-guide_help.pack(fill=tk.X)
-create_form_row(edit_form_frame, "Launch File:") # <-- ĐỔI KEY
-exe_help = ttk.Label(edit_form_frame, text="(Tên file, ví dụ: run.bat, game.exe)", style="secondary.TLabel") # <-- ĐỔI TEXT
-exe_help.pack(fill=tk.X)
-form_button_frame = ttk.Frame(edit_form_frame)
-form_button_frame.pack(pady=10)
-add_update_button = ttk.Button(form_button_frame, text="Thêm / Cập nhật", style="Accent.TButton")
-add_update_button.pack(side=tk.LEFT, padx=5)
-clear_button = ttk.Button(form_button_frame, text="Xóa Hết")
-clear_button.pack(side=tk.LEFT, padx=5)
-
-# --- Bottom Status ---
-upload_status_label = ttk.Label(bottom_status_frame, text="Tải Config để bắt đầu")
-upload_status_label.pack(side=tk.LEFT)
-
-# --- Treeview Functions ---
-def populate_treeview():
-    options_treeview.delete(*options_treeview.get_children())
-    if not current_config_data: return
-    for key, data in current_config_data.items():
-        if key == "updater":
-            continue
-        options_treeview.insert("", tk.END, iid=key, values=(
-            (key, data.get("name", "LỖI: THIẾU TÊN"), data.get("version", ""), 
-                data.get("type", "zip"), data.get("game", "Khác"))
-        ))
-
-def on_treeview_select(event):
-    """Fills the form when an item in the treeview is selected."""
-    selected_items = options_treeview.selection()
-    if not selected_items:
-        clear_form() # Clear form if selection is removed
-        return
-
-    selected_key = selected_items[0] # Get the item ID (which is the option key)
-
-    global g_currently_selected_id
-    g_currently_selected_id = selected_key
-
-    if selected_key in current_config_data:
-        data = current_config_data[selected_key]
-        form_widgets["Option Name:"].delete(0, tk.END)
-        form_widgets["Option Name:"].insert(0, data.get("name") or "")
-
-        # --- SỬA LOGIC HIỂN THỊ URL ---
-        url_entry = form_widgets["URL:"]
-        url_entry.delete(0, tk.END)
-        stored_url = data.get("url", "")
-        # Check if it's a Google Drive direct link
-        gdrive_prefix = "https://drive.google.com/uc?id="
-        if stored_url.startswith(gdrive_prefix):
-            # Extract and display only the ID
-            file_id = stored_url[len(gdrive_prefix):]
-            url_entry.insert(0, file_id)
-        else:
-            # Display the full URL if it's not a GDrive link
-            url_entry.insert(0, stored_url)
-        # --- HẾT SỬA ---
-        form_widgets["Game:"].set("")
-        form_widgets["Game:"].insert(0, data.get("game") or "Khác")
-        form_widgets["Version:"].delete(0, tk.END)
-        form_widgets["Version:"].insert(0, data.get("version") or "")
-        form_widgets["Type:"].set(data.get("type", "zip"))
-        form_widgets["Password:"].delete(0, tk.END)
-        form_widgets["Password:"].insert(0, data.get("password", "") or "") # Insert empty string if None/null
-
-        delete_list_widget = form_widgets["Delete List:"]
-        delete_list_widget.config(state=tk.NORMAL) # Allow editing
-        delete_list_widget.delete("1.0", tk.END)
-        delete_items = data.get("delete_before_extract", [])
-        if delete_items:
-            delete_list_widget.insert("1.0", "\n".join(delete_items))
-        
-        guide_widget = form_widgets["Path Guide:"]
-        guide_widget.config(state=tk.NORMAL)
-        guide_widget.delete("1.0", tk.END)
-        guide_text = data.get("path_guide") # Lấy giá trị, có thể là None
-        if guide_text: # Chỉ chèn nếu guide_text không phải None và không rỗng
-            guide_widget.insert("1.0", guide_text)
-        
-        form_widgets["Launch File:"].delete(0, tk.END)
-        form_widgets["Launch File:"].insert(0, data.get("launch_file") or "")
-
-options_treeview.bind('<<TreeviewSelect>>', on_treeview_select)
-
-# --- Form Button Functions ---
-def clear_form():
-    global g_currently_selected_id
+    # --- Variables ---
+    current_config_data = {} # Dictionary để giữ config đang sửa
+    current_github_sha = None # SHA của file đã tải từ GitHub
     g_currently_selected_id = None
-    form_widgets["Option Name:"].delete(0, tk.END)
-    form_widgets["URL:"].delete(0, tk.END)
-    form_widgets["Game:"].delete(0, tk.END)
-    form_widgets["Version:"].delete(0, tk.END)
-    form_widgets["Type:"].set("zip")
-    form_widgets["Password:"].delete(0, tk.END)
-    form_widgets["Delete List:"].config(state=tk.NORMAL)
-    form_widgets["Delete List:"].delete("1.0", tk.END)
-    form_widgets["Path Guide:"].config(state=tk.NORMAL)
-    form_widgets["Path Guide:"].delete("1.0", tk.END)
-    form_widgets["Launch File:"].delete(0, tk.END)
-    options_treeview.selection_remove(options_treeview.selection())
+    g_game_theme_sha = None # BIẾN MỚI: SHA cho file game_themes.json
+    g_master_game_list = []
+    g_search_timer = None
+    g_theme_manager_window = None
+    # --- Frames ---
+    top_button_frame = ttk.Frame(second_tab_frame)
+    top_button_frame.pack(fill=tk.X, pady=(0, 10))
+    middle_frame = ttk.Frame(second_tab_frame)
+    middle_frame.pack(fill=tk.BOTH, expand=True)
+    tree_frame = ttk.Frame(middle_frame)
+    tree_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+    edit_form_frame = ttk.LabelFrame(middle_frame, text="Thêm/Sửa Option", padding=(10, 5))
+    edit_form_frame.pack(side=tk.RIGHT, fill=tk.Y)
+    bottom_status_frame = ttk.Frame(second_tab_frame)
+    bottom_status_frame.pack(fill=tk.X, pady=(10, 0))
 
-def action_add_update_option():
-    """(ĐÃ VIẾT LẠI) Thêm hoặc Cập nhật option dựa trên ID."""
-    global current_config_data, g_currently_selected_id
+    # --- Treeview Setup ---
+    tree_scrollbar = ttk.Scrollbar(tree_frame)
+    tree_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    cols = ("ID", "Option Name", "Version", "Type", "Game")
+    options_treeview = ttk.Treeview(tree_frame, columns=cols, show='headings', yscrollcommand=tree_scrollbar.set, height=15)
+    options_treeview.pack(expand=True, fill=tk.BOTH)
+    move_button_frame = ttk.Frame(tree_frame)
+    move_button_frame.pack(fill=tk.X, pady=5)
 
-    # 1. Lấy tất cả dữ liệu từ form (như cũ)
-    option_name_display = form_widgets["Option Name:"].get().strip() # Đây là "name"
-    if not option_name_display:
-        custom_showwarning("Thiếu tên", "Vui lòng nhập 'Option Name'.")
-        return
-    if option_name_display.lower() == "updater":
-        custom_showerror("Tên Bị Cấm", "Bạn không thể đặt tên 'updater'")
-        return
+    # (Chúng ta sẽ thêm 'command' ở bước 3)
+    move_up_button = ttk.Button(move_button_frame, text="▲ Di chuyển Lên",
+                                command=lambda: action_move_option("up"))
+    move_up_button.pack(side=tk.LEFT, padx=5, expand=True)
 
-    url_input = form_widgets["URL:"].get().strip()
-    final_url = url_input
-    if url_input and "/" not in url_input and ":" not in url_input and "drive.google.com" not in url_input:
-        final_url = f"https://drive.google.com/uc?id={url_input}"
+    move_down_button = ttk.Button(move_button_frame, text="▼ Di chuyển Xuống",
+                                command=lambda: action_move_option("down"))
+    move_down_button.pack(side=tk.LEFT, padx=5, expand=True)
+    tree_scrollbar.config(command=options_treeview.yview)
+    for col in cols:
+        options_treeview.heading(col, text=col)
+        options_treeview.column(col, width=100, anchor=tk.W)
+    options_treeview.column("ID", width=40, anchor=tk.CENTER, stretch=tk.NO)
+    options_treeview.column("Option Name", width=180)
+    options_treeview.column("Version", width=100)
+    options_treeview.column("Type", width=70)
+    options_treeview.column("Game", width=120)
 
-    game_name = form_widgets["Game:"].get().strip()
-    if not game_name:
-        custom_showerror("Thiếu Game", "Bạn phải chọn một Game từ dropdown.")
-        return
-    if game_name == "Thêm Game...":
-        custom_showerror("Thiếu Game", 
-                            "Bạn đã chọn 'Thêm Game...' nhưng chưa thêm game nào.\n\n"
-                            "Vui lòng chọn một game đã tồn tại, hoặc thêm game mới.")
-        return
-    version = form_widgets["Version:"].get().strip()
-    option_type = form_widgets["Type:"].get()
-    password = form_widgets["Password:"].get().strip()
-    delete_list_raw = form_widgets["Delete List:"].get("1.0", tk.END).strip()
-    delete_list = [line.strip() for line in delete_list_raw.splitlines() if line.strip()]
-    path_guide_text = form_widgets["Path Guide:"].get("1.0", tk.END).strip()
-    launch_file_name = form_widgets["Launch File:"].get().strip()
-    # 2. Tạo đối tượng data (Giờ 'name' ở bên trong)
-    new_data = {
-        "name": option_name_display, # <-- TÊN MỚI Ở ĐÂY
-        "url": final_url,
-        "version": version,
-        "game": game_name if game_name else "Khác",
-        "type": option_type,
-        "password": password if password else None, 
-        "delete_before_extract": delete_list,
-        "path_guide": path_guide_text if path_guide_text else None,
-        "launch_file": launch_file_name if launch_file_name else None
-    }
+    # --- Edit Form Setup ---
+    form_widgets = {}
+    def create_form_row(parent, label_text, widget_type="Entry", options=None):
+        row = ttk.Frame(parent)
+        row.pack(fill=tk.X, pady=2)
+        label = ttk.Label(row, text=label_text, width=15, anchor=tk.W)
+        label.pack(side=tk.LEFT)
+        if widget_type == "Entry": widget = ttk.Entry(row)
+        elif widget_type == "Combobox":
+            widget = ttk.Combobox(row, values=options, state="readonly")
+            if options: widget.set(options[0])
+        elif widget_type == "Text":
+            widget = tk.Text(row, height=3, width=20, wrap="word", relief=tk.SUNKEN, borderwidth=1) # Dùng tk.Text
+            txt_scroll = ttk.Scrollbar(row, orient="vertical", command=widget.yview)
+            widget['yscrollcommand'] = txt_scroll.set
+            txt_scroll.pack(side=tk.RIGHT, fill=tk.Y) # Pack scrollbar trước
+        widget.pack(side=tk.LEFT, expand=True, fill=tk.X) # Pack widget sau
+        form_widgets[label_text] = widget
+        return widget
 
-    # --- 3. LOGIC MỚI: KIỂM TRA UPDATE HAY LÀ ADD ---
-    target_key = None
+    create_form_row(edit_form_frame, "Option Name:")
+    create_form_row(edit_form_frame, "URL:")
+    create_form_row(edit_form_frame, "Version:")
+    create_form_row(edit_form_frame, "Type:", widget_type="Combobox", options=["zip", "rar", "exe"])
+    # --- THÊM MỚI: TẠO GAME COMBOBOX (Dropdown) ---
+    row_game = ttk.Frame(edit_form_frame)
+    row_game.pack(fill=tk.X, pady=2)
+    label_game = ttk.Label(row_game, text="Game:", width=15, anchor=tk.W)
+    label_game.pack(side=tk.LEFT)
 
-    if g_currently_selected_id:
-        # --- CHẾ ĐỘ UPDATE ---
-        # (Đang chọn 1 item trong list)
-        target_key = g_currently_selected_id
-        print(f"Đang cập nhật ID: {target_key}")
-        current_config_data[target_key] = new_data
-    else:
-        # --- CHẾ ĐỘ THÊM MỚI ---
-        # (Không chọn item nào, hoặc bấm "Xóa Hết")
+    # Tạo Combobox (không "readonly" để cho phép gõ tên mới)
+    global g_admin_game_combobox
+    g_admin_game_combobox = ttk.Combobox(row_game, values=[], state="normal")
+    g_admin_game_combobox.pack(side=tk.LEFT, expand=True, fill=tk.X)
+    g_admin_game_combobox.bind("<<ComboboxSelected>>", lambda e: on_game_combobox_select(e))
+    g_admin_game_combobox.bind("<KeyRelease>", lambda e: on_game_combobox_search(e))
+    g_admin_game_combobox.bind("<FocusOut>", lambda e: on_game_combobox_validate(e))
+    # Lưu nó vào form_widgets để các hàm khác có thể dùng
+    form_widgets["Game:"] = g_admin_game_combobox
+    create_form_row(edit_form_frame, "Password:")
+    create_form_row(edit_form_frame, "Delete List:", widget_type="Text")
+    delete_help = ttk.Label(edit_form_frame, text="(Nhập file/folder, mỗi cái một dòng)", style="secondary.TLabel")
+    delete_help.pack(fill=tk.X)
 
-        # Kiểm tra xem tên này đã tồn tại chưa
-        for k, v in current_config_data.items():
-             if v.get("name") == option_name_display:
-                 custom_showwarning("Trùng Tên", f"Tên '{option_name_display}' đã tồn tại (với ID {k}).\nNếu bạn muốn SỬA nó, hãy click vào nó trong danh sách.")
-                 return
+    create_form_row(edit_form_frame, "Path Guide:", widget_type="Text")
+    guide_help = ttk.Label(edit_form_frame, text="(Hướng dẫn chọn đường dẫn cho Tab 1)", style="secondary.TLabel")
+    guide_help.pack(fill=tk.X)
+    create_form_row(edit_form_frame, "Launch File:") # <-- ĐỔI KEY
+    exe_help = ttk.Label(edit_form_frame, text="(Tên file, ví dụ: run.bat, game.exe)", style="secondary.TLabel") # <-- ĐỔI TEXT
+    exe_help.pack(fill=tk.X)
+    form_button_frame = ttk.Frame(edit_form_frame)
+    form_button_frame.pack(pady=10)
+    add_update_button = ttk.Button(form_button_frame, text="Thêm / Cập nhật", style="Accent.TButton")
+    add_update_button.pack(side=tk.LEFT, padx=5)
+    clear_button = ttk.Button(form_button_frame, text="Xóa Hết")
+    clear_button.pack(side=tk.LEFT, padx=5)
 
-        # Tìm ID mới (số lớn nhất + 1)
-        new_id = 0
-        for key_str in current_config_data.keys():
-            if key_str.isdigit(): # Chỉ kiểm tra các key là số
-                new_id = max(new_id, int(key_str))
+    # --- Bottom Status ---
+    upload_status_label = ttk.Label(bottom_status_frame, text="Tải Config để bắt đầu")
+    upload_status_label.pack(side=tk.LEFT)
 
-        target_key = str(new_id + 1) # Key mới (dạng string)
-        print(f"Đang thêm mới với ID: {target_key}")
-        current_config_data[target_key] = new_data
+    # --- Treeview Functions ---
+    def populate_treeview():
+        options_treeview.delete(*options_treeview.get_children())
+        if not current_config_data: return
+        for key, data in current_config_data.items():
+            if key == "updater":
+                continue
+            options_treeview.insert("", tk.END, iid=key, values=(
+                (key, data.get("name", "LỖI: THIẾU TÊN"), data.get("version", ""), 
+                    data.get("type", "zip"), data.get("game", "Khác"))
+            ))
 
-    # --- HẾT LOGIC MỚI ---
+    def on_treeview_select(event):
+        """Fills the form when an item in the treeview is selected."""
+        selected_items = options_treeview.selection()
+        if not selected_items:
+            clear_form() # Clear form if selection is removed
+            return
 
-    populate_treeview() # Refresh
+        selected_key = selected_items[0] # Get the item ID (which is the option key)
 
-    # Select và focus vào item
-    if target_key:
-        options_treeview.selection_set(target_key)
-        options_treeview.focus(target_key)
+        global g_currently_selected_id
+        g_currently_selected_id = selected_key
 
-    upload_status_label.config(text=f"'{option_name_display}' (ID: {target_key}) đã được thêm/cập nhật.", style="White.TLabel")
-
-def action_delete_option():
-    global current_config_data
-    selected_items = options_treeview.selection()
-    if not selected_items:
-        custom_showwarning("Chưa chọn", "Vui lòng chọn một option trong danh sách để xóa.")
-        return
-    selected_key = selected_items[0] # Đây là ID (ví dụ: "1")
-
-    # --- SỬA: Lấy tên để hiển thị ---
-    option_name_display = current_config_data.get(selected_key, {}).get("name", selected_key)
-
-    if custom_askyesno("Xác nhận xóa", f"Bạn có chắc chắn muốn xóa option '{option_name_display}' (ID: {selected_key})?"):
         if selected_key in current_config_data:
-            del current_config_data[selected_key]
-            populate_treeview()
-            clear_form()
-            upload_status_label.config(text=f"'{option_name_display}' đã được xóa cục bộ.", foreground="red")
-        else: custom_showerror("Lỗi", "Option đã chọn không còn tồn tại?")
+            data = current_config_data[selected_key]
+            form_widgets["Option Name:"].delete(0, tk.END)
+            form_widgets["Option Name:"].insert(0, data.get("name") or "")
 
-# --- THÊM MỚI: HÀM DI CHUYỂN ITEM ---
-def action_move_option(direction):
-    """Di chuyển item đã chọn lên hoặc xuống trong danh sách."""
-    global current_config_data
+            # --- SỬA LOGIC HIỂN THỊ URL ---
+            url_entry = form_widgets["URL:"]
+            url_entry.delete(0, tk.END)
+            stored_url = data.get("url", "")
+            # Check if it's a Google Drive direct link
+            gdrive_prefix = "https://drive.google.com/uc?id="
+            if stored_url.startswith(gdrive_prefix):
+                # Extract and display only the ID
+                file_id = stored_url[len(gdrive_prefix):]
+                url_entry.insert(0, file_id)
+            else:
+                # Display the full URL if it's not a GDrive link
+                url_entry.insert(0, stored_url)
+            # --- HẾT SỬA ---
+            form_widgets["Game:"].set("")
+            form_widgets["Game:"].insert(0, data.get("game") or "Khác")
+            form_widgets["Version:"].delete(0, tk.END)
+            form_widgets["Version:"].insert(0, data.get("version") or "")
+            form_widgets["Type:"].set(data.get("type", "zip"))
+            form_widgets["Password:"].delete(0, tk.END)
+            form_widgets["Password:"].insert(0, data.get("password", "") or "") # Insert empty string if None/null
 
-    selected_items = options_treeview.selection()
-    if not selected_items:
-        custom_showwarning("Chưa chọn", "Vui lòng chọn một option để di chuyển.")
-        return
+            delete_list_widget = form_widgets["Delete List:"]
+            delete_list_widget.config(state=tk.NORMAL) # Allow editing
+            delete_list_widget.delete("1.0", tk.END)
+            delete_items = data.get("delete_before_extract", [])
+            if delete_items:
+                delete_list_widget.insert("1.0", "\n".join(delete_items))
+            
+            guide_widget = form_widgets["Path Guide:"]
+            guide_widget.config(state=tk.NORMAL)
+            guide_widget.delete("1.0", tk.END)
+            guide_text = data.get("path_guide") # Lấy giá trị, có thể là None
+            if guide_text: # Chỉ chèn nếu guide_text không phải None và không rỗng
+                guide_widget.insert("1.0", guide_text)
+            
+            form_widgets["Launch File:"].delete(0, tk.END)
+            form_widgets["Launch File:"].insert(0, data.get("launch_file") or "")
 
-    selected_key = selected_items[0] # Đây là ID (ví dụ: "2")
+    options_treeview.bind('<<TreeviewSelect>>', on_treeview_select)
 
-    # Chuyển dict thành list (để giữ trật tự)
-    items_list = list(current_config_data.items())
+    # --- Form Button Functions ---
+    def clear_form():
+        global g_currently_selected_id
+        g_currently_selected_id = None
+        form_widgets["Option Name:"].delete(0, tk.END)
+        form_widgets["URL:"].delete(0, tk.END)
+        form_widgets["Game:"].delete(0, tk.END)
+        form_widgets["Version:"].delete(0, tk.END)
+        form_widgets["Type:"].set("zip")
+        form_widgets["Password:"].delete(0, tk.END)
+        form_widgets["Delete List:"].config(state=tk.NORMAL)
+        form_widgets["Delete List:"].delete("1.0", tk.END)
+        form_widgets["Path Guide:"].config(state=tk.NORMAL)
+        form_widgets["Path Guide:"].delete("1.0", tk.END)
+        form_widgets["Launch File:"].delete(0, tk.END)
+        options_treeview.selection_remove(options_treeview.selection())
 
-    # Tìm vị trí (index) của item đã chọn
-    current_index = -1
-    for i, (key, data) in enumerate(items_list):
-        if key == selected_key:
-            current_index = i
-            break
+    def action_add_update_option():
+        """(ĐÃ VIẾT LẠI) Thêm hoặc Cập nhật option dựa trên ID."""
+        global current_config_data, g_currently_selected_id
 
-    if current_index == -1:
-        print(f"Lỗi: Không tìm thấy key {selected_key} trong list")
-        return # Không tìm thấy (lỗi)
+        # 1. Lấy tất cả dữ liệu từ form (như cũ)
+        option_name_display = form_widgets["Option Name:"].get().strip() # Đây là "name"
+        if not option_name_display:
+            custom_showwarning("Thiếu tên", "Vui lòng nhập 'Option Name'.")
+            return
+        if option_name_display.lower() == "updater":
+            custom_showerror("Tên Bị Cấm", "Bạn không thể đặt tên 'updater'")
+            return
 
-    # Tính vị trí mới
-    if direction == "up":
-        new_index = current_index - 1
-        if new_index < 0:
-            print("Đã ở trên cùng")
-            return # Đã ở trên cùng
-    else: # "down"
-        new_index = current_index + 1
-        if new_index >= len(items_list):
-            print("Đã ở dưới cùng")
-            return # Đã ở dưới cùng
+        url_input = form_widgets["URL:"].get().strip()
+        final_url = url_input
+        if url_input and "/" not in url_input and ":" not in url_input and "drive.google.com" not in url_input:
+            final_url = f"https://drive.google.com/uc?id={url_input}"
 
-    # Di chuyển item
-    item_to_move = items_list.pop(current_index)
-    items_list.insert(new_index, item_to_move)
+        game_name = form_widgets["Game:"].get().strip()
+        if not game_name:
+            custom_showerror("Thiếu Game", "Bạn phải chọn một Game từ dropdown.")
+            return
+        if game_name == "Thêm Game...":
+            custom_showerror("Thiếu Game", 
+                                "Bạn đã chọn 'Thêm Game...' nhưng chưa thêm game nào.\n\n"
+                                "Vui lòng chọn một game đã tồn tại, hoặc thêm game mới.")
+            return
+        version = form_widgets["Version:"].get().strip()
+        option_type = form_widgets["Type:"].get()
+        password = form_widgets["Password:"].get().strip()
+        delete_list_raw = form_widgets["Delete List:"].get("1.0", tk.END).strip()
+        delete_list = [line.strip() for line in delete_list_raw.splitlines() if line.strip()]
+        path_guide_text = form_widgets["Path Guide:"].get("1.0", tk.END).strip()
+        launch_file_name = form_widgets["Launch File:"].get().strip()
+        # 2. Tạo đối tượng data (Giờ 'name' ở bên trong)
+        new_data = {
+            "name": option_name_display, # <-- TÊN MỚI Ở ĐÂY
+            "url": final_url,
+            "version": version,
+            "game": game_name if game_name else "Khác",
+            "type": option_type,
+            "password": password if password else None, 
+            "delete_before_extract": delete_list,
+            "path_guide": path_guide_text if path_guide_text else None,
+            "launch_file": launch_file_name if launch_file_name else None
+        }
 
-    # Tạo lại dictionary (đã sắp xếp lại)
-    # (Dùng dict() sẽ giữ trật tự chèn (insertion order) trong Python 3.7+)
-    current_config_data = dict(items_list)
+        # --- 3. LOGIC MỚI: KIỂM TRA UPDATE HAY LÀ ADD ---
+        target_key = None
 
-    # Cập nhật UI
-    populate_treeview()
+        if g_currently_selected_id:
+            # --- CHẾ ĐỘ UPDATE ---
+            # (Đang chọn 1 item trong list)
+            target_key = g_currently_selected_id
+            print(f"Đang cập nhật ID: {target_key}")
+            current_config_data[target_key] = new_data
+        else:
+            # --- CHẾ ĐỘ THÊM MỚI ---
+            # (Không chọn item nào, hoặc bấm "Xóa Hết")
 
-    # Chọn lại item vừa di chuyển
-    options_treeview.selection_set(selected_key)
-    options_treeview.focus(selected_key)
+            # Kiểm tra xem tên này đã tồn tại chưa
+            for k, v in current_config_data.items():
+                if v.get("name") == option_name_display:
+                    custom_showwarning("Trùng Tên", f"Tên '{option_name_display}' đã tồn tại (với ID {k}).\nNếu bạn muốn SỬA nó, hãy click vào nó trong danh sách.")
+                    return
 
-    upload_status_label.config(text="Đã thay đổi thứ tự. (Nhớ 'Lưu Config')")
+            # Tìm ID mới (số lớn nhất + 1)
+            new_id = 0
+            for key_str in current_config_data.keys():
+                if key_str.isdigit(): # Chỉ kiểm tra các key là số
+                    new_id = max(new_id, int(key_str))
 
-# --- THÊM MỚI: HÀM LOGIC SEARCH (DEBOUNCED) ---
-def do_game_search():
-    """Lọc danh sách dropdown (được gọi sau khi hết giờ hẹn)."""
-    global g_master_game_list, g_admin_game_combobox, g_search_timer
-    g_search_timer = None # Xóa timer
+            target_key = str(new_id + 1) # Key mới (dạng string)
+            print(f"Đang thêm mới với ID: {target_key}")
+            current_config_data[target_key] = new_data
 
-    current_text = g_admin_game_combobox.get().lower()
+        # --- HẾT LOGIC MỚI ---
 
-    if not current_text:
-        filtered_list = g_master_game_list + ["Thêm Game..."]
-    else:
-        filtered_list = [game for game in g_master_game_list if current_text in game.lower()]
-        filtered_list.append("Thêm Game...")
+        populate_treeview() # Refresh
 
-    g_admin_game_combobox['values'] = filtered_list
-    g_admin_game_combobox.event_generate('<Down>')
+        # Select và focus vào item
+        if target_key:
+            options_treeview.selection_set(target_key)
+            options_treeview.focus(target_key)
 
+        upload_status_label.config(text=f"'{option_name_display}' (ID: {target_key}) đã được thêm/cập nhật.", style="White.TLabel")
 
-# --- THÊM MỚI: LOGIC SEARCH VÀ VALIDATE CHO COMBOBOX ---
-def on_game_combobox_search(event):
-    """Hẹn giờ lọc danh sách (debounce) sau khi người dùng gõ."""
-    global g_search_timer
+    def action_delete_option():
+        global current_config_data
+        selected_items = options_treeview.selection()
+        if not selected_items:
+            custom_showwarning("Chưa chọn", "Vui lòng chọn một option trong danh sách để xóa.")
+            return
+        selected_key = selected_items[0] # Đây là ID (ví dụ: "1")
 
-    # Nếu đang có hẹn giờ cũ, hủy nó
-    if g_search_timer:
-        root.after_cancel(g_search_timer)
+        # --- SỬA: Lấy tên để hiển thị ---
+        option_name_display = current_config_data.get(selected_key, {}).get("name", selected_key)
 
-    g_search_timer = root.after(1000, do_game_search)
+        if custom_askyesno("Xác nhận xóa", f"Bạn có chắc chắn muốn xóa option '{option_name_display}' (ID: {selected_key})?"):
+            if selected_key in current_config_data:
+                del current_config_data[selected_key]
+                populate_treeview()
+                clear_form()
+                upload_status_label.config(text=f"'{option_name_display}' đã được xóa cục bộ.", foreground="red")
+            else: custom_showerror("Lỗi", "Option đã chọn không còn tồn tại?")
 
-def on_game_combobox_validate(event):
-    """Kiểm tra giá trị khi người dùng click ra ngoài."""
-    global g_master_game_list, g_admin_game_combobox
+    # --- THÊM MỚI: HÀM DI CHUYỂN ITEM ---
+    def action_move_option(direction):
+        """Di chuyển item đã chọn lên hoặc xuống trong danh sách."""
+        global current_config_data
 
-    current_text = g_admin_game_combobox.get()
-    if not current_text: return # Nếu trống thì thôi
+        selected_items = options_treeview.selection()
+        if not selected_items:
+            custom_showwarning("Chưa chọn", "Vui lòng chọn một option để di chuyển.")
+            return
 
-    # Nếu text không hợp lệ VÀ không phải "Thêm Game..."
-    valid_options = g_master_game_list + ["Thêm Game..."]
+        selected_key = selected_items[0] # Đây là ID (ví dụ: "2")
 
-    if current_text not in valid_options:
-        # Tự động chọn "best match" đầu tiên
-        for game in g_master_game_list:
-            if current_text.lower() in game.lower():
-                g_admin_game_combobox.set(game)
-                return # Tìm thấy, thoát
+        # Chuyển dict thành list (để giữ trật tự)
+        items_list = list(current_config_data.items())
 
-        # Nếu không tìm thấy match nào, xóa nó
-        custom_showerror("Tên không hợp lệ", 
-                             f"'{current_text}' không phải là một game hợp lệ.\n"
-                             "Vui lòng chọn từ danh sách hoặc 'Thêm Game...'.",
-                             parent=root)
-        g_admin_game_combobox.set("")
+        # Tìm vị trí (index) của item đã chọn
+        current_index = -1
+        for i, (key, data) in enumerate(items_list):
+            if key == selected_key:
+                current_index = i
+                break
 
+        if current_index == -1:
+            print(f"Lỗi: Không tìm thấy key {selected_key} trong list")
+            return # Không tìm thấy (lỗi)
 
+        # Tính vị trí mới
+        if direction == "up":
+            new_index = current_index - 1
+            if new_index < 0:
+                print("Đã ở trên cùng")
+                return # Đã ở trên cùng
+        else: # "down"
+            new_index = current_index + 1
+            if new_index >= len(items_list):
+                print("Đã ở dưới cùng")
+                return # Đã ở dưới cùng
 
-def on_game_combobox_select(event):
-    """Được gọi khi chọn item trong dropdown Game."""
-    selected_game = g_admin_game_combobox.get()
-    if selected_game == "Thêm Game...":
-        # Mở modal quản lý
-        open_game_theme_manager()
-        # Xóa lựa chọn "Thêm Game..."
-        g_admin_game_combobox.set("")
+        # Di chuyển item
+        item_to_move = items_list.pop(current_index)
+        items_list.insert(new_index, item_to_move)
 
-def open_game_theme_manager():
-    """Mở cửa sổ modal để Thêm/Xóa game theme."""
-    global g_theme_manager_window, g_theme_listbox, g_theme_name_entry, g_theme_url_entry
+        # Tạo lại dictionary (đã sắp xếp lại)
+        # (Dùng dict() sẽ giữ trật tự chèn (insertion order) trong Python 3.7+)
+        current_config_data = dict(items_list)
 
-    if g_theme_manager_window is not None:
-        try: g_theme_manager_window.destroy()
-        except: pass
+        # Cập nhật UI
+        populate_treeview()
 
-    g_theme_manager_window = tk.Toplevel(root)
-    g_theme_manager_window.title("Quản lý Game Theme")
-    g_theme_manager_window.geometry("600x400")
-    g_theme_manager_window.transient(root)
-    g_theme_manager_window.grab_set()
+        # Chọn lại item vừa di chuyển
+        options_treeview.selection_set(selected_key)
+        options_treeview.focus(selected_key)
 
-    main_frame = ttk.Frame(g_theme_manager_window, padding=10)
-    main_frame.pack(fill=tk.BOTH, expand=True)
+        upload_status_label.config(text="Đã thay đổi thứ tự. (Nhớ 'Lưu Config')")
 
-    # Cột trái: Danh sách
-    list_frame = ttk.LabelFrame(main_frame, text="Game Themes Hiện tại")
-    list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+    # --- THÊM MỚI: HÀM LOGIC SEARCH (DEBOUNCED) ---
+    def do_game_search():
+        """Lọc danh sách dropdown (được gọi sau khi hết giờ hẹn)."""
+        global g_master_game_list, g_admin_game_combobox, g_search_timer
+        g_search_timer = None # Xóa timer
 
-    list_scroll = ttk.Scrollbar(list_frame, orient="vertical")
-    list_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-    g_theme_listbox = tk.Listbox(list_frame, yscrollcommand=list_scroll.set)
-    g_theme_listbox.pack(fill=tk.BOTH, expand=True)
-    list_scroll.config(command=g_theme_listbox.yview)
+        current_text = g_admin_game_combobox.get().lower()
 
-    # Điền vào listbox
-    populate_theme_listbox()
+        if not current_text:
+            filtered_list = g_master_game_list + ["Thêm Game..."]
+        else:
+            filtered_list = [game for game in g_master_game_list if current_text in game.lower()]
+            filtered_list.append("Thêm Game...")
 
-    # Cột phải: Form
-    form_frame = ttk.Frame(main_frame, width=250)
-    form_frame.pack(side=tk.LEFT, fill=tk.Y)
-
-    # Form Thêm
-    add_frame = ttk.LabelFrame(form_frame, text="Thêm Game Mới")
-    add_frame.pack(fill=tk.X)
-
-    ttk.Label(add_frame, text="Tên Game:").pack(anchor=tk.W, padx=5, pady=(5,0))
-    g_theme_name_entry = ttk.Entry(add_frame)
-    g_theme_name_entry.pack(fill=tk.X, padx=5, pady=5)
-
-    ttk.Label(add_frame, text="URL Hình ảnh:").pack(anchor=tk.W, padx=5, pady=(5,0))
-    g_theme_url_entry = ttk.Entry(add_frame)
-    g_theme_url_entry.pack(fill=tk.X, padx=5, pady=5)
-
-    add_button = ttk.Button(add_frame, text="Thêm Mới", 
-                            style="Accent.TButton",
-                            command=action_add_game_theme)
-    add_button.pack(pady=10, padx=5)
-
-    # Form Xóa
-    delete_frame = ttk.LabelFrame(form_frame, text="Xóa Game")
-    delete_frame.pack(fill=tk.X, pady=20)
-
-    delete_button = ttk.Button(delete_frame, text="Xóa Game Đã Chọn",
-                               style="Danger.TButton",
-                               command=action_delete_game_theme)
-    delete_button.pack(pady=10, padx=5)
-
-def populate_theme_listbox():
-    """Làm mới Listbox trong modal."""
-    if not g_theme_listbox: return
-
-    g_theme_listbox.delete(0, tk.END)
-    sorted_games = sorted(g_game_themes.keys())
-    for game_name in sorted_games:
-        g_theme_listbox.insert(tk.END, game_name)
-
-def action_add_game_theme():
-    """LLogic cho nút 'Thêm Mới' trong modal."""
-    global g_game_themes
-
-    name = g_theme_name_entry.get().strip()
-    url = g_theme_url_entry.get().strip()
-
-    if not name or not url:
-        custom_showerror("Thiếu thông tin", "Vui lòng nhập cả Tên Game và URL.", parent=g_theme_manager_window)
-        return
-
-    if name in g_game_themes:
-        custom_showerror("Trùng tên", "Tên game này đã tồn tại.", parent=g_theme_manager_window)
-        return
-
-    # Thêm vào dict
-    g_game_themes[name] = url
-
-    # Bắt đầu upload
-    threading.Thread(target=upload_theme_json_thread, 
-                     args=(name,), 
-                     daemon=True).start()
-
-def action_delete_game_theme():
-    """Logic cho nút 'Xóa' trong modal."""
-    global g_game_themes
-    try:
-        selected_game = g_theme_listbox.get(g_theme_listbox.curselection())
-    except tk.TclError:
-        custom_showwarning("Chưa chọn", "Vui lòng chọn một game trong danh sách để xóa.", parent=g_theme_manager_window)
-        return
-
-    if custom_askyesno("Xác nhận", f"Bạn có chắc chắn muốn xóa game theme '{selected_game}'?\n(Việc này không xóa các mod option.)", parent=g_theme_manager_window):
-        if selected_game in g_game_themes:
-            del g_game_themes[selected_game]
-            # Bắt đầu upload (không cần tên)
-            threading.Thread(target=upload_theme_json_thread, 
-                             args=(None,), 
-                             daemon=True).start()
-
-def upload_theme_json_thread(newly_added_game_name=None):
-    """(Chạy ngầm) Upload file game_themes.json."""
-    global g_game_theme_sha
-
-    repo = get_github_repo()
-    if not repo:
-        progress_queue.put(("theme_upload_failed", "Không thể kết nối repo."))
-        return
-
-    # Gửi dict g_game_themes hiện tại
-    success, new_sha = upload_theme_json_to_github(repo, g_game_themes, g_game_theme_sha)
-
-    if success and new_sha:
-        progress_queue.put(("theme_upload_success", (new_sha, newly_added_game_name)))
-    else:
-        progress_queue.put(("theme_upload_failed", "Upload thất bại. (Xem log GitHub)"))
+        g_admin_game_combobox['values'] = filtered_list
+        g_admin_game_combobox.event_generate('<Down>')
 
 
-add_update_button.config(command=action_add_update_option)
-clear_button.config(command=clear_form)
+    # --- THÊM MỚI: LOGIC SEARCH VÀ VALIDATE CHO COMBOBOX ---
+    def on_game_combobox_search(event):
+        """Hẹn giờ lọc danh sách (debounce) sau khi người dùng gõ."""
+        global g_search_timer
 
-# --- Top Button Functions ---
-def action_load_from_github_wrapper():
-    """(ĐÃ SỬA) Tải cả config Mod và config Theme VÀ CẢ 2 SHA."""
-    global current_config_data, current_github_sha, g_game_themes, g_game_theme_sha
-    upload_status_label.config(text="Đang tải từ GitHub...", style="White.TLabel")
-    root.update_idletasks()
+        # Nếu đang có hẹn giờ cũ, hủy nó
+        if g_search_timer:
+            root.after_cancel(g_search_timer)
 
-    repo = get_github_repo()
-    if not repo:
-        upload_status_label.config(text="Lỗi kết nối repo.", foreground="red")
-        return
+        g_search_timer = root.after(1000, do_game_search)
 
-    # 1. Tải Config Mod (như cũ)
-    json_content, sha = load_json_from_github_api(repo)
+    def on_game_combobox_validate(event):
+        """Kiểm tra giá trị khi người dùng click ra ngoài."""
+        global g_master_game_list, g_admin_game_combobox
 
-    # 2. Tải Config Theme (MỚI)
-    theme_content, theme_sha = load_theme_json_from_github_api(repo)
+        current_text = g_admin_game_combobox.get()
+        if not current_text: return # Nếu trống thì thôi
 
-    # 3. Xử lý Config Theme
-    if theme_content and theme_sha:
+        # Nếu text không hợp lệ VÀ không phải "Thêm Game..."
+        valid_options = g_master_game_list + ["Thêm Game..."]
+
+        if current_text not in valid_options:
+            # Tự động chọn "best match" đầu tiên
+            for game in g_master_game_list:
+                if current_text.lower() in game.lower():
+                    g_admin_game_combobox.set(game)
+                    return # Tìm thấy, thoát
+
+            # Nếu không tìm thấy match nào, xóa nó
+            custom_showerror("Tên không hợp lệ", 
+                                f"'{current_text}' không phải là một game hợp lệ.\n"
+                                "Vui lòng chọn từ danh sách hoặc 'Thêm Game...'.",
+                                parent=root)
+            g_admin_game_combobox.set("")
+
+
+
+    def on_game_combobox_select(event):
+        """Được gọi khi chọn item trong dropdown Game."""
+        selected_game = g_admin_game_combobox.get()
+        if selected_game == "Thêm Game...":
+            # Mở modal quản lý
+            open_game_theme_manager()
+            # Xóa lựa chọn "Thêm Game..."
+            g_admin_game_combobox.set("")
+
+    def open_game_theme_manager():
+        """Mở cửa sổ modal để Thêm/Xóa game theme."""
+        global g_theme_manager_window, g_theme_listbox, g_theme_name_entry, g_theme_url_entry
+
+        if g_theme_manager_window is not None:
+            try: g_theme_manager_window.destroy()
+            except: pass
+
+        g_theme_manager_window = tk.Toplevel(root)
+        g_theme_manager_window.title("Quản lý Game Theme")
+        g_theme_manager_window.geometry("600x400")
+        g_theme_manager_window.transient(root)
+        g_theme_manager_window.grab_set()
+
+        main_frame = ttk.Frame(g_theme_manager_window, padding=10)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Cột trái: Danh sách
+        list_frame = ttk.LabelFrame(main_frame, text="Game Themes Hiện tại")
+        list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+
+        list_scroll = ttk.Scrollbar(list_frame, orient="vertical")
+        list_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        g_theme_listbox = tk.Listbox(list_frame, yscrollcommand=list_scroll.set)
+        g_theme_listbox.pack(fill=tk.BOTH, expand=True)
+        list_scroll.config(command=g_theme_listbox.yview)
+
+        # Điền vào listbox
+        populate_theme_listbox()
+
+        # Cột phải: Form
+        form_frame = ttk.Frame(main_frame, width=250)
+        form_frame.pack(side=tk.LEFT, fill=tk.Y)
+
+        # Form Thêm
+        add_frame = ttk.LabelFrame(form_frame, text="Thêm Game Mới")
+        add_frame.pack(fill=tk.X)
+
+        ttk.Label(add_frame, text="Tên Game:").pack(anchor=tk.W, padx=5, pady=(5,0))
+        g_theme_name_entry = ttk.Entry(add_frame)
+        g_theme_name_entry.pack(fill=tk.X, padx=5, pady=5)
+
+        ttk.Label(add_frame, text="URL Hình ảnh:").pack(anchor=tk.W, padx=5, pady=(5,0))
+        g_theme_url_entry = ttk.Entry(add_frame)
+        g_theme_url_entry.pack(fill=tk.X, padx=5, pady=5)
+
+        add_button = ttk.Button(add_frame, text="Thêm Mới", 
+                                style="Accent.TButton",
+                                command=action_add_game_theme)
+        add_button.pack(pady=10, padx=5)
+
+        # Form Xóa
+        delete_frame = ttk.LabelFrame(form_frame, text="Xóa Game")
+        delete_frame.pack(fill=tk.X, pady=20)
+
+        delete_button = ttk.Button(delete_frame, text="Xóa Game Đã Chọn",
+                                style="Danger.TButton",
+                                command=action_delete_game_theme)
+        delete_button.pack(pady=10, padx=5)
+
+    def populate_theme_listbox():
+        """Làm mới Listbox trong modal."""
+        if not g_theme_listbox: return
+
+        g_theme_listbox.delete(0, tk.END)
+        sorted_games = sorted(g_game_themes.keys())
+        for game_name in sorted_games:
+            g_theme_listbox.insert(tk.END, game_name)
+
+    def action_add_game_theme():
+        """LLogic cho nút 'Thêm Mới' trong modal."""
+        global g_game_themes
+
+        name = g_theme_name_entry.get().strip()
+        url = g_theme_url_entry.get().strip()
+
+        if not name or not url:
+            custom_showerror("Thiếu thông tin", "Vui lòng nhập cả Tên Game và URL.", parent=g_theme_manager_window)
+            return
+
+        if name in g_game_themes:
+            custom_showerror("Trùng tên", "Tên game này đã tồn tại.", parent=g_theme_manager_window)
+            return
+
+        # Thêm vào dict
+        g_game_themes[name] = url
+
+        # Bắt đầu upload
+        threading.Thread(target=upload_theme_json_thread, 
+                        args=(name,), 
+                        daemon=True).start()
+
+    def action_delete_game_theme():
+        """Logic cho nút 'Xóa' trong modal."""
+        global g_game_themes
         try:
-            g_game_themes = json.loads(theme_content)
-            g_game_theme_sha = theme_sha # <-- LƯU SHA THEME
+            selected_game = g_theme_listbox.get(g_theme_listbox.curselection())
+        except tk.TclError:
+            custom_showwarning("Chưa chọn", "Vui lòng chọn một game trong danh sách để xóa.", parent=g_theme_manager_window)
+            return
 
-            global g_master_game_list
-            g_master_game_list = sorted(list(g_game_themes.keys())) # Lưu gốc
+        if custom_askyesno("Xác nhận", f"Bạn có chắc chắn muốn xóa game theme '{selected_game}'?\n(Việc này không xóa các mod option.)", parent=g_theme_manager_window):
+            if selected_game in g_game_themes:
+                del g_game_themes[selected_game]
+                # Bắt đầu upload (không cần tên)
+                threading.Thread(target=upload_theme_json_thread, 
+                                args=(None,), 
+                                daemon=True).start()
 
-            game_list_with_add = g_master_game_list + ["Thêm Game..."] 
-            g_admin_game_combobox['values'] = game_list_with_add
-        except Exception as e:
-             custom_showerror("Lỗi", f"Lỗi đọc file game_themes.json: {e}")
-             g_game_themes = {}
-             g_admin_game_combobox['values'] = ["Thêm Game..."]
-    else:
-        g_game_themes = {}
-        g_admin_game_combobox['values'] = ["Thêm Game..."]
+    def upload_theme_json_thread(newly_added_game_name=None):
+        """(Chạy ngầm) Upload file game_themes.json."""
+        global g_game_theme_sha
 
-    # 4. Xử lý Config Mod (như cũ)
-    if json_content is not None and sha is not None:
+        repo = get_github_repo()
+        if not repo:
+            progress_queue.put(("theme_upload_failed", "Không thể kết nối repo."))
+            return
+
+        # Gửi dict g_game_themes hiện tại
+        success, new_sha = upload_theme_json_to_github(repo, g_game_themes, g_game_theme_sha)
+
+        if success and new_sha:
+            progress_queue.put(("theme_upload_success", (new_sha, newly_added_game_name)))
+        else:
+            progress_queue.put(("theme_upload_failed", "Upload thất bại. (Xem log GitHub)"))
+
+
+    add_update_button.config(command=action_add_update_option)
+    clear_button.config(command=clear_form)
+
+    # --- Top Button Functions ---
+    def action_load_from_github_wrapper():
+        """(ĐÃ SỬA) Tải cả config Mod và config Theme VÀ CẢ 2 SHA."""
+        global current_config_data, current_github_sha, g_game_themes, g_game_theme_sha
+        upload_status_label.config(text="Đang tải từ GitHub...", style="White.TLabel")
+        root.update_idletasks()
+
+        repo = get_github_repo()
+        if not repo:
+            upload_status_label.config(text="Lỗi kết nối repo.", foreground="red")
+            return
+
+        # 1. Tải Config Mod (như cũ)
+        json_content, sha = load_json_from_github_api(repo)
+
+        # 2. Tải Config Theme (MỚI)
+        theme_content, theme_sha = load_theme_json_from_github_api(repo)
+
+        # 3. Xử lý Config Theme
+        if theme_content and theme_sha:
+            try:
+                g_game_themes = json.loads(theme_content)
+                g_game_theme_sha = theme_sha # <-- LƯU SHA THEME
+
+                global g_master_game_list
+                g_master_game_list = sorted(list(g_game_themes.keys())) # Lưu gốc
+
+                game_list_with_add = g_master_game_list + ["Thêm Game..."] 
+                g_admin_game_combobox['values'] = game_list_with_add
+            except Exception as e:
+                custom_showerror("Lỗi", f"Lỗi đọc file game_themes.json: {e}")
+                g_game_themes = {}
+                g_admin_game_combobox['values'] = ["Thêm Game..."]
+        else:
+            g_game_themes = {}
+            g_admin_game_combobox['values'] = ["Thêm Game..."]
+
+        # 4. Xử lý Config Mod (như cũ)
+        if json_content is not None and sha is not None:
+            try:
+                current_config_data = json.loads(json_content)
+                current_github_sha = sha # <-- LƯU SHA MOD
+                populate_treeview()
+                clear_form()
+                upload_status_label.config(text="Đã tải config từ database", foreground="green")
+            except Exception as e:
+                custom_showerror("Lỗi", f"Lỗi không xác định khi xử lý JSON: {e}")
+                upload_status_label.config(text="Lỗi xử lý JSON.", foreground="red")
+        else:
+            upload_status_label.config(text="Tải JSON từ GitHub thất bại.", foreground="red")
+            current_config_data = {}; current_github_sha = None; populate_treeview()
+
+    def action_upload_to_github_wrapper():
+        global current_github_sha
+        if not current_config_data:
+            custom_showwarning("Chưa có dữ liệu", "Không có dữ liệu config để upload.")
+            return
+        if current_github_sha is None:
+            custom_showwarning("Thiếu SHA", "Vui lòng 'Tải Config' trước khi upload.")
+            return
+        repo = get_github_repo()
+        if not repo: return
+        if custom_askyesno("Xác nhận Cập Nhật", "Bạn có chắc chắn muốn ghi đè file config bằng dữ liệu hiện tại?"):
+            entered_pin = custom_askstring("Xác nhận PIN", "Nhập mã PIN quản trị:", show='*')
+            correct_pin = "2408" # Mã PIN cứng
+
+            if entered_pin != correct_pin:
+                custom_showerror("Sai PIN", "Mã PIN không chính xác. Đã hủy upload.")
+                return # Dừng nếu PIN sai
+            upload_status_label.config(text="Đang upload lên GitHub...", style="White.TLabel")
+            root.update_idletasks()
+            success, new_sha = upload_json_to_github(repo, current_config_data, current_github_sha)
+            if success:
+                if new_sha:
+                    current_github_sha = new_sha
+                    upload_status_label.config(text="Upload thành công!", foreground="green")
+                else:
+                    current_github_sha = None
+                    upload_status_label.config(text="Upload thành công! (Nên tải lại config)", style="White.TLabel") # Dùng style
+            else:
+                upload_status_label.config(text="Upload thất bại.", foreground="red") # Dùng style
+
+    # --- Create Top Buttons ---
+    load_button_top = ttk.Button(top_button_frame, text="Tải Config (Làm mới)", command=action_load_from_github_wrapper)
+    load_button_top.pack(side=tk.LEFT, padx=5)
+    delete_button_top = ttk.Button(top_button_frame, text="Xóa Option Đã Chọn", command=action_delete_option)
+    delete_button_top.pack(side=tk.LEFT, padx=5)
+    upload_button_top = ttk.Button(top_button_frame, text="Lưu Config", command=action_upload_to_github_wrapper, style="Accent.TButton")
+    upload_button_top.pack(side=tk.LEFT, padx=5)
+    # --- Hết phần sửa cho Tab 2 ---
+
+    upload_button_top.pack(side=tk.LEFT, padx=5)
+    # --- Hết phần sửa cho Tab 2 ---
+
+
+    # --- BẮT ĐẦU CODE CHO TAB 3 ("Upload Lên Drive") ---
+    third_tab_frame = ttk.Frame(notebook, padding=(10, 10))
+    notebook.add(third_tab_frame, text=" Upload Lên Drive ")
+
+    drive_storage_label = ttk.Label(third_tab_frame, text="Dung lượng Drive: Đang tải...", style="secondary.TLabel", anchor=tk.W)
+    # --- Các biến và hàm cho Tab 3 ---
+    # Biến này sẽ lưu danh sách các đường dẫn file đã kéo vào
+    files_to_upload_list = []
+
+    def action_browse_upload_files():
+        """Thay thế cho việc kéo thả file vào Tab 3."""
+        # Cho phép chọn nhiều file
+        file_paths = filedialog.askopenfilenames(title="Chọn file để upload lên Drive")
+        
+        if file_paths:
+            # Xóa danh sách cũ (giống logic kéo thả cũ)
+            files_to_upload_list.clear()
+            drop_target_listbox.delete(0, tk.END)
+            
+            for path in file_paths:
+                files_to_upload_list.append(path)
+                drop_target_listbox.insert(tk.END, os.path.basename(path))
+                
+            # Bật nút upload
+            upload_files_button.config(state=tk.NORMAL)
+
+    def handle_drop_enter(event):
+        # Thay đổi giao diện khi chuột kéo file vào
+        drop_target_listbox.config(background="lightblue")
+        
+    def handle_drop_leave(event):
+        # Trả lại giao diện cũ
+        drop_target_listbox.config(background=style.lookup("TListbox", "background"))
+
+    def handle_drop(event):
+        # Xử lý khi người dùng thả file
+        handle_drop_leave(event) # Trả lại màu nền
+        # event.data chứa một chuỗi các đường dẫn file
+        # Chúng có thể được bọc trong dấu {} nếu chứa dấu cách
+        
+        # Xóa danh sách cũ
+        files_to_upload_list.clear()
+        drop_target_listbox.delete(0, tk.END)
+        
+        # Phân tích chuỗi file paths (hơi phức tạp)
+        raw_paths = root.tk.splitlist(event.data)
+        
+        for file_path in raw_paths:
+            if os.path.exists(file_path) and os.path.isfile(file_path): # Chỉ chấp nhận file
+                files_to_upload_list.append(file_path)
+                drop_target_listbox.insert(tk.END, os.path.basename(file_path))
+            else:
+                print(f"Bỏ qua: {file_path} (không phải file hoặc không tồn tại)")
+        
+        upload_files_button.config(state=tk.NORMAL) # Bật nút upload
+
+    def try_auto_login_drive_thread():
+        """(Chạy ngầm) Tự động đăng nhập Drive nếu có token.json."""
+        global drive_service
+        
+        token_path = resource_path('token.json')
+        creds_path = resource_path('credentials.json')
+        
+        if not os.path.exists(creds_path): 
+            progress_queue.put(("accounts_load_failed", "credentials.json missing")) # <-- THÊM MỚI
+            return # Không có file credentials
+        if not os.path.exists(token_path): 
+            progress_queue.put(("accounts_load_failed", "token.json missing")) # <-- THÊM MỚI
+            return # Chưa đăng nhập lần nào
+        
         try:
-            current_config_data = json.loads(json_content)
-            current_github_sha = sha # <-- LƯU SHA MOD
-            populate_treeview()
-            clear_form()
-            upload_status_label.config(text="Đã tải config từ database", foreground="green")
+            print("Đang thử tự động đăng nhập Google Drive...")
+            creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+            
+            # Nếu token hết hạn, làm mới
+            if not creds.valid and creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+            
+            if creds.valid:
+                drive_service = build('drive', 'v3', credentials=creds)
+                print("Tự động đăng nhập Drive thành công.")
+                
+                # --- BẮT ĐẦU TẢI ACCOUNT CONFIG ---
+                load_accounts_from_drive_thread() # (Không cần thread lồng nhau)
+            else:
+                print("Tự động đăng nhập thất bại (token không hợp lệ).")
+                progress_queue.put(("accounts_load_failed", "Invalid token")) # <-- THÊM MỚI
+                
         except Exception as e:
-             custom_showerror("Lỗi", f"Lỗi không xác định khi xử lý JSON: {e}")
-             upload_status_label.config(text="Lỗi xử lý JSON.", foreground="red")
-    else:
-        upload_status_label.config(text="Tải JSON từ GitHub thất bại.", foreground="red")
-        current_config_data = {}; current_github_sha = None; populate_treeview()
+            print(f"Lỗi khi tự động đăng nhập Drive: {e}")
+            progress_queue.put(("accounts_load_failed", str(e)))
 
-def action_upload_to_github_wrapper():
-    global current_github_sha
-    if not current_config_data:
-         custom_showwarning("Chưa có dữ liệu", "Không có dữ liệu config để upload.")
-         return
-    if current_github_sha is None:
-        custom_showwarning("Thiếu SHA", "Vui lòng 'Tải Config' trước khi upload.")
-        return
-    repo = get_github_repo()
-    if not repo: return
-    if custom_askyesno("Xác nhận Cập Nhật", "Bạn có chắc chắn muốn ghi đè file config bằng dữ liệu hiện tại?"):
+    def action_drive_login():
         entered_pin = custom_askstring("Xác nhận PIN", "Nhập mã PIN quản trị:", show='*')
         correct_pin = "2408" # Mã PIN cứng
 
         if entered_pin != correct_pin:
             custom_showerror("Sai PIN", "Mã PIN không chính xác. Đã hủy upload.")
             return # Dừng nếu PIN sai
-        upload_status_label.config(text="Đang upload lên GitHub...", style="White.TLabel")
+        # Gọi hàm xác thực
+        drive_auth_button.config(text="Đang đăng nhập...", state=tk.DISABLED)
         root.update_idletasks()
-        success, new_sha = upload_json_to_github(repo, current_config_data, current_github_sha)
-        if success:
-            if new_sha:
-                 current_github_sha = new_sha
-                 upload_status_label.config(text="Upload thành công!", foreground="green")
-            else:
-                 current_github_sha = None
-                 upload_status_label.config(text="Upload thành công! (Nên tải lại config)", style="White.TLabel") # Dùng style
+        
+        service = authenticate_google_drive() # Hàm này chúng ta đã thêm ở Bước 4
+        
+        if service:
+            drive_auth_button.config(text="Đã đăng nhập Google Drive", style="Green.TButton")
+            # Kiểm tra xem có file chờ upload không
+            if files_to_upload_list:
+                upload_files_button.config(state=tk.NORMAL)
+            action_refresh_drive_list()
+            threading.Thread(target=load_accounts_from_drive_thread, daemon=True).start()
         else:
-            upload_status_label.config(text="Upload thất bại.", foreground="red") # Dùng style
+            drive_auth_button.config(text="Đăng nhập Google Drive", state=tk.NORMAL)
 
-# --- Create Top Buttons ---
-load_button_top = ttk.Button(top_button_frame, text="Tải Config (Làm mới)", command=action_load_from_github_wrapper)
-load_button_top.pack(side=tk.LEFT, padx=5)
-delete_button_top = ttk.Button(top_button_frame, text="Xóa Option Đã Chọn", command=action_delete_option)
-delete_button_top.pack(side=tk.LEFT, padx=5)
-upload_button_top = ttk.Button(top_button_frame, text="Lưu Config", command=action_upload_to_github_wrapper, style="Accent.TButton")
-upload_button_top.pack(side=tk.LEFT, padx=5)
-# --- Hết phần sửa cho Tab 2 ---
+    def action_start_upload_all():
+        # Bắt đầu upload tất cả các file trong danh sách
+        if not drive_service:
+            custom_showwarning("Chưa Đăng Nhập", "Vui lòng đăng nhập Google Drive trước.")
+            return
+            
+        if not files_to_upload_list:
+            custom_showinfo("Không có file", "Vui lòng kéo file vào ô bên trên trước.")
+            return
 
-upload_button_top.pack(side=tk.LEFT, padx=5)
-# --- Hết phần sửa cho Tab 2 ---
+        # Xóa log cũ
+        upload_status_listbox.delete(0, tk.END)
+        
+        # Vô hiệu hóa nút để tránh bấm nhiều lần
+        upload_files_button.config(state=tk.DISABLED)
+        drive_auth_button.config(state=tk.DISABLED)
 
+        # Chạy upload trong thread để không treo UI
+        def upload_all_thread():
+            for file_path in files_to_upload_list:
+                # Chúng ta gọi hàm logic trực tiếp
+                # (Hoặc có thể tạo thread riêng cho từng file)
+                upload_file_logic(file_path, upload_status_listbox)
+            
+            # Khi xong, bật lại nút
+            upload_status_listbox.insert(tk.END, "--- HOÀN THÀNH TẤT CẢ ---")
+            upload_status_listbox.see(tk.END)
+            upload_files_button.config(state=tk.NORMAL)
+            drive_auth_button.config(state=tk.NORMAL)
 
-# --- BẮT ĐẦU CODE CHO TAB 3 ("Upload Lên Drive") ---
-third_tab_frame = ttk.Frame(notebook, padding=(10, 10))
-notebook.add(third_tab_frame, text=" Upload Lên Drive ")
+        threading.Thread(target=upload_all_thread, daemon=True).start()
 
-drive_storage_label = ttk.Label(third_tab_frame, text="Dung lượng Drive: Đang tải...", style="secondary.TLabel", anchor=tk.W)
-# --- Các biến và hàm cho Tab 3 ---
-# Biến này sẽ lưu danh sách các đường dẫn file đã kéo vào
-files_to_upload_list = []
-
-def action_browse_upload_files():
-    """Thay thế cho việc kéo thả file vào Tab 3."""
-    # Cho phép chọn nhiều file
-    file_paths = filedialog.askopenfilenames(title="Chọn file để upload lên Drive")
-    
-    if file_paths:
-        # Xóa danh sách cũ (giống logic kéo thả cũ)
+    def action_clear_upload_list():
         files_to_upload_list.clear()
         drop_target_listbox.delete(0, tk.END)
-        
-        for path in file_paths:
-            files_to_upload_list.append(path)
-            drop_target_listbox.insert(tk.END, os.path.basename(path))
-            
-        # Bật nút upload
-        upload_files_button.config(state=tk.NORMAL)
+        upload_status_listbox.delete(0, tk.END)
+        upload_files_button.config(state=tk.DISABLED)
 
-def handle_drop_enter(event):
-    # Thay đổi giao diện khi chuột kéo file vào
-    drop_target_listbox.config(background="lightblue")
-    
-def handle_drop_leave(event):
-    # Trả lại giao diện cũ
-    drop_target_listbox.config(background=style.lookup("TListbox", "background"))
+    def action_refresh_drive_list():
+        """Bọc hàm tải danh sách file vào một thread (an toàn cho UI)."""
+        drive_refresh_button.config(state=tk.DISABLED) # Tắt nút
 
-def handle_drop(event):
-    # Xử lý khi người dùng thả file
-    handle_drop_leave(event) # Trả lại màu nền
-    # event.data chứa một chuỗi các đường dẫn file
-    # Chúng có thể được bọc trong dấu {} nếu chứa dấu cách
-    
-    # Xóa danh sách cũ
-    files_to_upload_list.clear()
-    drop_target_listbox.delete(0, tk.END)
-    
-    # Phân tích chuỗi file paths (hơi phức tạp)
-    raw_paths = root.tk.splitlist(event.data)
-    
-    for file_path in raw_paths:
-        if os.path.exists(file_path) and os.path.isfile(file_path): # Chỉ chấp nhận file
-            files_to_upload_list.append(file_path)
-            drop_target_listbox.insert(tk.END, os.path.basename(file_path))
-        else:
-            print(f"Bỏ qua: {file_path} (không phải file hoặc không tồn tại)")
-    
-    upload_files_button.config(state=tk.NORMAL) # Bật nút upload
+        # --- SỬA LỖI: Xóa item khỏi FRAME LƯỚI, không phải TREEVIEW ---
+        # Xóa list cũ và hiện loading
+        for widget in drive_icon_content_frame.winfo_children():
+            widget.destroy()
 
-def try_auto_login_drive_thread():
-    """(Chạy ngầm) Tự động đăng nhập Drive nếu có token.json."""
-    global drive_service
-    
-    token_path = resource_path('token.json')
-    creds_path = resource_path('credentials.json')
-    
-    if not os.path.exists(creds_path): 
-        progress_queue.put(("accounts_load_failed", "credentials.json missing")) # <-- THÊM MỚI
-        return # Không có file credentials
-    if not os.path.exists(token_path): 
-        progress_queue.put(("accounts_load_failed", "token.json missing")) # <-- THÊM MỚI
-        return # Chưa đăng nhập lần nào
-    
-    try:
-        print("Đang thử tự động đăng nhập Google Drive...")
-        creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-        
-        # Nếu token hết hạn, làm mới
-        if not creds.valid and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        
-        if creds.valid:
-            drive_service = build('drive', 'v3', credentials=creds)
-            print("Tự động đăng nhập Drive thành công.")
-            
-            # --- BẮT ĐẦU TẢI ACCOUNT CONFIG ---
-            load_accounts_from_drive_thread() # (Không cần thread lồng nhau)
-        else:
-            print("Tự động đăng nhập thất bại (token không hợp lệ).")
-            progress_queue.put(("accounts_load_failed", "Invalid token")) # <-- THÊM MỚI
-            
-    except Exception as e:
-        print(f"Lỗi khi tự động đăng nhập Drive: {e}")
-        progress_queue.put(("accounts_load_failed", str(e)))
-
-def action_drive_login():
-    entered_pin = custom_askstring("Xác nhận PIN", "Nhập mã PIN quản trị:", show='*')
-    correct_pin = "2408" # Mã PIN cứng
-
-    if entered_pin != correct_pin:
-        custom_showerror("Sai PIN", "Mã PIN không chính xác. Đã hủy upload.")
-        return # Dừng nếu PIN sai
-    # Gọi hàm xác thực
-    drive_auth_button.config(text="Đang đăng nhập...", state=tk.DISABLED)
-    root.update_idletasks()
-    
-    service = authenticate_google_drive() # Hàm này chúng ta đã thêm ở Bước 4
-    
-    if service:
-        drive_auth_button.config(text="Đã đăng nhập Google Drive", style="Green.TButton")
-        # Kiểm tra xem có file chờ upload không
-        if files_to_upload_list:
-            upload_files_button.config(state=tk.NORMAL)
-        action_refresh_drive_list()
-        threading.Thread(target=load_accounts_from_drive_thread, daemon=True).start()
-    else:
-        drive_auth_button.config(text="Đăng nhập Google Drive", state=tk.NORMAL)
-
-def action_start_upload_all():
-    # Bắt đầu upload tất cả các file trong danh sách
-    if not drive_service:
-        custom_showwarning("Chưa Đăng Nhập", "Vui lòng đăng nhập Google Drive trước.")
-        return
-        
-    if not files_to_upload_list:
-        custom_showinfo("Không có file", "Vui lòng kéo file vào ô bên trên trước.")
-        return
-
-    # Xóa log cũ
-    upload_status_listbox.delete(0, tk.END)
-    
-    # Vô hiệu hóa nút để tránh bấm nhiều lần
-    upload_files_button.config(state=tk.DISABLED)
-    drive_auth_button.config(state=tk.DISABLED)
-
-    # Chạy upload trong thread để không treo UI
-    def upload_all_thread():
-        for file_path in files_to_upload_list:
-            # Chúng ta gọi hàm logic trực tiếp
-            # (Hoặc có thể tạo thread riêng cho từng file)
-            upload_file_logic(file_path, upload_status_listbox)
-        
-        # Khi xong, bật lại nút
-        upload_status_listbox.insert(tk.END, "--- HOÀN THÀNH TẤT CẢ ---")
-        upload_status_listbox.see(tk.END)
-        upload_files_button.config(state=tk.NORMAL)
-        drive_auth_button.config(state=tk.NORMAL)
-
-    threading.Thread(target=upload_all_thread, daemon=True).start()
-
-def action_clear_upload_list():
-    files_to_upload_list.clear()
-    drop_target_listbox.delete(0, tk.END)
-    upload_status_listbox.delete(0, tk.END)
-    upload_files_button.config(state=tk.DISABLED)
-
-def action_refresh_drive_list():
-    """Bọc hàm tải danh sách file vào một thread (an toàn cho UI)."""
-    drive_refresh_button.config(state=tk.DISABLED) # Tắt nút
-
-    # --- SỬA LỖI: Xóa item khỏi FRAME LƯỚI, không phải TREEVIEW ---
-    # Xóa list cũ và hiện loading
-    for widget in drive_icon_content_frame.winfo_children():
-        widget.destroy()
-
-    loading_label = ttk.Label(drive_icon_content_frame, text="Đang tải, vui lòng chờ...")
-    loading_label.pack(pady=10)
-    # --- HẾT SỬA ---
-
-    # Bắt đầu thread để tải
-    root.after(100, process_queue)
-    threading.Thread(target=refresh_drive_file_list_thread, daemon=True).start()
-
-def refresh_drive_file_list_thread():
-    """(Chạy trong thread) Lấy danh sách file VÀ dung lượng từ Drive."""
-    global drive_service
-    if not drive_service:
-        progress_queue.put(("status", "Lỗi: Vui lòng đăng nhập Drive trước."))
-        progress_queue.put(("drive_data_updated", {"files": [], "quota": None})) # Gửi dữ liệu rỗng
-        return
-
-    if GOOGLE_DRIVE_FOLDER_ID == "YOUR_FOLDER_ID_GOES_HERE":
-        progress_queue.put(("status", "Lỗi: GOOGLE_DRIVE_FOLDER_ID chưa được set."))
-        progress_queue.put(("drive_data_updated", {"files": [], "quota": None})) # Gửi dữ liệu rỗng
-        return
-
-    try:
-        # 1. Lấy danh sách file (như cũ)
-        query = f"'{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false"
-        response_files = drive_service.files().list(
-            q=query,
-            spaces='drive',
-            fields='files(id, name)',
-            orderBy='name' # Sắp xếp theo tên
-        ).execute()
-        files = response_files.get('files', [])
-
-        # 2. THÊM MỚI: Lấy thông tin dung lượng
-        quota_data = drive_service.about().get(fields='storageQuota').execute()
-        quota = quota_data.get('storageQuota', {})
-
-        # 3. Gửi cả hai về queue
-        progress_queue.put(("drive_data_updated", {"files": files, "quota": quota}))
-
-    except HttpError as error:
-        progress_queue.put(("status", f"Lỗi khi tải dữ liệu Drive: {error}"))
-        progress_queue.put(("drive_data_updated", {"files": [], "quota": None})) # Gửi rỗng
-    except Exception as e:
-        progress_queue.put(("status", f"Lỗi: {e}"))
-        progress_queue.put(("drive_data_updated", {"files": [], "quota": None})) # Gửi rỗng
-
-def action_delete_drive_file_thread(file_id, file_name):
-    """(Chạy trong thread) Xóa file khỏi Google Drive."""
-    global drive_service
-    
-    # --- THÊM MỚI: KIỂM TRA, KHÔNG CHO XÓA FILE JSON ---
-    if file_name.lower().endswith(".json"):
-        custom_showerror("Không thể Xóa", f"Không được phép xóa file này\nFile: {file_name}")
-        progress_queue.put(("drive_log", f"Đã chặn thao tác xóa file JSON: {file_name}"))
-        return # Dừng hàm ngay lập tức
-    # --- HẾT THÊM MỚI ---
-
-    if not drive_service:
-        custom_showerror("Lỗi", "Chưa đăng nhập Google Drive.")
-        return
-    
-    try:
-        # 3. Thực thi (Giữ nguyên)
-        drive_service.files().delete(fileId=file_id).execute()
-
-        # 4. Báo thành công và Yêu cầu Refresh (Giữ nguyên)
-        progress_queue.put(("drive_log", f"Đã xóa {file_name} thành công."))
-        progress_queue.put(("refresh_drive_list", None)) # <-- Yêu cầu tải lại lưới
-
-    except HttpError as error:
-        custom_showerror("Lỗi Xóa", f"Lỗi khi xóa file: {error}")
-        progress_queue.put(("drive_log", f"Lỗi khi xóa {file_name}."))
-    except Exception as e:
-        custom_showerror("Lỗi Xóa", f"Lỗi không xác định: {e}")
-        progress_queue.put(("drive_log", f"Lỗi khi xóa {file_name}."))
-# --- Giao diện cho Tab 3 ---
-
-# --- THÊM MỚI: CÁC HÀM "TRỢ LÝ AI" ---
-def action_start_scan():
-    """Bắt đầu quá trình quét lỗi đồng bộ."""
-    global scan_loading_window, drive_service
-
-    if not drive_service:
-        custom_showerror("Lỗi", "Vui lòng đăng nhập Google Drive trước.")
-        return
-
-    # Hiển thị cửa sổ "Đang tải"
-    scan_loading_window = tk.Toplevel(root)
-    scan_loading_window.title("Đang Quét...")
-    center_window_on_screen(scan_loading_window, 350, 100)
-    scan_loading_window.transient(root) # Giữ nó luôn ở trên app chính
-    scan_loading_window.grab_set() # Chặn tương tác với app chính
-    loading_label = ttk.Label(scan_loading_window, text="Đang so sánh file GitHub JSON và Google Drive...")
-    loading_label.pack(expand=True, padx=20, pady=20)
-
-    # Bắt đầu luồng quét
-    threading.Thread(target=scan_logic_thread, daemon=True).start()
-
-def scan_logic_thread():
-    """(Chạy ngầm) Tải JSON, tải list Drive và so sánh."""
-    global drive_service
-    errors_list = []
-    warnings_list = []
-
-    try:
-        # 1. Tải GitHub JSON (dùng hàm đã có của Tab 1)
-        print("Scan: Đang tải config GitHub...")
-        github_data = load_config_from_github()
-        if not github_data:
-            github_data = fallback_options # Dùng fallback nếu tải lỗi
-
-        # 2. Tải danh sách file Google Drive
-        print("Scan: Đang tải danh sách Google Drive...")
-        response_files = drive_service.files().list(
-            q=f"'{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false",
-            spaces='drive',
-            fields='files(id, name)'
-        ).execute()
-        drive_files = response_files.get('files', [])
-
-        # 3. So Sánh (Phần "AI")
-        print("Scan: Đang so sánh...")
-
-        # Lấy tất cả File ID được dùng trong JSON
-        json_file_ids = set()
-        for key, data in github_data.items():
-            if key == "updater": continue
-
-            url_or_id = data.get("url")
-            file_id = extract_gdrive_id_from_url(url_or_id) # Dùng helper
-
-            if file_id:
-                json_file_ids.add(file_id)
-            else:
-                errors_list.append(f"Option '{key}': URL không hợp lệ hoặc không phải Google Drive.")
-
-        # Lấy tất cả File ID có trên Drive
-        drive_file_map = {file['id']: file['name'] for file in drive_files}
-        drive_file_ids = set(drive_file_map.keys())
-
-        # 4. Tìm Lỗi (Có trong JSON, nhưng không có trên Drive)
-        broken_ids = json_file_ids - drive_file_ids # Phép trừ tập hợp
-        for broken_id in broken_ids:
-            # Tìm xem item nào đang dùng ID bị hỏng này
-            item_name = "[Không tìm thấy tên]"
-            item_key = "[?]"
-            for key, data in github_data.items():
-                if extract_gdrive_id_from_url(data.get("url")) == broken_id:
-                    item_name = data.get("name", "[TÊN BỊ LỖI]")
-                    item_key = key
-                    break
-            errors_list.append(f"Option '{item_name}' (ID: {item_key}): File ID '{broken_id}' KHÔNG TỒN TẠI trên Drive.")
+        loading_label = ttk.Label(drive_icon_content_frame, text="Đang tải, vui lòng chờ...")
+        loading_label.pack(pady=10)
         # --- HẾT SỬA ---
 
-        # 5. Tìm Cảnh Báo (Có trên Drive, nhưng không dùng trong JSON)
-        orphaned_ids = drive_file_ids - json_file_ids # Phép trừ tập hợp
-        for orphaned_id in orphaned_ids:
-            file_name = drive_file_map[orphaned_id]
-            # Thêm dictionary thay vì string
-            warnings_list.append({"name": file_name, "id": orphaned_id})
+        # Bắt đầu thread để tải
+        root.after(100, process_queue)
+        threading.Thread(target=refresh_drive_file_list_thread, daemon=True).start()
 
-        print("Scan: Hoàn tất so sánh.")
-        # Gửi báo cáo về cho queue
-        progress_queue.put(("scan_report_ready", {"errors": errors_list, "warnings": warnings_list}))
+    def refresh_drive_file_list_thread():
+        """(Chạy trong thread) Lấy danh sách file VÀ dung lượng từ Drive."""
+        global drive_service
+        if not drive_service:
+            progress_queue.put(("status", "Lỗi: Vui lòng đăng nhập Drive trước."))
+            progress_queue.put(("drive_data_updated", {"files": [], "quota": None})) # Gửi dữ liệu rỗng
+            return
 
-    except Exception as e:
-        print(f"Lỗi khi quét: {e}")
-        progress_queue.put(("scan_failed", str(e)))
+        if GOOGLE_DRIVE_FOLDER_ID == "YOUR_FOLDER_ID_GOES_HERE":
+            progress_queue.put(("status", "Lỗi: GOOGLE_DRIVE_FOLDER_ID chưa được set."))
+            progress_queue.put(("drive_data_updated", {"files": [], "quota": None})) # Gửi dữ liệu rỗng
+            return
 
-def show_scan_report(errors, warnings):
-    """Tạo cửa sổ Toplevel MỚI để hiển thị báo cáo TƯƠNG TÁC."""
-    report_window = tk.Toplevel(root)
-    report_window.title("Báo Cáo Quét Lỗi Đồng Bộ")
-    center_window_on_screen(report_window, 700, 500)
-    report_window.transient(root)
-    report_window.grab_set()
+        try:
+            # 1. Lấy danh sách file (như cũ)
+            query = f"'{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false"
+            response_files = drive_service.files().list(
+                q=query,
+                spaces='drive',
+                fields='files(id, name)',
+                orderBy='name' # Sắp xếp theo tên
+            ).execute()
+            files = response_files.get('files', [])
 
-    report_frame = ttk.Frame(report_window, padding=10)
-    report_frame.pack(fill=tk.BOTH, expand=True)
+            # 2. THÊM MỚI: Lấy thông tin dung lượng
+            quota_data = drive_service.about().get(fields='storageQuota').execute()
+            quota = quota_data.get('storageQuota', {})
 
-    report_text = tk.Text(report_frame, wrap="word", height=20, width=80, relief=tk.FLAT)
-    report_scroll = ttk.Scrollbar(report_frame, orient="vertical", command=report_text.yview)
-    report_text['yscrollcommand'] = report_scroll.set
+            # 3. Gửi cả hai về queue
+            progress_queue.put(("drive_data_updated", {"files": files, "quota": quota}))
 
-    report_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-    report_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        except HttpError as error:
+            progress_queue.put(("status", f"Lỗi khi tải dữ liệu Drive: {error}"))
+            progress_queue.put(("drive_data_updated", {"files": [], "quota": None})) # Gửi rỗng
+        except Exception as e:
+            progress_queue.put(("status", f"Lỗi: {e}"))
+            progress_queue.put(("drive_data_updated", {"files": [], "quota": None})) # Gửi rỗng
 
-    # --- SỬA: Thêm các tag màu cho LINK ---
-    report_text.tag_configure("header", font=("Segoe UI", 14, "bold"), spacing3=10)
-    report_text.tag_configure("error", foreground="red", font=("Segoe UI", 10, "bold"))
-    report_text.tag_configure("warning", foreground="#FFB000") # Màu vàng cam
-    report_text.tag_configure("success", foreground="green")
-    report_text.tag_configure("note", foreground=style.lookup("TLabel", "foreground"), lmargin1=10, lmargin2=10)
+    def action_delete_drive_file_thread(file_id, file_name):
+        """(Chạy trong thread) Xóa file khỏi Google Drive."""
+        global drive_service
+        
+        # --- THÊM MỚI: KIỂM TRA, KHÔNG CHO XÓA FILE JSON ---
+        if file_name.lower().endswith(".json"):
+            custom_showerror("Không thể Xóa", f"Không được phép xóa file này\nFile: {file_name}")
+            progress_queue.put(("drive_log", f"Đã chặn thao tác xóa file JSON: {file_name}"))
+            return # Dừng hàm ngay lập tức
+        # --- HẾT THÊM MỚI ---
 
-    # Tag cho link (màu xanh, gạch chân)
-    report_text.tag_configure("quick_add_link", foreground="dodgerblue", underline=True, font=("Segoe UI", 9, "underline"))
-    report_text.tag_configure("delete_link", foreground="#FF6347", underline=True, font=("Segoe UI", 9, "underline")) # Màu đỏ cà chua
-    # --- HẾT SỬA ---
+        if not drive_service:
+            custom_showerror("Lỗi", "Chưa đăng nhập Google Drive.")
+            return
+        
+        try:
+            # 3. Thực thi (Giữ nguyên)
+            drive_service.files().delete(fileId=file_id).execute()
 
-    # --- Chèn nội dung vào Text ---
-    if not errors and not warnings:
-        report_text.insert(tk.END, "QUÉT HOÀN TẤT\n", "header")
-        report_text.insert(tk.END, "Chúc mừng! File JSON và Google Drive của bạn đã đồng bộ hoàn hảo.", "success")
-    else:
-        if errors:
-            report_text.insert(tk.END, f"LỖI ({len(errors)}) - CẦN SỬA NGAY\n", "header")
-            report_text.insert(tk.END, "(Các option này trong JSON đang trỏ đến file không tồn tại trên Drive)\n\n", "note")
-            for i, err in enumerate(errors):
-                report_text.insert(tk.END, f" {i+1}. {err}\n", "error")
-            report_text.insert(tk.END, "\n\n")
+            # 4. Báo thành công và Yêu cầu Refresh (Giữ nguyên)
+            progress_queue.put(("drive_log", f"Đã xóa {file_name} thành công."))
+            progress_queue.put(("refresh_drive_list", None)) # <-- Yêu cầu tải lại lưới
 
-        if warnings:
-            report_text.insert(tk.END, f"CẢNH BÁO ({len(warnings)}) - NÊN DỌN DẸP\n", "header")
-            report_text.insert(tk.END, "(Các file này có trên Drive nhưng không được dùng. Bạn có thể xóa chúng, hoặc dùng 'Tạo Option Tải'.)\n\n", "note")
+        except HttpError as error:
+            custom_showerror("Lỗi Xóa", f"Lỗi khi xóa file: {error}")
+            progress_queue.put(("drive_log", f"Lỗi khi xóa {file_name}."))
+        except Exception as e:
+            custom_showerror("Lỗi Xóa", f"Lỗi không xác định: {e}")
+            progress_queue.put(("drive_log", f"Lỗi khi xóa {file_name}."))
+    # --- Giao diện cho Tab 3 ---
 
-            # --- SỬA: Vòng lặp tạo link ---
-            for i, warn_item in enumerate(warnings):
-                file_name = warn_item['name']
-                file_id = warn_item['id']
+    # --- THÊM MỚI: CÁC HÀM "TRỢ LÝ AI" ---
+    def action_start_scan():
+        """Bắt đầu quá trình quét lỗi đồng bộ."""
+        global scan_loading_window, drive_service
 
-                # 1. Chèn text cảnh báo
-                report_text.insert(tk.END, f" {i+1}. File: ", "warning")
-                report_text.insert(tk.END, f"{file_name}\n", "warning")
+        if not drive_service:
+            custom_showerror("Lỗi", "Vui lòng đăng nhập Google Drive trước.")
+            return
 
-                # 2. Tạo tag duy nhất cho mỗi link
-                qa_tag = f"qa_{file_id}" # Quick Add tag
-                del_tag = f"del_{file_id}" # Delete tag
+        # Hiển thị cửa sổ "Đang tải"
+        scan_loading_window = tk.Toplevel(root)
+        scan_loading_window.title("Đang Quét...")
+        center_window_on_screen(scan_loading_window, 350, 100)
+        scan_loading_window.transient(root) # Giữ nó luôn ở trên app chính
+        scan_loading_window.grab_set() # Chặn tương tác với app chính
+        loading_label = ttk.Label(scan_loading_window, text="Đang so sánh file GitHub JSON và Google Drive...")
+        loading_label.pack(expand=True, padx=20, pady=20)
 
-                # 3. Chèn các link
-                report_text.insert(tk.END, "      ") # Thụt lề
-                report_text.insert(tk.END, "[Tạo Option Tải]", ("quick_add_link", qa_tag))
-                report_text.insert(tk.END, "   ")
-                report_text.insert(tk.END, "[Xóa File này]", ("delete_link", del_tag))
-                report_text.insert(tk.END, "\n\n")
+        # Bắt đầu luồng quét
+        threading.Thread(target=scan_logic_thread, daemon=True).start()
 
-                # 4. Gắn (Bind) sự kiện cho các tag duy nhất đó
-                # Dùng lambda để truyền đúng file_info (gồm name và id)
-                report_text.tag_bind(
-                    qa_tag, 
-                    "<Button-1>", 
-                    lambda e, win=report_window, info=warn_item: handle_quick_add_click(win, info)
-                )
-                report_text.tag_bind(
-                    del_tag, 
-                    "<Button-1>", 
-                    lambda e, win=report_window, info=warn_item: handle_delete_click(win, info)
-                )
+    def scan_logic_thread():
+        """(Chạy ngầm) Tải JSON, tải list Drive và so sánh."""
+        global drive_service
+        errors_list = []
+        warnings_list = []
 
-                # 5. Thêm hiệu ứng con trỏ chuột
-                report_text.tag_bind(qa_tag, "<Enter>", lambda e: report_text.config(cursor="hand2"))
-                report_text.tag_bind(qa_tag, "<Leave>", lambda e: report_text.config(cursor=""))
-                report_text.tag_bind(del_tag, "<Enter>", lambda e: report_text.config(cursor="hand2"))
-                report_text.tag_bind(del_tag, "<Leave>", lambda e: report_text.config(cursor=""))
+        try:
+            # 1. Tải GitHub JSON (dùng hàm đã có của Tab 1)
+            print("Scan: Đang tải config GitHub...")
+            github_data = load_config_from_github()
+            if not github_data:
+                github_data = fallback_options # Dùng fallback nếu tải lỗi
+
+            # 2. Tải danh sách file Google Drive
+            print("Scan: Đang tải danh sách Google Drive...")
+            response_files = drive_service.files().list(
+                q=f"'{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false",
+                spaces='drive',
+                fields='files(id, name)'
+            ).execute()
+            drive_files = response_files.get('files', [])
+
+            # 3. So Sánh (Phần "AI")
+            print("Scan: Đang so sánh...")
+
+            # Lấy tất cả File ID được dùng trong JSON
+            json_file_ids = set()
+            for key, data in github_data.items():
+                if key == "updater": continue
+
+                url_or_id = data.get("url")
+                file_id = extract_gdrive_id_from_url(url_or_id) # Dùng helper
+
+                if file_id:
+                    json_file_ids.add(file_id)
+                else:
+                    errors_list.append(f"Option '{key}': URL không hợp lệ hoặc không phải Google Drive.")
+
+            # Lấy tất cả File ID có trên Drive
+            drive_file_map = {file['id']: file['name'] for file in drive_files}
+            drive_file_ids = set(drive_file_map.keys())
+
+            # 4. Tìm Lỗi (Có trong JSON, nhưng không có trên Drive)
+            broken_ids = json_file_ids - drive_file_ids # Phép trừ tập hợp
+            for broken_id in broken_ids:
+                # Tìm xem item nào đang dùng ID bị hỏng này
+                item_name = "[Không tìm thấy tên]"
+                item_key = "[?]"
+                for key, data in github_data.items():
+                    if extract_gdrive_id_from_url(data.get("url")) == broken_id:
+                        item_name = data.get("name", "[TÊN BỊ LỖI]")
+                        item_key = key
+                        break
+                errors_list.append(f"Option '{item_name}' (ID: {item_key}): File ID '{broken_id}' KHÔNG TỒN TẠI trên Drive.")
             # --- HẾT SỬA ---
 
-    report_text.config(state=tk.DISABLED) # Chỉ đọc
+            # 5. Tìm Cảnh Báo (Có trên Drive, nhưng không dùng trong JSON)
+            orphaned_ids = drive_file_ids - json_file_ids # Phép trừ tập hợp
+            for orphaned_id in orphaned_ids:
+                file_name = drive_file_map[orphaned_id]
+                # Thêm dictionary thay vì string
+                warnings_list.append({"name": file_name, "id": orphaned_id})
 
+            print("Scan: Hoàn tất so sánh.")
+            # Gửi báo cáo về cho queue
+            progress_queue.put(("scan_report_ready", {"errors": errors_list, "warnings": warnings_list}))
 
-# Frame trên cho các nút
-drive_button_frame = ttk.Frame(third_tab_frame)
-drive_button_frame.pack(fill=tk.X, pady=5)
-
-drive_auth_button = ttk.Button(drive_button_frame, text="Đăng nhập Google Drive", command=action_drive_login, style="Accent.TButton")
-drive_auth_button.pack(side=tk.LEFT, padx=5)
-
-upload_files_button = ttk.Button(drive_button_frame, text="📤", command=action_start_upload_all, style="Accent.TButton", state=tk.DISABLED)
-upload_files_button.pack(side=tk.LEFT, padx=5)
-CreateToolTip(upload_files_button, "Upload Tất Cả File")
-
-clear_upload_list_button = ttk.Button(drive_button_frame, text="🧹",  command=action_clear_upload_list, style="Danger.TButton")
-clear_upload_list_button.pack(side=tk.LEFT, padx=5)
-CreateToolTip(clear_upload_list_button, "Xóa Danh Sách Upload")
-
-drive_refresh_button = ttk.Button(drive_button_frame, text="🔄", command=action_refresh_drive_list)
-drive_refresh_button.pack(side=tk.LEFT, padx=5)
-CreateToolTip(drive_refresh_button, "Tải Danh Sách File (Làm mới)")
-
-scan_button = ttk.Button(drive_button_frame, text="🤖", command=action_start_scan)
-scan_button.pack(side=tk.LEFT, padx=5)
-CreateToolTip(scan_button, "Quét Lỗi Đồng Bộ")
-g_selected_drive_item_frame = None # Biến theo dõi item đang được chọn
-
-def on_drive_item_click(event, clicked_frame):
-    """Xử lý khi click chuột trái vào một item trong lưới."""
-    global g_selected_drive_item_frame
-
-    # 1. Bỏ chọn item cũ (nếu có)
-    if g_selected_drive_item_frame and g_selected_drive_item_frame != clicked_frame:
-        try:
-            # Trả về style mặc định 'Card.TFrame'
-            g_selected_drive_item_frame.config(style="Card.TFrame")
         except Exception as e:
-            print(f"Lỗi bỏ chọn item: {e}")
+            print(f"Lỗi khi quét: {e}")
+            progress_queue.put(("scan_failed", str(e)))
 
-    # 2. Chọn item mới
-    try:
-        # Đặt style mới là "Accent.TFrame" (màu xanh accent)
-        clicked_frame.config(style="Accent.TFrame") 
-        g_selected_drive_item_frame = clicked_frame
-    except Exception as e:
-        print(f"Lỗi chọn item: {e}")
-# --- HẾT THÊM MỚI ---
+    def show_scan_report(errors, warnings):
+        """Tạo cửa sổ Toplevel MỚI để hiển thị báo cáo TƯƠNG TÁC."""
+        report_window = tk.Toplevel(root)
+        report_window.title("Báo Cáo Quét Lỗi Đồng Bộ")
+        center_window_on_screen(report_window, 700, 500)
+        report_window.transient(root)
+        report_window.grab_set()
+
+        report_frame = ttk.Frame(report_window, padding=10)
+        report_frame.pack(fill=tk.BOTH, expand=True)
+
+        report_text = tk.Text(report_frame, wrap="word", height=20, width=80, relief=tk.FLAT)
+        report_scroll = ttk.Scrollbar(report_frame, orient="vertical", command=report_text.yview)
+        report_text['yscrollcommand'] = report_scroll.set
+
+        report_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        report_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # --- SỬA: Thêm các tag màu cho LINK ---
+        report_text.tag_configure("header", font=("Segoe UI", 14, "bold"), spacing3=10)
+        report_text.tag_configure("error", foreground="red", font=("Segoe UI", 10, "bold"))
+        report_text.tag_configure("warning", foreground="#FFB000") # Màu vàng cam
+        report_text.tag_configure("success", foreground="green")
+        report_text.tag_configure("note", foreground=style.lookup("TLabel", "foreground"), lmargin1=10, lmargin2=10)
+
+        # Tag cho link (màu xanh, gạch chân)
+        report_text.tag_configure("quick_add_link", foreground="dodgerblue", underline=True, font=("Segoe UI", 9, "underline"))
+        report_text.tag_configure("delete_link", foreground="#FF6347", underline=True, font=("Segoe UI", 9, "underline")) # Màu đỏ cà chua
+        # --- HẾT SỬA ---
+
+        # --- Chèn nội dung vào Text ---
+        if not errors and not warnings:
+            report_text.insert(tk.END, "QUÉT HOÀN TẤT\n", "header")
+            report_text.insert(tk.END, "Chúc mừng! File JSON và Google Drive của bạn đã đồng bộ hoàn hảo.", "success")
+        else:
+            if errors:
+                report_text.insert(tk.END, f"LỖI ({len(errors)}) - CẦN SỬA NGAY\n", "header")
+                report_text.insert(tk.END, "(Các option này trong JSON đang trỏ đến file không tồn tại trên Drive)\n\n", "note")
+                for i, err in enumerate(errors):
+                    report_text.insert(tk.END, f" {i+1}. {err}\n", "error")
+                report_text.insert(tk.END, "\n\n")
+
+            if warnings:
+                report_text.insert(tk.END, f"CẢNH BÁO ({len(warnings)}) - NÊN DỌN DẸP\n", "header")
+                report_text.insert(tk.END, "(Các file này có trên Drive nhưng không được dùng. Bạn có thể xóa chúng, hoặc dùng 'Tạo Option Tải'.)\n\n", "note")
+
+                # --- SỬA: Vòng lặp tạo link ---
+                for i, warn_item in enumerate(warnings):
+                    file_name = warn_item['name']
+                    file_id = warn_item['id']
+
+                    # 1. Chèn text cảnh báo
+                    report_text.insert(tk.END, f" {i+1}. File: ", "warning")
+                    report_text.insert(tk.END, f"{file_name}\n", "warning")
+
+                    # 2. Tạo tag duy nhất cho mỗi link
+                    qa_tag = f"qa_{file_id}" # Quick Add tag
+                    del_tag = f"del_{file_id}" # Delete tag
+
+                    # 3. Chèn các link
+                    report_text.insert(tk.END, "      ") # Thụt lề
+                    report_text.insert(tk.END, "[Tạo Option Tải]", ("quick_add_link", qa_tag))
+                    report_text.insert(tk.END, "   ")
+                    report_text.insert(tk.END, "[Xóa File này]", ("delete_link", del_tag))
+                    report_text.insert(tk.END, "\n\n")
+
+                    # 4. Gắn (Bind) sự kiện cho các tag duy nhất đó
+                    # Dùng lambda để truyền đúng file_info (gồm name và id)
+                    report_text.tag_bind(
+                        qa_tag, 
+                        "<Button-1>", 
+                        lambda e, win=report_window, info=warn_item: handle_quick_add_click(win, info)
+                    )
+                    report_text.tag_bind(
+                        del_tag, 
+                        "<Button-1>", 
+                        lambda e, win=report_window, info=warn_item: handle_delete_click(win, info)
+                    )
+
+                    # 5. Thêm hiệu ứng con trỏ chuột
+                    report_text.tag_bind(qa_tag, "<Enter>", lambda e: report_text.config(cursor="hand2"))
+                    report_text.tag_bind(qa_tag, "<Leave>", lambda e: report_text.config(cursor=""))
+                    report_text.tag_bind(del_tag, "<Enter>", lambda e: report_text.config(cursor="hand2"))
+                    report_text.tag_bind(del_tag, "<Leave>", lambda e: report_text.config(cursor=""))
+                # --- HẾT SỬA ---
+
+        report_text.config(state=tk.DISABLED) # Chỉ đọc
 
 
-# ---HÀM TẠO NHANH OPTION ---
-def action_quick_add_option(file_name, file_id):
-    """(ĐÃ VIẾT LẠI) Tự động tải config và thêm option mới với ID số."""
-    global current_config_data, current_github_sha
+    # Frame trên cho các nút
+    drive_button_frame = ttk.Frame(third_tab_frame)
+    drive_button_frame.pack(fill=tk.X, pady=5)
 
-    # --- TỰ ĐỘNG TẢI CONFIG NẾU CHƯA CÓ ---
-    if current_github_sha is None:
-        custom_showinfo("Thông báo", 
-                            "Đây là lần 'Tạo Nhanh' đầu tiên.\n"
-                            "Ứng dụng sẽ tự động tải config từ GitHub trước...")
+    drive_auth_button = ttk.Button(drive_button_frame, text="Đăng nhập Google Drive", command=action_drive_login, style="Accent.TButton")
+    drive_auth_button.pack(side=tk.LEFT, padx=5)
 
-        action_load_from_github_wrapper() 
+    upload_files_button = ttk.Button(drive_button_frame, text="📤", command=action_start_upload_all, style="Accent.TButton", state=tk.DISABLED)
+    upload_files_button.pack(side=tk.LEFT, padx=5)
+    CreateToolTip(upload_files_button, "Upload Tất Cả File")
 
+    clear_upload_list_button = ttk.Button(drive_button_frame, text="🧹",  command=action_clear_upload_list, style="Danger.TButton")
+    clear_upload_list_button.pack(side=tk.LEFT, padx=5)
+    CreateToolTip(clear_upload_list_button, "Xóa Danh Sách Upload")
+
+    drive_refresh_button = ttk.Button(drive_button_frame, text="🔄", command=action_refresh_drive_list)
+    drive_refresh_button.pack(side=tk.LEFT, padx=5)
+    CreateToolTip(drive_refresh_button, "Tải Danh Sách File (Làm mới)")
+
+    scan_button = ttk.Button(drive_button_frame, text="🤖", command=action_start_scan)
+    scan_button.pack(side=tk.LEFT, padx=5)
+    CreateToolTip(scan_button, "Quét Lỗi Đồng Bộ")
+    g_selected_drive_item_frame = None # Biến theo dõi item đang được chọn
+
+    def on_drive_item_click(event, clicked_frame):
+        """Xử lý khi click chuột trái vào một item trong lưới."""
+        global g_selected_drive_item_frame
+
+        # 1. Bỏ chọn item cũ (nếu có)
+        if g_selected_drive_item_frame and g_selected_drive_item_frame != clicked_frame:
+            try:
+                # Trả về style mặc định 'Card.TFrame'
+                g_selected_drive_item_frame.config(style="Card.TFrame")
+            except Exception as e:
+                print(f"Lỗi bỏ chọn item: {e}")
+
+        # 2. Chọn item mới
+        try:
+            # Đặt style mới là "Accent.TFrame" (màu xanh accent)
+            clicked_frame.config(style="Accent.TFrame") 
+            g_selected_drive_item_frame = clicked_frame
+        except Exception as e:
+            print(f"Lỗi chọn item: {e}")
+    # --- HẾT THÊM MỚI ---
+
+
+    # ---HÀM TẠO NHANH OPTION ---
+    def action_quick_add_option(file_name, file_id):
+        """(ĐÃ VIẾT LẠI) Tự động tải config và thêm option mới với ID số."""
+        global current_config_data, current_github_sha
+
+        # --- TỰ ĐỘNG TẢI CONFIG NẾU CHƯA CÓ ---
         if current_github_sha is None:
-            custom_showerror("Lỗi", "Tải config từ GitHub thất bại.\nKhông thể 'Tạo Nhanh'. Vui lòng thử lại.")
+            custom_showinfo("Thông báo", 
+                                "Đây là lần 'Tạo Nhanh' đầu tiên.\n"
+                                "Ứng dụng sẽ tự động tải config từ GitHub trước...")
+
+            action_load_from_github_wrapper() 
+
+            if current_github_sha is None:
+                custom_showerror("Lỗi", "Tải config từ GitHub thất bại.\nKhông thể 'Tạo Nhanh'. Vui lòng thử lại.")
+                return
+        # --- HẾT TẢI TỰ ĐỘNG ---
+
+        print(f"Thêm nhanh option cho: {file_name}")
+
+        # 1. Tự động phát hiện loại file
+        file_type = "zip" # Mặc định
+        if file_name.lower().endswith(".rar"):
+            file_type = "rar"
+        elif file_name.lower().endswith(".exe"):
+            file_type = "exe"
+
+        # 2. Lấy tên file (bỏ đuôi) để dùng làm TÊN HIỂN THỊ
+        base_name = os.path.splitext(file_name)[0]
+
+        # 3. Tạo URL đầy đủ
+        final_url = f"https://drive.google.com/uc?id={file_id}"
+
+        # 4. KIỂM TRA TÊN BỊ TRÙNG
+        existing_id = None
+        for k, v in current_config_data.items():
+            if v.get("name") == base_name:
+                existing_id = k
+                break
+
+        target_key = None
+        new_data = {
+            "name": base_name, # <-- TÊN HIỂN THỊ
+            "url": final_url, 
+            "version": "CHƯA SET VERSION", # Placeholder
+            "type": file_type,
+            "password": None, 
+            "delete_before_extract": [],
+            "path_guide": None # Thêm key này (trống)
+        }
+
+        if existing_id:
+            # --- CHẾ ĐỘ UPDATE ---
+            if not custom_askyesno("Xác nhận Ghi đè", 
+                f"Tên '{base_name}' đã tồn tại (ID: {existing_id}).\n"
+                "Bạn có muốn ghi đè URL/Type (giữ Version cũ) không?"):
+                return
+
+            target_key = existing_id
+            # Giữ lại các giá trị cũ
+            old_data = current_config_data[target_key]
+            new_data["version"] = old_data.get("version", "CHƯA SET VERSION")
+            new_data["password"] = old_data.get("password")
+            new_data["delete_before_extract"] = old_data.get("delete_before_extract", [])
+            new_data["path_guide"] = old_data.get("path_guide")
+
+            # Chỉ cập nhật
+            current_config_data[target_key] = new_data
+
+        else:
+            # --- CHẾ ĐỘ THÊM MỚI ---
+            # Tìm ID mới (số lớn nhất + 1)
+            new_id = 0
+            for key_str in current_config_data.keys():
+                if key_str.isdigit():
+                    new_id = max(new_id, int(key_str))
+
+            target_key = str(new_id + 1) # Key mới
+            current_config_data[target_key] = new_data
+
+        # 6. Làm mới Treeview (Tab 2)
+        try:
+            populate_treeview()
+            # Tự động chọn
+            options_treeview.selection_set(target_key)
+            options_treeview.focus(target_key)
+        except Exception as e:
+            print(f"Lỗi khi làm mới treeview (nền): {e}")
+
+        # 7. Thông báo
+        custom_showinfo("Đã Thêm Nhanh", 
+            f"Đã thêm/cập nhật '{base_name}' (ID: {target_key}) vào config.\n\n"
+            "VUI LÒNG:\n"
+            "1. Chuyển qua Tab 2.\n"
+            "2. (Đã tự động chọn)\n"
+            "3. Nhập 'Version' và bấm 'Thêm / Cập nhật'.\n"
+            "4. Bấm 'Lưu Config' để hoàn tất.")
+
+    def handle_quick_add_click(report_window, file_info):
+        """Đóng báo cáo và gọi hàm 'Tạo Nhanh Option'."""
+        report_window.destroy() # Đóng cửa sổ báo cáo
+        action_quick_add_option(file_info['name'], file_info['id'])
+
+    def handle_delete_click(report_window, file_info):
+        """Đóng báo cáo và gọi logic xóa (có xác nhận)."""
+        report_window.destroy() # Đóng cửa sổ báo cáo
+
+        # Chúng ta sao chép logic xác nhận an toàn (từ thread chính) ở đây
+        message = f"Bạn có chắc chắn muốn XÓA VĨNH VIỄN file này\nkhỏi Google Drive không?\n\nFile: {file_info['name']}"
+
+        if custom_askyesno("Xác nhận Xóa (Từ Trợ lý AI)", message):
+            # Chỉ bắt đầu thread nếu người dùng bấm "Yes"
+            threading.Thread(target=action_delete_drive_file_thread, 
+                            args=(file_info['id'], file_info['name']), 
+                            daemon=True).start()
+        else:
+            progress_queue.put(("drive_log", "Đã hủy thao tác xóa."))
+
+    g_single_update_window = None # Biến global để theo dõi popup
+
+    def open_single_file_updater_popup(file_info):
+        """Mở popup chọn file để cập nhật (Dùng Nút bấm thay vì Kéo thả)."""
+        global g_single_update_window, drive_service
+
+        if g_single_update_window is not None:
+            try: g_single_update_window.destroy()
+            except: pass
+
+        if not drive_service:
+            custom_showerror("Lỗi", "Chưa đăng nhập Google Drive.")
             return
-    # --- HẾT TẢI TỰ ĐỘNG ---
 
-    print(f"Thêm nhanh option cho: {file_name}")
+        target_name = file_info['name']
+        target_ext = os.path.splitext(target_name)[1].lower() 
 
-    # 1. Tự động phát hiện loại file
-    file_type = "zip" # Mặc định
-    if file_name.lower().endswith(".rar"):
-        file_type = "rar"
-    elif file_name.lower().endswith(".exe"):
-        file_type = "exe"
+        # Tạo cửa sổ
+        g_single_update_window = tk.Toplevel(root)
+        g_single_update_window.title("Cập nhật File")
+        center_window_on_screen(g_single_update_window, 400, 250) # Tăng chiều cao xíu
+        g_single_update_window.transient(root)
+        g_single_update_window.grab_set()
 
-    # 2. Lấy tên file (bỏ đuôi) để dùng làm TÊN HIỂN THỊ
-    base_name = os.path.splitext(file_name)[0]
+        main_frame = ttk.Frame(g_single_update_window, padding=10)
+        main_frame.pack(fill=tk.BOTH, expand=True)
 
-    # 3. Tạo URL đầy đủ
-    final_url = f"https://drive.google.com/uc?id={file_id}"
+        # Info
+        ttk.Label(main_frame, text=f"Đang cập nhật file:\n{target_name}", justify=tk.CENTER).pack(pady=5)
+        ttk.Label(main_frame, text=f"(Yêu cầu file đuôi: {target_ext})", style="secondary.TLabel").pack(pady=5)
 
-    # 4. KIỂM TRA TÊN BỊ TRÙNG
-    existing_id = None
-    for k, v in current_config_data.items():
-        if v.get("name") == base_name:
-            existing_id = k
-            break
+        # --- HÀM XỬ LÝ KHI BẤM NÚT ---
+        def on_browse_file():
+            # Mở dialog chọn file đúng đuôi
+            file_path = filedialog.askopenfilename(
+                title=f"Chọn file {target_ext} thay thế",
+                filetypes=[(f"{target_ext} file", f"*{target_ext}"), ("All files", "*.*")]
+            )
+            
+            if file_path:
+                # Kiểm tra đuôi lần nữa cho chắc
+                local_ext = os.path.splitext(file_path)[1].lower()
+                if local_ext != target_ext:
+                    custom_showerror("Sai định dạng", 
+                        f"File bạn chọn có đuôi {local_ext}.\nBắt buộc phải là {target_ext}.")
+                    return
 
-    target_key = None
-    new_data = {
-        "name": base_name, # <-- TÊN HIỂN THỊ
-        "url": final_url, 
-        "version": "CHƯA SET VERSION", # Placeholder
-        "type": file_type,
-        "password": None, 
-        "delete_before_extract": [],
-        "path_guide": None # Thêm key này (trống)
-    }
+                # Nếu đúng, đóng popup và chạy thread upload luôn
+                g_single_update_window.destroy()
+                
+                # Gọi thread upload (Hàm này bạn đã có sẵn trong code)
+                threading.Thread(target=single_file_upload_thread, 
+                                args=(file_path, file_info), 
+                                daemon=True).start()
 
-    if existing_id:
-        # --- CHẾ ĐỘ UPDATE ---
-        if not custom_askyesno("Xác nhận Ghi đè", 
-            f"Tên '{base_name}' đã tồn tại (ID: {existing_id}).\n"
-            "Bạn có muốn ghi đè URL/Type (giữ Version cũ) không?"):
+        # --- GIAO DIỆN NÚT BẤM ---
+        select_frame = ttk.LabelFrame(main_frame, text="Chọn file mới từ máy")
+        select_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+
+        ttk.Button(select_frame, text="📂 Chọn File...", command=on_browse_file, style="Accent.TButton").pack(fill=tk.X, padx=20, pady=20)
+
+    def handle_single_file_drop(event, file_info, target_ext, drop_listbox, popup_window):
+        """Xử lý khi file được thả vào popup cập nhật."""
+        drop_listbox.delete(0, tk.END)
+
+        raw_paths = root.tk.splitlist(event.data)
+        if not raw_paths:
+            drop_listbox.insert(tk.END, "Lỗi: Không thể đọc file.")
             return
 
-        target_key = existing_id
-        # Giữ lại các giá trị cũ
-        old_data = current_config_data[target_key]
-        new_data["version"] = old_data.get("version", "CHƯA SET VERSION")
-        new_data["password"] = old_data.get("password")
-        new_data["delete_before_extract"] = old_data.get("delete_before_extract", [])
-        new_data["path_guide"] = old_data.get("path_guide")
+        local_file_path = raw_paths[0]
+        if not (os.path.exists(local_file_path) and os.path.isfile(local_file_path)):
+            drop_listbox.insert(tk.END, "Lỗi: Đây không phải là file.")
+            return
 
-        # Chỉ cập nhật
-        current_config_data[target_key] = new_data
+        # === BƯỚC VALIDATION (KIỂM TRA ĐỊNH DẠNG) ===
+        dropped_ext = os.path.splitext(local_file_path)[1].lower()
+        if dropped_ext != target_ext:
+            drop_listbox.insert(tk.END, f"Lỗi: File phải có đuôi {target_ext}. (File bạn thả là {dropped_ext})")
+            custom_showerror("Sai định dạng file",
+                                f"Bạn đang cố cập nhật file '{file_info['name']}' (đuôi {target_ext}).\n\n"
+                                f"File bạn vừa thả vào có đuôi {dropped_ext}.\n\n"
+                                "Vui lòng thả file có cùng định dạng.",
+                                parent=popup_window)
+            return
 
-    else:
-        # --- CHẾ ĐỘ THÊM MỚI ---
-        # Tìm ID mới (số lớn nhất + 1)
-        new_id = 0
-        for key_str in current_config_data.keys():
-            if key_str.isdigit():
-                new_id = max(new_id, int(key_str))
+        # === VALIDATION THÀNH CÔNG ===
+        drop_listbox.insert(tk.END, f"Đang chuẩn bị upload: {os.path.basename(local_file_path)}")
 
-        target_key = str(new_id + 1) # Key mới
-        current_config_data[target_key] = new_data
+        # Vô hiệu hóa popup
+        popup_window.grab_release()
+        popup_window.destroy()
 
-    # 6. Làm mới Treeview (Tab 2)
-    try:
-        populate_treeview()
-        # Tự động chọn
-        options_treeview.selection_set(target_key)
-        options_treeview.focus(target_key)
-    except Exception as e:
-        print(f"Lỗi khi làm mới treeview (nền): {e}")
+        # Bắt đầu thread upload
+        threading.Thread(target=single_file_upload_thread, 
+                        args=(local_file_path, file_info), 
+                        daemon=True).start()
 
-    # 7. Thông báo
-    custom_showinfo("Đã Thêm Nhanh", 
-        f"Đã thêm/cập nhật '{base_name}' (ID: {target_key}) vào config.\n\n"
-        "VUI LÒNG:\n"
-        "1. Chuyển qua Tab 2.\n"
-        "2. (Đã tự động chọn)\n"
-        "3. Nhập 'Version' và bấm 'Thêm / Cập nhật'.\n"
-        "4. Bấm 'Lưu Config' để hoàn tất.")
+    def single_file_upload_thread(local_path, file_info):
+        """
+        (SMOOTH & FAST) Upload tốc độ cao với thanh tiến trình cập nhật MƯỢT MÀ.
+        """
+        target_id = file_info['id']
+        target_name = file_info['name']
 
-def handle_quick_add_click(report_window, file_info):
-    """Đóng báo cáo và gọi hàm 'Tạo Nhanh Option'."""
-    report_window.destroy() # Đóng cửa sổ báo cáo
-    action_quick_add_option(file_info['name'], file_info['id'])
+        progress_queue.put(("drive_log", f"🚀 Upload '{target_name}' (Smooth Mode)..."))
+        
+        # --- HÀM CALLBACK ĐỂ CẬP NHẬT UI ---
+        # Hàm này sẽ được gọi liên tục bên trong ProgressStream
+        def update_progress_ui(current, total):
+            percent = int((current / total) * 100)
+            
+            # Tính tốc độ (đơn giản hóa để UI mượt)
+            # (Lưu ý: Tốc độ hiển thị ở đây là tốc độ ĐỌC Ổ CỨNG để đẩy lên RAM, 
+            # nó tương đương tốc độ mạng nếu mạng nhanh, hoặc nhanh hơn nếu mạng chậm)
+            
+            progress_queue.put(("drive_upload_progress", {
+                "percent": percent,
+                "status_text": f"🚀 Đang tải lên: {percent}% ({format_bytes(current)} / {format_bytes(total)})",
+                "speed_text": "Đang chạy...", # Có thể tính toán speed kỹ hơn nếu muốn
+                "eta_text": ""
+            }))
 
-def handle_delete_click(report_window, file_info):
-    """Đóng báo cáo và gọi logic xóa (có xác nhận)."""
-    report_window.destroy() # Đóng cửa sổ báo cáo
+        stream = None
+        try:
+            global drive_service
+            file_size = os.path.getsize(local_path)
 
-    # Chúng ta sao chép logic xác nhận an toàn (từ thread chính) ở đây
-    message = f"Bạn có chắc chắn muốn XÓA VĨNH VIỄN file này\nkhỏi Google Drive không?\n\nFile: {file_info['name']}"
+            # --- CẤU HÌNH CHUNK LỚN (GIỮ NGUYÊN ĐỂ TỐI ƯU TỐC ĐỘ) ---
+            # Dùng 256MB cho 8GB RAM
+            chunk_size = 256 * 1024 * 1024 
+            if file_size < chunk_size:
+                chunk_size = file_size
+            
+            # Đảm bảo chia hết cho 256KB
+            if chunk_size > 256 * 1024:
+                chunk_size = int(chunk_size / (256 * 1024)) * (256 * 1024)
 
-    if custom_askyesno("Xác nhận Xóa (Từ Trợ lý AI)", message):
-        # Chỉ bắt đầu thread nếu người dùng bấm "Yes"
-        threading.Thread(target=action_delete_drive_file_thread, 
-                         args=(file_info['id'], file_info['name']), 
-                         daemon=True).start()
-    else:
-        progress_queue.put(("drive_log", "Đã hủy thao tác xóa."))
+            # --- KÍCH HOẠT PROGRESS STREAM ---
+            # Thay vì io.open thường, ta dùng class bọc của chúng ta.
+            # Quan trọng: Không dùng buffering lớn ở đây, để hàm read() được gọi thường xuyên hơn -> UI mượt hơn.
+            stream = ProgressStream(local_path, callback=update_progress_ui, mode='rb')
 
-g_single_update_window = None # Biến global để theo dõi popup
+            media = MediaIoBaseUpload(
+                stream,
+                mimetype='application/octet-stream',
+                chunksize=chunk_size,
+                resumable=True
+            )
 
-def open_single_file_updater_popup(file_info):
-    """Mở popup chọn file để cập nhật (Dùng Nút bấm thay vì Kéo thả)."""
-    global g_single_update_window, drive_service
+            request = drive_service.files().update(
+                fileId=target_id,
+                media_body=media,
+                fields='id'
+            )
 
-    if g_single_update_window is not None:
-        try: g_single_update_window.destroy()
-        except: pass
+            # --- VÒNG LẶP UPLOAD ---
+            response = None
+            while response is None:
+                # chunk_status sẽ là None cho đến khi hết 1 chunk lớn (256MB)
+                # NHƯNG: ProgressStream vẫn đang âm thầm chạy và cập nhật UI ở nền
+                chunk_status, response = request.next_chunk()
+                
+                # (Không cần cập nhật UI ở đây nữa vì ProgressStream đã làm rồi)
 
-    if not drive_service:
-        custom_showerror("Lỗi", "Chưa đăng nhập Google Drive.")
-        return
+            if response:
+                print(f"Upload xong ID: {target_id}")
+                progress_queue.put(("drive_log", f"✅ Hoàn tất: '{target_name}'"))
+                progress_queue.put(("refresh_drive_list", None))
+                
+                # Set 100% lần cuối cho chắc chắn
+                progress_queue.put(("drive_upload_progress", {
+                    "percent": 100, "status_text": "Hoàn tất!", "speed_text": "", "eta_text": ""
+                }))
 
-    target_name = file_info['name']
-    target_ext = os.path.splitext(target_name)[1].lower() 
+        except HttpError as error:
+            print(f"Lỗi HttpError: {error}")
+            progress_queue.put(("drive_log", f"❌ LỖI API: {error}"))
+            progress_queue.put(("drive_upload_progress", {"status_text": "Lỗi Mạng!", "percent": 0}))
+        except Exception as e:
+            print(f"Lỗi Exception: {e}")
+            progress_queue.put(("drive_log", f"❌ LỖI: {e}"))
+            progress_queue.put(("drive_upload_progress", {"status_text": "Lỗi!", "percent": 0}))
+        finally:
+            if stream:
+                stream.close()
+            
+            root.after(2000, lambda: progress_queue.put(("drive_upload_progress", {
+                "percent": 0, "status_text": "Sẵn sàng.", "speed_text": "", "eta_text": ""
+            })))
 
-    # Tạo cửa sổ
-    g_single_update_window = tk.Toplevel(root)
-    g_single_update_window.title("Cập nhật File")
-    center_window_on_screen(g_single_update_window, 400, 250) # Tăng chiều cao xíu
-    g_single_update_window.transient(root)
-    g_single_update_window.grab_set()
+    # Frame cho ô kéo thả
+    drop_target_frame = ttk.LabelFrame(third_tab_frame, text="File chờ upload", padding=(10, 10))
+    drop_target_frame.pack(fill=tk.BOTH, expand=True, pady=5)
 
-    main_frame = ttk.Frame(g_single_update_window, padding=10)
-    main_frame.pack(fill=tk.BOTH, expand=True)
+    # --- THÊM NÚT NÀY VÀO ---
+    btn_browse_tab3 = ttk.Button(drop_target_frame, text="📂 Chọn File từ máy tính...", command=action_browse_upload_files)
+    btn_browse_tab3.pack(fill=tk.X, pady=(0, 5)) # Nằm trên listbox
 
-    # Info
-    ttk.Label(main_frame, text=f"Đang cập nhật file:\n{target_name}", justify=tk.CENTER).pack(pady=5)
-    ttk.Label(main_frame, text=f"(Yêu cầu file đuôi: {target_ext})", style="secondary.TLabel").pack(pady=5)
+    # --- LISTBOX (GIỮ NGUYÊN để hiển thị danh sách) ---
+    drop_target_listbox = tk.Listbox(drop_target_frame, height=10, selectmode=tk.EXTENDED)
+    drop_target_listbox.pack(fill=tk.BOTH, expand=True)
 
-    # --- HÀM XỬ LÝ KHI BẤM NÚT ---
-    def on_browse_file():
-        # Mở dialog chọn file đúng đuôi
+    # Đăng ký sự kiện kéo-thả
+    drop_target_listbox.drop_target_register(DND_FILES)
+    drop_target_listbox.dnd_bind('<<DropEnter>>', handle_drop_enter)
+    drop_target_listbox.dnd_bind('<<DropLeave>>', handle_drop_leave)
+    drop_target_listbox.dnd_bind('<<Drop>>', handle_drop)
+
+    drive_storage_label.pack(fill=tk.X, pady=(10, 2), padx=(5,0))
+
+    # --- THAY THẾ: Tạo giao diện lưới (grid) có thể cuộn ---
+    drive_list_frame = ttk.LabelFrame(third_tab_frame, text="File hiện có trên Drive", padding=(5, 5))
+    drive_list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+
+    # 1. Tạo Canvas và Scrollbar
+    drive_canvas = tk.Canvas(drive_list_frame, borderwidth=0, highlightthickness=0)
+    drive_scrollbar = ttk.Scrollbar(drive_list_frame, orient="vertical", command=drive_canvas.yview)
+    drive_canvas.configure(yscrollcommand=drive_scrollbar.set)
+
+    drive_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    drive_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    # 2. Tạo Frame nội dung BÊN TRONG Canvas
+    # Frame này sẽ chứa các icon
+    drive_icon_content_frame = ttk.Frame(drive_canvas, padding=(5, 5))
+
+    # 3. Đặt Frame nội dung vào Canvas
+    drive_canvas_window_id = drive_canvas.create_window((0, 0), window=drive_icon_content_frame, anchor="nw")
+
+    # --- Các hàm helper cho việc cuộn (Tương tự Tab 1) ---
+    def on_drive_content_frame_configure(event):
+        """Cập nhật scroll region của canvas."""
+        drive_canvas.configure(scrollregion=drive_canvas.bbox("all"))
+
+    def on_drive_canvas_configure(event):
+        """Đảm bảo frame nội dung luôn fill chiều rộng của canvas."""
+        drive_canvas.itemconfig(drive_canvas_window_id, width=event.width - 4)
+
+    # 4. Bind (gắn) các sự kiện cuộn
+    drive_icon_content_frame.bind("<Configure>", on_drive_content_frame_configure)
+    drive_canvas.bind("<Configure>", on_drive_canvas_configure)
+
+    # Gắn sự kiện cuộn chuột cho tất cả
+    drive_canvas.bind_all("<MouseWheel>", on_mouse_wheel) # Dùng on_mouse_wheel chung
+    drive_canvas.bind_all("<Button-4>", on_mouse_wheel)
+    drive_canvas.bind_all("<Button-5>", on_mouse_wheel)
+    # --- HẾT THAY THẾ ---
+    # --- HẾT THÊM MỚI ---
+    # Frame cho log trạng thái
+    upload_status_frame = ttk.LabelFrame(third_tab_frame, text="Trạng thái Upload", padding=(10, 10))
+    upload_status_frame.pack(fill=tk.X, expand=False, pady=5)
+
+    # --- THÊM MỚI: Thanh Progress Bar và Nhãn (Giống Tab 1) ---
+    drive_upload_progressbar = ttk.Progressbar(upload_status_frame, orient="horizontal", length=100, mode="determinate")
+    drive_upload_progressbar.pack(fill=tk.X, pady=(0, 5))
+
+    drive_upload_labels_frame = ttk.Frame(upload_status_frame)
+    drive_upload_labels_frame.pack(fill=tk.X)
+
+    drive_upload_status_label = ttk.Label(drive_upload_labels_frame, text="Sẵn sàng upload...", anchor=tk.W, style="White.TLabel")
+    drive_upload_status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+    drive_upload_eta_label = ttk.Label(drive_upload_labels_frame, text="", style="secondary.TLabel", anchor=tk.E, width=8)
+    drive_upload_eta_label.pack(side=tk.RIGHT, padx=(10,0))
+
+    drive_upload_speed_label = ttk.Label(drive_upload_labels_frame, text="", style="secondary.TLabel", anchor=tk.E, width=12)
+    drive_upload_speed_label.pack(side=tk.RIGHT)
+    # --- HẾT THÊM MỚI ---
+
+    # Log listbox (nằm bên dưới)
+    status_listbox_scrollbar = ttk.Scrollbar(upload_status_frame, orient="vertical")
+    upload_status_listbox = tk.Listbox(upload_status_frame, height=8, yscrollcommand=status_listbox_scrollbar.set) # Giảm chiều cao
+    status_listbox_scrollbar.config(command=upload_status_listbox.yview)
+
+    status_listbox_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(5,0))
+    upload_status_listbox.pack(fill=tk.BOTH, expand=True, pady=(5,0))
+
+    # --- HẾT CODE CHO TAB 3 ---
+    # --- BẮT ĐẦU CODE CHO TAB 4 ("Credit") ---
+    fourth_tab_frame = ttk.Frame(notebook, padding=(15, 15))
+    notebook.add(fourth_tab_frame, text=" Cài Đặt & Credit ") # Đổi tên tab cho đúng ý nghĩa
+
+    # --- 1. HEADER (Thông tin App) ---
+    header_frame = ttk.Frame(fourth_tab_frame)
+    header_frame.pack(fill=tk.X, pady=(0, 15))
+
+    # Logo/Title bên trái, Info bên phải (hoặc căn giữa tùy ý, ở đây căn giữa cho đẹp)
+    credit_title_label = ttk.Label(
+        header_frame,
+        text=f"WGZ Game Updater {CURRENT_VERSION}",
+        font=("Segoe UI", 16, "bold"),
+        anchor=tk.CENTER
+    )
+    credit_title_label.pack()
+
+    credit_author_label = ttk.Label(
+        header_frame,
+        text="Dev: Mr-Mime (hoangdangnhatkha)",
+        style="secondary.TLabel",
+        anchor=tk.CENTER
+    )
+    credit_author_label.pack()
+    settings_container = ttk.Frame(fourth_tab_frame)
+    settings_container.pack(fill=tk.X, pady=5)
+    settings_container.columnconfigure(0, weight=1)
+    settings_container.columnconfigure(1, weight=1)
+    setting_frame = ttk.LabelFrame(settings_container, text="⚙️ Chế Độ Hoạt Động", padding=10)
+    setting_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
+    # Link GitHub
+    def open_github(event):
+        webbrowser.open_new_tab("https://github.com/hoangdangnhatkha/-WGZ-GameUpdater")
+
+    credit_github_label = ttk.Label(
+        header_frame,
+        text="GitHub Repository",
+        foreground="#4a90e2", cursor="hand2", font=("Segoe UI", 9, "underline"),
+        anchor=tk.CENTER
+    )
+    credit_github_label.pack(pady=(2, 0))
+    credit_github_label.bind("<Button-1>", open_github)
+    credit_thanks_label = ttk.Label(
+        header_frame, # Quan trọng: Pack vào header_frame
+        text="Chỉ dành cho việc tải, upload và chia sẻ game của Discord WIBU's Gaming Zone",
+        style="secondary.TLabel",
+        font=("Segoe UI", 9, "italic"), # Chữ nghiêng cho đẹp
+        anchor=tk.CENTER
+    )
+    credit_thanks_label.pack(pady=(5, 0))
+    # --- THÊM MỚI: NÚT BẬT/TẮT BACKUP ---
+
+
+    def action_clear_image_cache():
+        """Xóa toàn bộ thư mục cache ảnh trên ổ cứng."""
+        global g_cache_dir
+        if not os.path.isdir(g_cache_dir):
+            custom_showinfo("Hoàn tất", "Không tìm thấy thư mục cache ảnh (đã sạch).")
+            return
+
+        if custom_askyesno("Xác nhận Xóa Cache",
+                            "Bạn có chắc chắn muốn xóa toàn bộ cache ảnh?\n"
+                            "(Lần khởi động sau sẽ phải tải lại tất cả ảnh.)"):
+            try:
+                # Xóa toàn bộ thư mục và tạo lại
+                shutil.rmtree(g_cache_dir)
+                os.makedirs(g_cache_dir, exist_ok=True)
+                
+                # Xóa cache RAM
+                root.cached_images.clear()
+                
+                custom_showinfo("Hoàn tất", "Đã xóa toàn bộ cache ảnh thành công.")
+            except Exception as e:
+                custom_showerror("Lỗi", f"Không thể xóa thư mục cache: {e}")
+
+    # --- [TÍNH NĂNG] SỔ TAY GHI CHÚ (CLICK-THROUGH SWITCH) ---
+    g_notes_window = None
+    g_notes_is_ghost = False # Biến theo dõi trạng thái
+
+    def set_window_click_through(hwnd, enable):
+        """Hàm helper để bật/tắt chế độ xuyên thấu chuột."""
+        try:
+            import ctypes
+            GWL_EXSTYLE = -20
+            WS_EX_LAYERED = 0x00080000
+            WS_EX_TRANSPARENT = 0x00000020
+            
+            style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            
+            if enable:
+                # Thêm cờ Transparent
+                new_style = style | WS_EX_LAYERED | WS_EX_TRANSPARENT
+                print("Note: Chế độ Bóng ma (Click-Through) -> ON")
+            else:
+                # Gỡ bỏ cờ Transparent (giữ lại Layered để dùng Alpha)
+                new_style = (style & ~WS_EX_TRANSPARENT) | WS_EX_LAYERED
+                print("Note: Chế độ Chỉnh sửa -> ON")
+                
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_style)
+        except Exception as e:
+            print(f"Lỗi set style: {e}")
+
+    def action_toggle_notes():
+        """
+        Quản lý Sổ tay:
+        - Nếu chưa mở -> Mở lên (Chế độ sửa).
+        - Nếu đang mở (Ghost) -> Chuyển về chế độ Sửa.
+        - Nếu đang mở (Sửa) -> Đóng lại (Hoặc chuyển Ghost tùy ý).
+        """
+        global g_notes_window, g_notes_is_ghost
+
+        # --- TRƯỜNG HỢP 1: ĐANG MỞ THÌ CHUYỂN CHẾ ĐỘ ---
+        if g_notes_window is not None:
+            if g_notes_is_ghost:
+                # Đang là Ghost -> Chuyển thành Edit (Unlock)
+                g_notes_is_ghost = False
+                
+                # Lấy HWND và tắt xuyên thấu
+                g_notes_window.update_idletasks()
+                import ctypes
+                hwnd = ctypes.windll.user32.GetParent(g_notes_window.winfo_id())
+                if hwnd == 0: hwnd = g_notes_window.winfo_id()
+                set_window_click_through(hwnd, False)
+                
+                # Thay đổi giao diện để báo hiệu
+                g_notes_window.attributes('-alpha', 0.9) # Đậm hơn
+                # Hiện lại thanh tiêu đề (nếu muốn logic phức tạp hơn, ở đây ta đổi màu viền)
+                g_notes_window.config(bg="#4a90e2") # Viền xanh dương (Edit Mode)
+                
+                # Focus vào cửa sổ
+                g_notes_window.lift()
+                g_notes_window.focus_force()
+            else:
+                # Đang là Edit -> Đóng lại (Hoặc bạn có thể chọn ẩn đi)
+                g_notes_window.destroy()
+                g_notes_window = None
+                g_notes_is_ghost = False
+            return
+
+        # --- TRƯỜNG HỢP 2: CHƯA MỞ -> TẠO MỚI ---
+        try:
+            g_notes_window = tk.Toplevel(root)
+            g_notes_window.title("Notes")
+            g_notes_window.geometry("350x250+50+150") 
+            g_notes_window.overrideredirect(True)
+            g_notes_window.attributes('-topmost', True)
+            g_notes_window.attributes('-alpha', 0.9)
+            g_notes_window.config(bg="#4a90e2") # Viền xanh (Edit Mode)
+
+            # Padding frame (để tạo viền màu)
+            padding_frame = tk.Frame(g_notes_window, bg="#4a90e2", padx=2, pady=2)
+            padding_frame.pack(fill=tk.BOTH, expand=True)
+
+            # Khung nội dung chính
+            main_frame = ttk.Frame(padding_frame, style="Card.TFrame")
+            main_frame.pack(fill=tk.BOTH, expand=True)
+
+            # 1. THANH TIÊU ĐỀ
+            title_bar = tk.Frame(main_frame, bg="#333", height=30)
+            title_bar.pack(fill=tk.X)
+            
+            lbl_title = tk.Label(title_bar, text="📝 Đang Sửa (Kéo để di chuyển)", bg="#333", fg="white", cursor="fleur")
+            lbl_title.pack(side=tk.LEFT, padx=5)
+
+            # --- NÚT KHÓA (LOCK BUTTON) ---
+            def lock_notes():
+                global g_notes_is_ghost
+                g_notes_is_ghost = True
+                
+                # 1. Đổi giao diện
+                g_notes_window.attributes('-alpha', 0.4) # Mờ đi (Ghost)
+                g_notes_window.config(bg="#333") # Mất viền xanh
+                padding_frame.config(padx=0, pady=0) # Bỏ padding
+                
+                # 2. Kích hoạt Click-Through
+                g_notes_window.update_idletasks()
+                import ctypes
+                hwnd = ctypes.windll.user32.GetParent(g_notes_window.winfo_id())
+                if hwnd == 0: hwnd = g_notes_window.winfo_id()
+                set_window_click_through(hwnd, True)
+                
+                print("Đã khóa Note. Bấm nút trên App chính để Sửa lại.")
+
+            btn_lock = tk.Label(title_bar, text=" 🔒 Xong ", bg="#28a745", fg="white", cursor="hand2", font=("Segoe UI", 9, "bold"))
+            btn_lock.pack(side=tk.RIGHT, padx=2)
+            btn_lock.bind("<Button-1>", lambda e: lock_notes())
+            CreateToolTip(btn_lock, "Bấm vào đây để khóa Note và cho phép chuột bấm xuyên qua.\n(Để sửa lại: Bấm nút 'Sổ Tay Game' ở App chính)")
+
+            # 2. VÙNG NỘI DUNG
+            text_area = tk.Text(main_frame, bg="#222", fg="#00FF00", insertbackground="white", 
+                                font=("Consolas", 10), bd=0, highlightthickness=0)
+            text_area.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+            text_area.images = [] 
+
+            # --- Paste & Resize Logic (Giữ nguyên) ---
+            def handle_paste(event):
+                try:
+                    img = ImageGrab.grabclipboard()
+                    if isinstance(img, Image.Image):
+                        orig_w, orig_h = img.size
+                        target_w = int(orig_w * 0.7)
+                        target_h = int(orig_h * 0.7)
+                        img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
+                        
+                        curr_w = g_notes_window.winfo_width()
+                        curr_h = g_notes_window.winfo_height()
+                        new_w = max(curr_w, target_w + 30)
+                        new_h = max(curr_h, target_h + 60)
+                        g_notes_window.geometry(f"{new_w}x{new_h}")
+                        
+                        tk_img = ImageTk.PhotoImage(img)
+                        text_area.images.append(tk_img)
+                        text_area.image_create(tk.INSERT, image=tk_img)
+                        text_area.insert(tk.INSERT, "\n") 
+                        return "break" 
+                    return None
+                except: pass
+
+            text_area.bind("<Control-v>", handle_paste)
+            text_area.insert("1.0", "Ctrl+V: Dán ảnh.\nBấm '🔒 Xong' để khóa & Click xuyên qua.\n")
+
+            # --- Di chuyển cửa sổ ---
+            def start_move(event):
+                g_notes_window.x = event.x
+                g_notes_window.y = event.y
+
+            def do_move(event):
+                deltax = event.x - g_notes_window.x
+                deltay = event.y - g_notes_window.y
+                x = g_notes_window.winfo_x() + deltax
+                y = g_notes_window.winfo_y() + deltay
+                g_notes_window.geometry(f"+{x}+{y}")
+
+            lbl_title.bind("<ButtonPress-1>", start_move)
+            lbl_title.bind("<B1-Motion>", do_move)
+            title_bar.bind("<ButtonPress-1>", start_move)
+            title_bar.bind("<B1-Motion>", do_move)
+
+            # Resize Grip (Giữ nguyên)
+            grip = tk.Label(main_frame, bg="#555", cursor="sizing")
+            grip.place(relx=1.0, rely=1.0, x=0, y=0, anchor="se", width=15, height=15)
+            def start_resize(event):
+                g_notes_window.start_w = g_notes_window.winfo_width()
+                g_notes_window.start_h = g_notes_window.winfo_height()
+                g_notes_window.start_x = event.x_root
+                g_notes_window.start_y = event.y_root
+            def do_resize(event):
+                delta_w = event.x_root - g_notes_window.start_x
+                delta_h = event.y_root - g_notes_window.start_y
+                new_w = max(g_notes_window.start_w + delta_w, 100)
+                new_h = max(g_notes_window.start_h + delta_h, 100)
+                g_notes_window.geometry(f"{new_w}x{new_h}")
+            grip.bind("<ButtonPress-1>", start_resize)
+            grip.bind("<B1-Motion>", do_resize)
+
+        except Exception as e:
+            print(f"Lỗi Notes: {e}")
+            g_notes_window = None
+
+    # --- [THÊM MỚI] TÍNH NĂNG TÂM ẢO (CROSSHAIR) ---
+    g_crosshair_window = None 
+
+    def action_toggle_crosshair():
+        """
+        Bật/Tắt tâm ngắm ảo.
+        Sử dụng Windows API để cho phép click xuyên qua (Click-Through).
+        """
+        global g_crosshair_window
+        
+        # Import các hằng số Windows API
+        try:
+            import ctypes
+            GWL_EXSTYLE = -20
+            WS_EX_LAYERED = 0x00080000
+            WS_EX_TRANSPARENT = 0x00000020 # Cờ quan trọng nhất: Click xuyên qua
+        except ImportError:
+            custom_showerror("Lỗi", "Tính năng này yêu cầu thư viện ctypes (Windows).")
+            return
+
+        # Nếu đang bật -> Tắt đi
+        if g_crosshair_window is not None:
+            try:
+                g_crosshair_window.destroy()
+            except: pass
+            g_crosshair_window = None
+            print("Đã tắt Crosshair.")
+            return
+
+        # Nếu đang tắt -> Bật lên
+        try:
+            g_crosshair_window = tk.Toplevel(root)
+            g_crosshair_window.title("Crosshair")
+            
+            # 1. Cấu hình hình học
+            w, h = 30, 30
+            screen_w = root.winfo_screenwidth()
+            screen_h = root.winfo_screenheight()
+            x = (screen_w // 2) - (w // 2)
+            y = (screen_h // 2) - (h // 2)
+            
+            g_crosshair_window.geometry(f"{w}x{h}+{x}+{y}")
+            g_crosshair_window.overrideredirect(True) 
+            g_crosshair_window.attributes('-topmost', True) 
+            
+            # 2. Màu nền trong suốt
+            bg_color = '#000001' 
+            g_crosshair_window.config(bg=bg_color)
+            try:
+                g_crosshair_window.attributes('-transparentcolor', bg_color)
+            except Exception: pass
+
+            # 3. Vẽ Tâm
+            canvas = tk.Canvas(g_crosshair_window, width=w, height=h, bg=bg_color, highlightthickness=0)
+            canvas.pack()
+            
+            center = w // 2
+            length = 8
+            thickness = 2
+            
+            # Vẽ dấu cộng màu xanh lá (Lime)
+            canvas.create_line(center - length, center, center + length + 1, center, fill="#00FF00", width=thickness)
+            canvas.create_line(center, center - length, center, center + length + 1, fill="#00FF00", width=thickness)
+            
+            # --- [QUAN TRỌNG] KÍCH HOẠT CHẾ ĐỘ XUYÊN THẤU ---
+            # Phải update idletasks để window có ID (HWND) trước khi gọi API
+            g_crosshair_window.update_idletasks() 
+            
+            hwnd = ctypes.windll.user32.GetParent(g_crosshair_window.winfo_id())
+            if hwnd == 0: # Fallback nếu không lấy được parent
+                hwnd = g_crosshair_window.winfo_id()
+                
+            # Lấy style hiện tại
+            current_style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+            
+            # Thêm cờ Transparent (Xuyên thấu chuột) và Layered
+            new_style = current_style | WS_EX_LAYERED | WS_EX_TRANSPARENT
+            
+            # Áp dụng style mới
+            ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_style)
+            
+            print("Đã bật Crosshair (Click-Through Mode).")
+
+        except Exception as e:
+            print(f"Lỗi bật Crosshair: {e}")
+            g_crosshair_window = None
+
+    # --- THÊM MỚI: HÀM DỌN DẸP TEMP ---
+    def action_clean_temp_files():
+        """
+        (PHIÊN BẢN MẠNH) Quét và xóa TOÀN BỘ file trong thư mục %TEMP% của Windows.
+        Tự động bỏ qua các file đang được sử dụng (Locked files).
+        """
+        import shutil # Đảm bảo đã import thư viện này
+
+        temp_dir = os.environ.get('TEMP')
+        if not temp_dir or not os.path.isdir(temp_dir):
+            custom_showerror("Lỗi", "Không thể tìm thấy thư mục Temp của Windows.")
+            return
+
+        # 1. Cảnh báo người dùng (Vì hành động này xóa rộng hơn)
+        if not custom_askyesno("Xác nhận Dọn Sạch", 
+                                f"Bạn sắp xóa TOÀN BỘ file rác trong thư mục Temp:\n{temp_dir}\n\n"
+                                "Lưu ý:\n"
+                                "• Hành động này sẽ giải phóng dung lượng ổ C.\n"
+                                "• Các file đang được Windows/App khác sử dụng sẽ tự động được giữ lại.\n\n"
+                                "Bạn có muốn tiếp tục không?"):
+            return
+
+        # 2. Bắt đầu dọn dẹp
+        deleted_count = 0
+        skipped_count = 0
+        bytes_freed = 0
+        
+        print("--- Bắt đầu dọn dẹp toàn bộ Temp ---")
+        
+        try:
+            # Lấy danh sách tất cả file/folder
+            all_items = os.listdir(temp_dir)
+            
+            for item in all_items:
+                item_path = os.path.join(temp_dir, item)
+                
+                try:
+                    # Lấy kích thước trước khi xóa (để báo cáo)
+                    current_size = 0
+                    if os.path.isfile(item_path):
+                        current_size = os.path.getsize(item_path)
+                    
+                    # XÓA FILE
+                    if os.path.isfile(item_path) or os.path.islink(item_path):
+                        os.remove(item_path)
+                        deleted_count += 1
+                        bytes_freed += current_size
+                        
+                    # XÓA FOLDER (Dùng shutil.rmtree)
+                    elif os.path.isdir(item_path):
+                        # Tính sơ bộ size folder (nếu muốn chính xác phải duyệt đệ quy, nhưng sẽ chậm)
+                        shutil.rmtree(item_path)
+                        deleted_count += 1
+                        
+                except Exception:
+                    # Nếu lỗi (PermissionDenied, FileInUse...) -> Bỏ qua
+                    skipped_count += 1
+                    
+        except Exception as e:
+            custom_showerror("Lỗi", f"Lỗi khi quét thư mục Temp: {e}")
+            return
+
+        # 3. Hiển thị kết quả
+        msg = (f"Đã dọn dẹp xong!\n\n"
+            f"✅ Đã xóa: {deleted_count} mục\n"
+            f"🛡️ Đang sử dụng (Bỏ qua): {skipped_count} mục\n"
+            f"💾 Dung lượng giải phóng: {format_bytes(bytes_freed)} (ước tính)")
+            
+        custom_showinfo("Dọn Dẹp Hoàn Tất", msg)
+
+    # --- [TÍNH NĂNG MỚI] GEMINI AI PRO BROWSER ---
+    def action_open_gemini_pro():
+        """
+        Khởi động Gemini bằng Subprocess gọi lại chính file EXE này với cờ riêng.
+        Cách này ổn định nhất cho PyInstaller --onefile.
+        """
+        try:
+            import subprocess
+            
+            # Lấy đường dẫn file chạy hiện tại (dù là .py hay .exe)
+            current_executable = sys.executable
+            
+            # Nếu đang chạy code .py (Dev mode), sys.executable là python.exe
+            # ta cần truyền thêm tên file script.
+            cmd = [current_executable]
+            if not getattr(sys, 'frozen', False):
+                cmd.append(sys.argv[0]) # Thêm tên file .py
+                
+            # Thêm cờ hiệu lệnh
+            cmd.append("--gemini")
+            
+            print(f"Đang khởi động Gemini subprocess: {cmd}")
+            
+            # Chạy tiến trình tách biệt hoàn toàn
+            subprocess.Popen(
+                cmd,
+                creationflags=0x00000008, # DETACHED_PROCESS (Không dính dáng console cha)
+                close_fds=True
+            )
+            
+        except Exception as e:
+            custom_showerror("Lỗi", f"Không thể mở Gemini: {e}")
+
+    def on_secret_click(event):
+        """Đếm số lần click vào label dung lượng."""
+        global g_secret_click_count, drive_service
+
+        
+
+        g_secret_click_count += 1
+
+        # Đặt lại bộ đếm sau 2 giây
+        event.widget.after(2000, lambda: globals().update(g_secret_click_count=0))
+
+        if g_secret_click_count == 3:
+            if not drive_service:
+                custom_showwarning("Chưa đăng nhập", "Bạn phải đăng nhập Google Drive trước.")
+                return
+            print("Đã kích hoạt tính năng bí mật!")
+            g_secret_click_count = 0
+            open_secret_uploader()
+
+    def action_browse_secret_exe():
+        """Thay thế kéo thả cho Secret Uploader."""
         file_path = filedialog.askopenfilename(
-            title=f"Chọn file {target_ext} thay thế",
-            filetypes=[(f"{target_ext} file", f"*{target_ext}"), ("All files", "*.*")]
+            title="Chọn file .exe bản build mới",
+            filetypes=[("Executable", "*.exe")]
         )
         
         if file_path:
-            # Kiểm tra đuôi lần nữa cho chắc
-            local_ext = os.path.splitext(file_path)[1].lower()
-            if local_ext != target_ext:
-                custom_showerror("Sai định dạng", 
-                    f"File bạn chọn có đuôi {local_ext}.\nBắt buộc phải là {target_ext}.")
-                return
+            secret_drop_listbox.delete(0, tk.END)
+            secret_drop_listbox.insert(tk.END, file_path)
 
-            # Nếu đúng, đóng popup và chạy thread upload luôn
-            g_single_update_window.destroy()
-            
-            # Gọi thread upload (Hàm này bạn đã có sẵn trong code)
-            threading.Thread(target=single_file_upload_thread, 
-                             args=(file_path, file_info), 
-                             daemon=True).start()
+    def open_secret_uploader():
+        """Mở cửa sổ upload bí mật."""
+        global secret_drop_listbox, secret_exe_id_entry, secret_zip_id_entry, secret_window
 
-    # --- GIAO DIỆN NÚT BẤM ---
-    select_frame = ttk.LabelFrame(main_frame, text="Chọn file mới từ máy")
-    select_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+        secret_window = tk.Toplevel(root)
+        secret_window.title("Secret Updater Config")
+        secret_window.after(10, lambda: apply_theme_to_titlebar(secret_window))
+        center_window_on_screen(secret_window, 500, 350)
+        secret_window.transient(root)
+        secret_window.grab_set()
 
-    ttk.Button(select_frame, text="📂 Chọn File...", command=on_browse_file, style="Accent.TButton").pack(fill=tk.X, padx=20, pady=20)
-
-def handle_single_file_drop(event, file_info, target_ext, drop_listbox, popup_window):
-    """Xử lý khi file được thả vào popup cập nhật."""
-    drop_listbox.delete(0, tk.END)
-
-    raw_paths = root.tk.splitlist(event.data)
-    if not raw_paths:
-        drop_listbox.insert(tk.END, "Lỗi: Không thể đọc file.")
-        return
-
-    local_file_path = raw_paths[0]
-    if not (os.path.exists(local_file_path) and os.path.isfile(local_file_path)):
-        drop_listbox.insert(tk.END, "Lỗi: Đây không phải là file.")
-        return
-
-    # === BƯỚC VALIDATION (KIỂM TRA ĐỊNH DẠNG) ===
-    dropped_ext = os.path.splitext(local_file_path)[1].lower()
-    if dropped_ext != target_ext:
-        drop_listbox.insert(tk.END, f"Lỗi: File phải có đuôi {target_ext}. (File bạn thả là {dropped_ext})")
-        custom_showerror("Sai định dạng file",
-                             f"Bạn đang cố cập nhật file '{file_info['name']}' (đuôi {target_ext}).\n\n"
-                             f"File bạn vừa thả vào có đuôi {dropped_ext}.\n\n"
-                             "Vui lòng thả file có cùng định dạng.",
-                             parent=popup_window)
-        return
-
-    # === VALIDATION THÀNH CÔNG ===
-    drop_listbox.insert(tk.END, f"Đang chuẩn bị upload: {os.path.basename(local_file_path)}")
-
-    # Vô hiệu hóa popup
-    popup_window.grab_release()
-    popup_window.destroy()
-
-    # Bắt đầu thread upload
-    threading.Thread(target=single_file_upload_thread, 
-                     args=(local_file_path, file_info), 
-                     daemon=True).start()
-
-def single_file_upload_thread(local_path, file_info):
-    """
-    (SMOOTH & FAST) Upload tốc độ cao với thanh tiến trình cập nhật MƯỢT MÀ.
-    """
-    target_id = file_info['id']
-    target_name = file_info['name']
-
-    progress_queue.put(("drive_log", f"🚀 Upload '{target_name}' (Smooth Mode)..."))
-    
-    # --- HÀM CALLBACK ĐỂ CẬP NHẬT UI ---
-    # Hàm này sẽ được gọi liên tục bên trong ProgressStream
-    def update_progress_ui(current, total):
-        percent = int((current / total) * 100)
-        
-        # Tính tốc độ (đơn giản hóa để UI mượt)
-        # (Lưu ý: Tốc độ hiển thị ở đây là tốc độ ĐỌC Ổ CỨNG để đẩy lên RAM, 
-        # nó tương đương tốc độ mạng nếu mạng nhanh, hoặc nhanh hơn nếu mạng chậm)
-        
-        progress_queue.put(("drive_upload_progress", {
-            "percent": percent,
-            "status_text": f"🚀 Đang tải lên: {percent}% ({format_bytes(current)} / {format_bytes(total)})",
-            "speed_text": "Đang chạy...", # Có thể tính toán speed kỹ hơn nếu muốn
-            "eta_text": ""
-        }))
-
-    stream = None
-    try:
-        global drive_service
-        file_size = os.path.getsize(local_path)
-
-        # --- CẤU HÌNH CHUNK LỚN (GIỮ NGUYÊN ĐỂ TỐI ƯU TỐC ĐỘ) ---
-        # Dùng 256MB cho 8GB RAM
-        chunk_size = 256 * 1024 * 1024 
-        if file_size < chunk_size:
-            chunk_size = file_size
-        
-        # Đảm bảo chia hết cho 256KB
-        if chunk_size > 256 * 1024:
-            chunk_size = int(chunk_size / (256 * 1024)) * (256 * 1024)
-
-        # --- KÍCH HOẠT PROGRESS STREAM ---
-        # Thay vì io.open thường, ta dùng class bọc của chúng ta.
-        # Quan trọng: Không dùng buffering lớn ở đây, để hàm read() được gọi thường xuyên hơn -> UI mượt hơn.
-        stream = ProgressStream(local_path, callback=update_progress_ui, mode='rb')
-
-        media = MediaIoBaseUpload(
-            stream,
-            mimetype='application/octet-stream',
-            chunksize=chunk_size,
-            resumable=True
-        )
-
-        request = drive_service.files().update(
-            fileId=target_id,
-            media_body=media,
-            fields='id'
-        )
-
-        # --- VÒNG LẶP UPLOAD ---
-        response = None
-        while response is None:
-            # chunk_status sẽ là None cho đến khi hết 1 chunk lớn (256MB)
-            # NHƯNG: ProgressStream vẫn đang âm thầm chạy và cập nhật UI ở nền
-            chunk_status, response = request.next_chunk()
-            
-            # (Không cần cập nhật UI ở đây nữa vì ProgressStream đã làm rồi)
-
-        if response:
-            print(f"Upload xong ID: {target_id}")
-            progress_queue.put(("drive_log", f"✅ Hoàn tất: '{target_name}'"))
-            progress_queue.put(("refresh_drive_list", None))
-            
-            # Set 100% lần cuối cho chắc chắn
-            progress_queue.put(("drive_upload_progress", {
-                "percent": 100, "status_text": "Hoàn tất!", "speed_text": "", "eta_text": ""
-            }))
-
-    except HttpError as error:
-        print(f"Lỗi HttpError: {error}")
-        progress_queue.put(("drive_log", f"❌ LỖI API: {error}"))
-        progress_queue.put(("drive_upload_progress", {"status_text": "Lỗi Mạng!", "percent": 0}))
-    except Exception as e:
-        print(f"Lỗi Exception: {e}")
-        progress_queue.put(("drive_log", f"❌ LỖI: {e}"))
-        progress_queue.put(("drive_upload_progress", {"status_text": "Lỗi!", "percent": 0}))
-    finally:
-        if stream:
-            stream.close()
-        
-        root.after(2000, lambda: progress_queue.put(("drive_upload_progress", {
-            "percent": 0, "status_text": "Sẵn sàng.", "speed_text": "", "eta_text": ""
-        })))
-
-# Frame cho ô kéo thả
-drop_target_frame = ttk.LabelFrame(third_tab_frame, text="File chờ upload", padding=(10, 10))
-drop_target_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-
-# --- THÊM NÚT NÀY VÀO ---
-btn_browse_tab3 = ttk.Button(drop_target_frame, text="📂 Chọn File từ máy tính...", command=action_browse_upload_files)
-btn_browse_tab3.pack(fill=tk.X, pady=(0, 5)) # Nằm trên listbox
-
-# --- LISTBOX (GIỮ NGUYÊN để hiển thị danh sách) ---
-drop_target_listbox = tk.Listbox(drop_target_frame, height=10, selectmode=tk.EXTENDED)
-drop_target_listbox.pack(fill=tk.BOTH, expand=True)
-
-# Đăng ký sự kiện kéo-thả
-drop_target_listbox.drop_target_register(DND_FILES)
-drop_target_listbox.dnd_bind('<<DropEnter>>', handle_drop_enter)
-drop_target_listbox.dnd_bind('<<DropLeave>>', handle_drop_leave)
-drop_target_listbox.dnd_bind('<<Drop>>', handle_drop)
-
-drive_storage_label.pack(fill=tk.X, pady=(10, 2), padx=(5,0))
-
-# --- THAY THẾ: Tạo giao diện lưới (grid) có thể cuộn ---
-drive_list_frame = ttk.LabelFrame(third_tab_frame, text="File hiện có trên Drive", padding=(5, 5))
-drive_list_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-
-# 1. Tạo Canvas và Scrollbar
-drive_canvas = tk.Canvas(drive_list_frame, borderwidth=0, highlightthickness=0)
-drive_scrollbar = ttk.Scrollbar(drive_list_frame, orient="vertical", command=drive_canvas.yview)
-drive_canvas.configure(yscrollcommand=drive_scrollbar.set)
-
-drive_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-drive_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-# 2. Tạo Frame nội dung BÊN TRONG Canvas
-# Frame này sẽ chứa các icon
-drive_icon_content_frame = ttk.Frame(drive_canvas, padding=(5, 5))
-
-# 3. Đặt Frame nội dung vào Canvas
-drive_canvas_window_id = drive_canvas.create_window((0, 0), window=drive_icon_content_frame, anchor="nw")
-
-# --- Các hàm helper cho việc cuộn (Tương tự Tab 1) ---
-def on_drive_content_frame_configure(event):
-    """Cập nhật scroll region của canvas."""
-    drive_canvas.configure(scrollregion=drive_canvas.bbox("all"))
-
-def on_drive_canvas_configure(event):
-    """Đảm bảo frame nội dung luôn fill chiều rộng của canvas."""
-    drive_canvas.itemconfig(drive_canvas_window_id, width=event.width - 4)
-
-# 4. Bind (gắn) các sự kiện cuộn
-drive_icon_content_frame.bind("<Configure>", on_drive_content_frame_configure)
-drive_canvas.bind("<Configure>", on_drive_canvas_configure)
-
-# Gắn sự kiện cuộn chuột cho tất cả
-drive_canvas.bind_all("<MouseWheel>", on_mouse_wheel) # Dùng on_mouse_wheel chung
-drive_canvas.bind_all("<Button-4>", on_mouse_wheel)
-drive_canvas.bind_all("<Button-5>", on_mouse_wheel)
-# --- HẾT THAY THẾ ---
-# --- HẾT THÊM MỚI ---
-# Frame cho log trạng thái
-upload_status_frame = ttk.LabelFrame(third_tab_frame, text="Trạng thái Upload", padding=(10, 10))
-upload_status_frame.pack(fill=tk.X, expand=False, pady=5)
-
-# --- THÊM MỚI: Thanh Progress Bar và Nhãn (Giống Tab 1) ---
-drive_upload_progressbar = ttk.Progressbar(upload_status_frame, orient="horizontal", length=100, mode="determinate")
-drive_upload_progressbar.pack(fill=tk.X, pady=(0, 5))
-
-drive_upload_labels_frame = ttk.Frame(upload_status_frame)
-drive_upload_labels_frame.pack(fill=tk.X)
-
-drive_upload_status_label = ttk.Label(drive_upload_labels_frame, text="Sẵn sàng upload...", anchor=tk.W, style="White.TLabel")
-drive_upload_status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-drive_upload_eta_label = ttk.Label(drive_upload_labels_frame, text="", style="secondary.TLabel", anchor=tk.E, width=8)
-drive_upload_eta_label.pack(side=tk.RIGHT, padx=(10,0))
-
-drive_upload_speed_label = ttk.Label(drive_upload_labels_frame, text="", style="secondary.TLabel", anchor=tk.E, width=12)
-drive_upload_speed_label.pack(side=tk.RIGHT)
-# --- HẾT THÊM MỚI ---
-
-# Log listbox (nằm bên dưới)
-status_listbox_scrollbar = ttk.Scrollbar(upload_status_frame, orient="vertical")
-upload_status_listbox = tk.Listbox(upload_status_frame, height=8, yscrollcommand=status_listbox_scrollbar.set) # Giảm chiều cao
-status_listbox_scrollbar.config(command=upload_status_listbox.yview)
-
-status_listbox_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, pady=(5,0))
-upload_status_listbox.pack(fill=tk.BOTH, expand=True, pady=(5,0))
-
-# --- HẾT CODE CHO TAB 3 ---
-# --- BẮT ĐẦU CODE CHO TAB 4 ("Credit") ---
-fourth_tab_frame = ttk.Frame(notebook, padding=(15, 15))
-notebook.add(fourth_tab_frame, text=" Cài Đặt & Credit ") # Đổi tên tab cho đúng ý nghĩa
-
-# --- 1. HEADER (Thông tin App) ---
-header_frame = ttk.Frame(fourth_tab_frame)
-header_frame.pack(fill=tk.X, pady=(0, 15))
-
-# Logo/Title bên trái, Info bên phải (hoặc căn giữa tùy ý, ở đây căn giữa cho đẹp)
-credit_title_label = ttk.Label(
-    header_frame,
-    text=f"WGZ Game Updater {CURRENT_VERSION}",
-    font=("Segoe UI", 16, "bold"),
-    anchor=tk.CENTER
-)
-credit_title_label.pack()
-
-credit_author_label = ttk.Label(
-    header_frame,
-    text="Dev: Mr-Mime (hoangdangnhatkha)",
-    style="secondary.TLabel",
-    anchor=tk.CENTER
-)
-credit_author_label.pack()
-settings_container = ttk.Frame(fourth_tab_frame)
-settings_container.pack(fill=tk.X, pady=5)
-settings_container.columnconfigure(0, weight=1)
-settings_container.columnconfigure(1, weight=1)
-setting_frame = ttk.LabelFrame(settings_container, text="⚙️ Chế Độ Hoạt Động", padding=10)
-setting_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
-# Link GitHub
-def open_github(event):
-    webbrowser.open_new_tab("https://github.com/hoangdangnhatkha/-WGZ-GameUpdater")
-
-credit_github_label = ttk.Label(
-    header_frame,
-    text="GitHub Repository",
-    foreground="#4a90e2", cursor="hand2", font=("Segoe UI", 9, "underline"),
-    anchor=tk.CENTER
-)
-credit_github_label.pack(pady=(2, 0))
-credit_github_label.bind("<Button-1>", open_github)
-credit_thanks_label = ttk.Label(
-    header_frame, # Quan trọng: Pack vào header_frame
-    text="Chỉ dành cho việc tải, upload và chia sẻ game của Discord WIBU's Gaming Zone",
-    style="secondary.TLabel",
-    font=("Segoe UI", 9, "italic"), # Chữ nghiêng cho đẹp
-    anchor=tk.CENTER
-)
-credit_thanks_label.pack(pady=(5, 0))
-# --- THÊM MỚI: NÚT BẬT/TẮT BACKUP ---
-
-
-def action_clear_image_cache():
-    """Xóa toàn bộ thư mục cache ảnh trên ổ cứng."""
-    global g_cache_dir
-    if not os.path.isdir(g_cache_dir):
-        custom_showinfo("Hoàn tất", "Không tìm thấy thư mục cache ảnh (đã sạch).")
-        return
-
-    if custom_askyesno("Xác nhận Xóa Cache",
-                           "Bạn có chắc chắn muốn xóa toàn bộ cache ảnh?\n"
-                           "(Lần khởi động sau sẽ phải tải lại tất cả ảnh.)"):
-        try:
-            # Xóa toàn bộ thư mục và tạo lại
-            shutil.rmtree(g_cache_dir)
-            os.makedirs(g_cache_dir, exist_ok=True)
-            
-            # Xóa cache RAM
-            root.cached_images.clear()
-            
-            custom_showinfo("Hoàn tất", "Đã xóa toàn bộ cache ảnh thành công.")
-        except Exception as e:
-            custom_showerror("Lỗi", f"Không thể xóa thư mục cache: {e}")
-
-# --- [TÍNH NĂNG] SỔ TAY GHI CHÚ (CLICK-THROUGH SWITCH) ---
-g_notes_window = None
-g_notes_is_ghost = False # Biến theo dõi trạng thái
-
-def set_window_click_through(hwnd, enable):
-    """Hàm helper để bật/tắt chế độ xuyên thấu chuột."""
-    try:
-        import ctypes
-        GWL_EXSTYLE = -20
-        WS_EX_LAYERED = 0x00080000
-        WS_EX_TRANSPARENT = 0x00000020
-        
-        style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-        
-        if enable:
-            # Thêm cờ Transparent
-            new_style = style | WS_EX_LAYERED | WS_EX_TRANSPARENT
-            print("Note: Chế độ Bóng ma (Click-Through) -> ON")
-        else:
-            # Gỡ bỏ cờ Transparent (giữ lại Layered để dùng Alpha)
-            new_style = (style & ~WS_EX_TRANSPARENT) | WS_EX_LAYERED
-            print("Note: Chế độ Chỉnh sửa -> ON")
-            
-        ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_style)
-    except Exception as e:
-        print(f"Lỗi set style: {e}")
-
-def action_toggle_notes():
-    """
-    Quản lý Sổ tay:
-    - Nếu chưa mở -> Mở lên (Chế độ sửa).
-    - Nếu đang mở (Ghost) -> Chuyển về chế độ Sửa.
-    - Nếu đang mở (Sửa) -> Đóng lại (Hoặc chuyển Ghost tùy ý).
-    """
-    global g_notes_window, g_notes_is_ghost
-
-    # --- TRƯỜNG HỢP 1: ĐANG MỞ THÌ CHUYỂN CHẾ ĐỘ ---
-    if g_notes_window is not None:
-        if g_notes_is_ghost:
-            # Đang là Ghost -> Chuyển thành Edit (Unlock)
-            g_notes_is_ghost = False
-            
-            # Lấy HWND và tắt xuyên thấu
-            g_notes_window.update_idletasks()
-            import ctypes
-            hwnd = ctypes.windll.user32.GetParent(g_notes_window.winfo_id())
-            if hwnd == 0: hwnd = g_notes_window.winfo_id()
-            set_window_click_through(hwnd, False)
-            
-            # Thay đổi giao diện để báo hiệu
-            g_notes_window.attributes('-alpha', 0.9) # Đậm hơn
-            # Hiện lại thanh tiêu đề (nếu muốn logic phức tạp hơn, ở đây ta đổi màu viền)
-            g_notes_window.config(bg="#4a90e2") # Viền xanh dương (Edit Mode)
-            
-            # Focus vào cửa sổ
-            g_notes_window.lift()
-            g_notes_window.focus_force()
-        else:
-            # Đang là Edit -> Đóng lại (Hoặc bạn có thể chọn ẩn đi)
-            g_notes_window.destroy()
-            g_notes_window = None
-            g_notes_is_ghost = False
-        return
-
-    # --- TRƯỜNG HỢP 2: CHƯA MỞ -> TẠO MỚI ---
-    try:
-        g_notes_window = tk.Toplevel(root)
-        g_notes_window.title("Notes")
-        g_notes_window.geometry("350x250+50+150") 
-        g_notes_window.overrideredirect(True)
-        g_notes_window.attributes('-topmost', True)
-        g_notes_window.attributes('-alpha', 0.9)
-        g_notes_window.config(bg="#4a90e2") # Viền xanh (Edit Mode)
-
-        # Padding frame (để tạo viền màu)
-        padding_frame = tk.Frame(g_notes_window, bg="#4a90e2", padx=2, pady=2)
-        padding_frame.pack(fill=tk.BOTH, expand=True)
-
-        # Khung nội dung chính
-        main_frame = ttk.Frame(padding_frame, style="Card.TFrame")
+        main_frame = ttk.Frame(secret_window, padding=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # 1. THANH TIÊU ĐỀ
-        title_bar = tk.Frame(main_frame, bg="#333", height=30)
-        title_bar.pack(fill=tk.X)
-        
-        lbl_title = tk.Label(title_bar, text="📝 Đang Sửa (Kéo để di chuyển)", bg="#333", fg="white", cursor="fleur")
-        lbl_title.pack(side=tk.LEFT, padx=5)
+        # 1. Khung kéo thả
+        drop_frame = ttk.LabelFrame(main_frame, text="1. Kéo 1 file .exe (bản build mới) vào đây")
+        drop_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        ttk.Button(drop_frame, text="📂 Chọn File .exe", command=action_browse_secret_exe).pack(fill=tk.X, padx=5, pady=5)
+        secret_drop_listbox = tk.Listbox(drop_frame, height=3)
+        secret_drop_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # --- NÚT KHÓA (LOCK BUTTON) ---
-        def lock_notes():
-            global g_notes_is_ghost
-            g_notes_is_ghost = True
-            
-            # 1. Đổi giao diện
-            g_notes_window.attributes('-alpha', 0.4) # Mờ đi (Ghost)
-            g_notes_window.config(bg="#333") # Mất viền xanh
-            padding_frame.config(padx=0, pady=0) # Bỏ padding
-            
-            # 2. Kích hoạt Click-Through
-            g_notes_window.update_idletasks()
-            import ctypes
-            hwnd = ctypes.windll.user32.GetParent(g_notes_window.winfo_id())
-            if hwnd == 0: hwnd = g_notes_window.winfo_id()
-            set_window_click_through(hwnd, True)
-            
-            print("Đã khóa Note. Bấm nút trên App chính để Sửa lại.")
+        secret_drop_listbox.drop_target_register(DND_FILES)
+        secret_drop_listbox.dnd_bind('<<Drop>>', handle_secret_drop)
 
-        btn_lock = tk.Label(title_bar, text=" 🔒 Xong ", bg="#28a745", fg="white", cursor="hand2", font=("Segoe UI", 9, "bold"))
-        btn_lock.pack(side=tk.RIGHT, padx=2)
-        btn_lock.bind("<Button-1>", lambda e: lock_notes())
-        CreateToolTip(btn_lock, "Bấm vào đây để khóa Note và cho phép chuột bấm xuyên qua.\n(Để sửa lại: Bấm nút 'Sổ Tay Game' ở App chính)")
+        # 2. Khung config
+        config_frame = ttk.LabelFrame(main_frame, text="2. Cấu hình Link Drive")
+        config_frame.pack(fill=tk.X, pady=5)
 
-        # 2. VÙNG NỘI DUNG
-        text_area = tk.Text(main_frame, bg="#222", fg="#00FF00", insertbackground="white", 
-                            font=("Consolas", 10), bd=0, highlightthickness=0)
-        text_area.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        text_area.images = [] 
+        row1 = ttk.Frame(config_frame)
+        row1.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(row1, text="File ID của .EXE Chính:", width=22).pack(side=tk.LEFT)
+        secret_exe_id_entry = ttk.Entry(row1)
+        secret_exe_id_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        secret_exe_id_entry.insert(0, local_config.get("secret_exe_id", ""))
 
-        # --- Paste & Resize Logic (Giữ nguyên) ---
-        def handle_paste(event):
-            try:
-                img = ImageGrab.grabclipboard()
-                if isinstance(img, Image.Image):
-                    orig_w, orig_h = img.size
-                    target_w = int(orig_w * 0.7)
-                    target_h = int(orig_h * 0.7)
-                    img = img.resize((target_w, target_h), Image.Resampling.LANCZOS)
-                    
-                    curr_w = g_notes_window.winfo_width()
-                    curr_h = g_notes_window.winfo_height()
-                    new_w = max(curr_w, target_w + 30)
-                    new_h = max(curr_h, target_h + 60)
-                    g_notes_window.geometry(f"{new_w}x{new_h}")
-                    
-                    tk_img = ImageTk.PhotoImage(img)
-                    text_area.images.append(tk_img)
-                    text_area.image_create(tk.INSERT, image=tk_img)
-                    text_area.insert(tk.INSERT, "\n") 
-                    return "break" 
-                return None
-            except: pass
+        row2 = ttk.Frame(config_frame)
+        row2.pack(fill=tk.X, padx=5, pady=5)
+        ttk.Label(row2, text="File ID của Bundle (.ZIP):", width=22).pack(side=tk.LEFT)
 
-        text_area.bind("<Control-v>", handle_paste)
-        text_area.insert("1.0", "Ctrl+V: Dán ảnh.\nBấm '🔒 Xong' để khóa & Click xuyên qua.\n")
+        secret_zip_id_entry = ttk.Entry(row2)
+        secret_zip_id_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        secret_zip_id_entry.insert(0, local_config.get("secret_zip_id", ""))
+        # 3. Nút bắt đầu
+        start_button = ttk.Button(main_frame, text="Bắt đầu Upload Lên 2 Link", 
+                                command=start_secret_upload, style="Accent.TButton")
+        start_button.pack(pady=10)
 
-        # --- Di chuyển cửa sổ ---
-        def start_move(event):
-            g_notes_window.x = event.x
-            g_notes_window.y = event.y
+    def handle_secret_drop(event):
+        """Xử lý khi kéo file vào cửa sổ bí mật."""
+        secret_drop_listbox.delete(0, tk.END) # Chỉ cho phép 1 file
+        raw_paths = root.tk.splitlist(event.data)
 
-        def do_move(event):
-            deltax = event.x - g_notes_window.x
-            deltay = event.y - g_notes_window.y
-            x = g_notes_window.winfo_x() + deltax
-            y = g_notes_window.winfo_y() + deltay
-            g_notes_window.geometry(f"+{x}+{y}")
+        if raw_paths:
+            file_path = raw_paths[0] # Lấy file đầu tiên
+            if os.path.exists(file_path) and os.path.isfile(file_path) and file_path.endswith(".exe"):
+                secret_drop_listbox.insert(tk.END, file_path)
+            else:
+                secret_drop_listbox.insert(tk.END, "Lỗi: Chỉ chấp nhận 1 file .exe")
 
-        lbl_title.bind("<ButtonPress-1>", start_move)
-        lbl_title.bind("<B1-Motion>", do_move)
-        title_bar.bind("<ButtonPress-1>", start_move)
-        title_bar.bind("<B1-Motion>", do_move)
+    def start_secret_upload():
+        """Bắt đầu luồng upload bí mật."""
+        global scan_loading_window # Tái sử dụng cửa sổ loading
 
-        # Resize Grip (Giữ nguyên)
-        grip = tk.Label(main_frame, bg="#555", cursor="sizing")
-        grip.place(relx=1.0, rely=1.0, x=0, y=0, anchor="se", width=15, height=15)
-        def start_resize(event):
-            g_notes_window.start_w = g_notes_window.winfo_width()
-            g_notes_window.start_h = g_notes_window.winfo_height()
-            g_notes_window.start_x = event.x_root
-            g_notes_window.start_y = event.y_root
-        def do_resize(event):
-            delta_w = event.x_root - g_notes_window.start_x
-            delta_h = event.y_root - g_notes_window.start_y
-            new_w = max(g_notes_window.start_w + delta_w, 100)
-            new_h = max(g_notes_window.start_h + delta_h, 100)
-            g_notes_window.geometry(f"{new_w}x{new_h}")
-        grip.bind("<ButtonPress-1>", start_resize)
-        grip.bind("<B1-Motion>", do_resize)
-
-    except Exception as e:
-        print(f"Lỗi Notes: {e}")
-        g_notes_window = None
-
-# --- [THÊM MỚI] TÍNH NĂNG TÂM ẢO (CROSSHAIR) ---
-g_crosshair_window = None 
-
-def action_toggle_crosshair():
-    """
-    Bật/Tắt tâm ngắm ảo.
-    Sử dụng Windows API để cho phép click xuyên qua (Click-Through).
-    """
-    global g_crosshair_window
-    
-    # Import các hằng số Windows API
-    try:
-        import ctypes
-        GWL_EXSTYLE = -20
-        WS_EX_LAYERED = 0x00080000
-        WS_EX_TRANSPARENT = 0x00000020 # Cờ quan trọng nhất: Click xuyên qua
-    except ImportError:
-        custom_showerror("Lỗi", "Tính năng này yêu cầu thư viện ctypes (Windows).")
-        return
-
-    # Nếu đang bật -> Tắt đi
-    if g_crosshair_window is not None:
         try:
-            g_crosshair_window.destroy()
-        except: pass
-        g_crosshair_window = None
-        print("Đã tắt Crosshair.")
-        return
-
-    # Nếu đang tắt -> Bật lên
-    try:
-        g_crosshair_window = tk.Toplevel(root)
-        g_crosshair_window.title("Crosshair")
-        
-        # 1. Cấu hình hình học
-        w, h = 30, 30
-        screen_w = root.winfo_screenwidth()
-        screen_h = root.winfo_screenheight()
-        x = (screen_w // 2) - (w // 2)
-        y = (screen_h // 2) - (h // 2)
-        
-        g_crosshair_window.geometry(f"{w}x{h}+{x}+{y}")
-        g_crosshair_window.overrideredirect(True) 
-        g_crosshair_window.attributes('-topmost', True) 
-        
-        # 2. Màu nền trong suốt
-        bg_color = '#000001' 
-        g_crosshair_window.config(bg=bg_color)
-        try:
-            g_crosshair_window.attributes('-transparentcolor', bg_color)
-        except Exception: pass
-
-        # 3. Vẽ Tâm
-        canvas = tk.Canvas(g_crosshair_window, width=w, height=h, bg=bg_color, highlightthickness=0)
-        canvas.pack()
-        
-        center = w // 2
-        length = 8
-        thickness = 2
-        
-        # Vẽ dấu cộng màu xanh lá (Lime)
-        canvas.create_line(center - length, center, center + length + 1, center, fill="#00FF00", width=thickness)
-        canvas.create_line(center, center - length, center, center + length + 1, fill="#00FF00", width=thickness)
-        
-        # --- [QUAN TRỌNG] KÍCH HOẠT CHẾ ĐỘ XUYÊN THẤU ---
-        # Phải update idletasks để window có ID (HWND) trước khi gọi API
-        g_crosshair_window.update_idletasks() 
-        
-        hwnd = ctypes.windll.user32.GetParent(g_crosshair_window.winfo_id())
-        if hwnd == 0: # Fallback nếu không lấy được parent
-            hwnd = g_crosshair_window.winfo_id()
-            
-        # Lấy style hiện tại
-        current_style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
-        
-        # Thêm cờ Transparent (Xuyên thấu chuột) và Layered
-        new_style = current_style | WS_EX_LAYERED | WS_EX_TRANSPARENT
-        
-        # Áp dụng style mới
-        ctypes.windll.user32.SetWindowLongW(hwnd, GWL_EXSTYLE, new_style)
-        
-        print("Đã bật Crosshair (Click-Through Mode).")
-
-    except Exception as e:
-        print(f"Lỗi bật Crosshair: {e}")
-        g_crosshair_window = None
-
-# --- THÊM MỚI: HÀM DỌN DẸP TEMP ---
-def action_clean_temp_files():
-    """
-    (PHIÊN BẢN MẠNH) Quét và xóa TOÀN BỘ file trong thư mục %TEMP% của Windows.
-    Tự động bỏ qua các file đang được sử dụng (Locked files).
-    """
-    import shutil # Đảm bảo đã import thư viện này
-
-    temp_dir = os.environ.get('TEMP')
-    if not temp_dir or not os.path.isdir(temp_dir):
-        custom_showerror("Lỗi", "Không thể tìm thấy thư mục Temp của Windows.")
-        return
-
-    # 1. Cảnh báo người dùng (Vì hành động này xóa rộng hơn)
-    if not custom_askyesno("Xác nhận Dọn Sạch", 
-                               f"Bạn sắp xóa TOÀN BỘ file rác trong thư mục Temp:\n{temp_dir}\n\n"
-                               "Lưu ý:\n"
-                               "• Hành động này sẽ giải phóng dung lượng ổ C.\n"
-                               "• Các file đang được Windows/App khác sử dụng sẽ tự động được giữ lại.\n\n"
-                               "Bạn có muốn tiếp tục không?"):
-        return
-
-    # 2. Bắt đầu dọn dẹp
-    deleted_count = 0
-    skipped_count = 0
-    bytes_freed = 0
-    
-    print("--- Bắt đầu dọn dẹp toàn bộ Temp ---")
-    
-    try:
-        # Lấy danh sách tất cả file/folder
-        all_items = os.listdir(temp_dir)
-        
-        for item in all_items:
-            item_path = os.path.join(temp_dir, item)
-            
-            try:
-                # Lấy kích thước trước khi xóa (để báo cáo)
-                current_size = 0
-                if os.path.isfile(item_path):
-                    current_size = os.path.getsize(item_path)
-                
-                # XÓA FILE
-                if os.path.isfile(item_path) or os.path.islink(item_path):
-                    os.remove(item_path)
-                    deleted_count += 1
-                    bytes_freed += current_size
-                    
-                # XÓA FOLDER (Dùng shutil.rmtree)
-                elif os.path.isdir(item_path):
-                    # Tính sơ bộ size folder (nếu muốn chính xác phải duyệt đệ quy, nhưng sẽ chậm)
-                    shutil.rmtree(item_path)
-                    deleted_count += 1
-                    
-            except Exception:
-                # Nếu lỗi (PermissionDenied, FileInUse...) -> Bỏ qua
-                skipped_count += 1
-                
-    except Exception as e:
-        custom_showerror("Lỗi", f"Lỗi khi quét thư mục Temp: {e}")
-        return
-
-    # 3. Hiển thị kết quả
-    msg = (f"Đã dọn dẹp xong!\n\n"
-           f"✅ Đã xóa: {deleted_count} mục\n"
-           f"🛡️ Đang sử dụng (Bỏ qua): {skipped_count} mục\n"
-           f"💾 Dung lượng giải phóng: {format_bytes(bytes_freed)} (ước tính)")
-           
-    custom_showinfo("Dọn Dẹp Hoàn Tất", msg)
-
-# --- [TÍNH NĂNG MỚI] GEMINI AI PRO BROWSER ---
-def action_open_gemini_pro():
-    """
-    Khởi động Gemini bằng Multiprocessing để tránh xung đột Main Thread với Tkinter.
-    """
-    try:
-        # Tạo một tiến trình mới (Process) thay vì luồng (Thread)
-        p = multiprocessing.Process(target=_process_run_gemini)
-        p.daemon = True # Tự tắt khi App chính tắt (tùy chọn)
-        p.start()
-    except Exception as e:
-        custom_showerror("Lỗi", f"Không thể mở Gemini: {e}")
-
-def on_secret_click(event):
-    """Đếm số lần click vào label dung lượng."""
-    global g_secret_click_count, drive_service
-
-    
-
-    g_secret_click_count += 1
-
-    # Đặt lại bộ đếm sau 2 giây
-    event.widget.after(2000, lambda: globals().update(g_secret_click_count=0))
-
-    if g_secret_click_count == 3:
-        if not drive_service:
-            custom_showwarning("Chưa đăng nhập", "Bạn phải đăng nhập Google Drive trước.")
+            file_path = secret_drop_listbox.get(0)
+        except tk.TclError:
+            custom_showerror("Lỗi", "Chưa kéo file .exe vào.", parent=secret_window)
             return
-        print("Đã kích hoạt tính năng bí mật!")
-        g_secret_click_count = 0
-        open_secret_uploader()
 
-def action_browse_secret_exe():
-    """Thay thế kéo thả cho Secret Uploader."""
-    file_path = filedialog.askopenfilename(
-        title="Chọn file .exe bản build mới",
-        filetypes=[("Executable", "*.exe")]
-    )
-    
-    if file_path:
-        secret_drop_listbox.delete(0, tk.END)
-        secret_drop_listbox.insert(tk.END, file_path)
+        exe_id = secret_exe_id_entry.get().strip()
+        zip_id = secret_zip_id_entry.get().strip()
 
-def open_secret_uploader():
-    """Mở cửa sổ upload bí mật."""
-    global secret_drop_listbox, secret_exe_id_entry, secret_zip_id_entry, secret_window
+        # --- THÊM MỚI: Lưu ID mới vào config ---
+        global local_config
+        local_config["secret_exe_id"] = exe_id
+        local_config["secret_zip_id"] = zip_id
+        save_local_config(local_config)
+        print("Đã lưu secret File IDs vào settings.json")
 
-    secret_window = tk.Toplevel(root)
-    secret_window.title("Secret Updater Config")
-    secret_window.after(10, lambda: apply_theme_to_titlebar(secret_window))
-    center_window_on_screen(secret_window, 500, 350)
-    secret_window.transient(root)
-    secret_window.grab_set()
+        if not file_path or not exe_id or not zip_id:
+            custom_showerror("Lỗi", "Vui lòng kéo file và điền cả 2 File ID.", parent=secret_window)
+            return
 
-    main_frame = ttk.Frame(secret_window, padding=10)
-    main_frame.pack(fill=tk.BOTH, expand=True)
+        if not file_path.endswith(".exe"):
+            custom_showerror("Lỗi", "File kéo vào phải là file .exe.", parent=secret_window)
+            return
 
-    # 1. Khung kéo thả
-    drop_frame = ttk.LabelFrame(main_frame, text="1. Kéo 1 file .exe (bản build mới) vào đây")
-    drop_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-    ttk.Button(drop_frame, text="📂 Chọn File .exe", command=action_browse_secret_exe).pack(fill=tk.X, padx=5, pady=5)
-    secret_drop_listbox = tk.Listbox(drop_frame, height=3)
-    secret_drop_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Hiển thị cửa sổ "Đang tải"
+        scan_loading_window = tk.Toplevel(root)
+        scan_loading_window.title("Đang Upload...")
+        center_window_on_screen(scan_loading_window, 350, 100)
+        scan_loading_window.transient(secret_window)
+        scan_loading_window.grab_set()
 
-    secret_drop_listbox.drop_target_register(DND_FILES)
-    secret_drop_listbox.dnd_bind('<<Drop>>', handle_secret_drop)
+        global secret_loading_label # Cần global để cập nhật text
+        secret_loading_label = ttk.Label(scan_loading_window, text="Đang chuẩn bị...")
+        secret_loading_label.pack(expand=True, padx=20, pady=20)
 
-    # 2. Khung config
-    config_frame = ttk.LabelFrame(main_frame, text="2. Cấu hình Link Drive")
-    config_frame.pack(fill=tk.X, pady=5)
+        threading.Thread(target=secret_upload_thread, 
+                        args=(file_path, exe_id, zip_id), 
+                        daemon=True).start()
 
-    row1 = ttk.Frame(config_frame)
-    row1.pack(fill=tk.X, padx=5, pady=5)
-    ttk.Label(row1, text="File ID của .EXE Chính:", width=22).pack(side=tk.LEFT)
-    secret_exe_id_entry = ttk.Entry(row1)
-    secret_exe_id_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-    secret_exe_id_entry.insert(0, local_config.get("secret_exe_id", ""))
+    def secret_upload_thread(file_path, exe_id, zip_id):
+        """(Chạy ngầm) Upload file .exe, nén .zip, và upload .zip."""
+        try:
+            # --- 1. UPLOAD FILE .EXE CHÍNH ---
+            progress_queue.put(("secret_status", "Đang upload file .exe chính..."))
+            _secret_update_file(file_path, exe_id)
 
-    row2 = ttk.Frame(config_frame)
-    row2.pack(fill=tk.X, padx=5, pady=5)
-    ttk.Label(row2, text="File ID của Bundle (.ZIP):", width=22).pack(side=tk.LEFT)
+            # --- 2. NÉN BUNDLE .ZIP ---
+            progress_queue.put(("secret_status", "Đang nén file .zip (gồm .exe và updater.exe)..."))
 
-    secret_zip_id_entry = ttk.Entry(row2)
-    secret_zip_id_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-    secret_zip_id_entry.insert(0, local_config.get("secret_zip_id", ""))
-    # 3. Nút bắt đầu
-    start_button = ttk.Button(main_frame, text="Bắt đầu Upload Lên 2 Link", 
-                              command=start_secret_upload, style="Accent.TButton")
-    start_button.pack(pady=10)
+            # SỬA: Tìm updater.exe BÊN CẠNH file .exe MỚI được thả vào
+            # 'file_path' là đường dẫn đến .exe MỚI (ví dụ: C:\NewBuild\WGZGameUpdater.exe)
+            new_app_dir = os.path.dirname(file_path)
+            updater_path = os.path.join(new_app_dir, "updater.exe")
 
-def handle_secret_drop(event):
-    """Xử lý khi kéo file vào cửa sổ bí mật."""
-    secret_drop_listbox.delete(0, tk.END) # Chỉ cho phép 1 file
-    raw_paths = root.tk.splitlist(event.data)
+            if not os.path.exists(updater_path):
+                raise FileNotFoundError(f"Không tìm thấy 'updater.exe' trong cùng thư mục với file bạn vừa thả vào:\n({new_app_dir})")
 
-    if raw_paths:
-        file_path = raw_paths[0] # Lấy file đầu tiên
-        if os.path.exists(file_path) and os.path.isfile(file_path) and file_path.endswith(".exe"):
-            secret_drop_listbox.insert(tk.END, file_path)
-        else:
-            secret_drop_listbox.insert(tk.END, "Lỗi: Chỉ chấp nhận 1 file .exe")
+            temp_zip_path = os.path.join(os.environ['TEMP'], "_temp_secret_bundle.zip")
 
-def start_secret_upload():
-    """Bắt đầu luồng upload bí mật."""
-    global scan_loading_window # Tái sử dụng cửa sổ loading
+            # Xóa file zip cũ nếu có
+            if os.path.exists(temp_zip_path):
+                os.remove(temp_zip_path)
 
-    try:
-        file_path = secret_drop_listbox.get(0)
-    except tk.TclError:
-        custom_showerror("Lỗi", "Chưa kéo file .exe vào.", parent=secret_window)
-        return
+            print(f"Đang nén '{file_path}' và '{updater_path}' vào '{temp_zip_path}'")
+            with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                # Thêm file .exe mới (đặt tên là tên file gốc)
+                zf.write(file_path, arcname=os.path.basename(file_path))
+                # Thêm file updater.exe
+                zf.write(updater_path, arcname="updater.exe")
 
-    exe_id = secret_exe_id_entry.get().strip()
-    zip_id = secret_zip_id_entry.get().strip()
+            print("Nén file .zip thành công.")
 
-    # --- THÊM MỚI: Lưu ID mới vào config ---
-    global local_config
-    local_config["secret_exe_id"] = exe_id
-    local_config["secret_zip_id"] = zip_id
-    save_local_config(local_config)
-    print("Đã lưu secret File IDs vào settings.json")
+            # --- 3. UPLOAD FILE .ZIP ---
+            progress_queue.put(("secret_status", "Đang upload file .zip..."))
+            _secret_update_file(temp_zip_path, zip_id)
 
-    if not file_path or not exe_id or not zip_id:
-        custom_showerror("Lỗi", "Vui lòng kéo file và điền cả 2 File ID.", parent=secret_window)
-        return
+            # --- 4. DỌN DẸP ---
+            progress_queue.put(("secret_status", "Đang dọn dẹp file tạm..."))
+            if os.path.exists(temp_zip_path):
+                os.remove(temp_zip_path)
 
-    if not file_path.endswith(".exe"):
-        custom_showerror("Lỗi", "File kéo vào phải là file .exe.", parent=secret_window)
-        return
+            progress_queue.put(("secret_done", "Hoàn thành cả 2 file!"))
 
-    # Hiển thị cửa sổ "Đang tải"
-    scan_loading_window = tk.Toplevel(root)
-    scan_loading_window.title("Đang Upload...")
-    center_window_on_screen(scan_loading_window, 350, 100)
-    scan_loading_window.transient(secret_window)
-    scan_loading_window.grab_set()
+        except Exception as e:
+            print(f"Lỗi trong secret_upload_thread: {e}")
+            progress_queue.put(("secret_error", str(e)))
 
-    global secret_loading_label # Cần global để cập nhật text
-    secret_loading_label = ttk.Label(scan_loading_window, text="Đang chuẩn bị...")
-    secret_loading_label.pack(expand=True, padx=20, pady=20)
-
-    threading.Thread(target=secret_upload_thread, 
-                     args=(file_path, exe_id, zip_id), 
-                     daemon=True).start()
-
-def secret_upload_thread(file_path, exe_id, zip_id):
-    """(Chạy ngầm) Upload file .exe, nén .zip, và upload .zip."""
-    try:
-        # --- 1. UPLOAD FILE .EXE CHÍNH ---
-        progress_queue.put(("secret_status", "Đang upload file .exe chính..."))
-        _secret_update_file(file_path, exe_id)
-
-        # --- 2. NÉN BUNDLE .ZIP ---
-        progress_queue.put(("secret_status", "Đang nén file .zip (gồm .exe và updater.exe)..."))
-
-        # SỬA: Tìm updater.exe BÊN CẠNH file .exe MỚI được thả vào
-        # 'file_path' là đường dẫn đến .exe MỚI (ví dụ: C:\NewBuild\WGZGameUpdater.exe)
-        new_app_dir = os.path.dirname(file_path)
-        updater_path = os.path.join(new_app_dir, "updater.exe")
-
-        if not os.path.exists(updater_path):
-            raise FileNotFoundError(f"Không tìm thấy 'updater.exe' trong cùng thư mục với file bạn vừa thả vào:\n({new_app_dir})")
-
-        temp_zip_path = os.path.join(os.environ['TEMP'], "_temp_secret_bundle.zip")
-
-        # Xóa file zip cũ nếu có
-        if os.path.exists(temp_zip_path):
-            os.remove(temp_zip_path)
-
-        print(f"Đang nén '{file_path}' và '{updater_path}' vào '{temp_zip_path}'")
-        with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-            # Thêm file .exe mới (đặt tên là tên file gốc)
-            zf.write(file_path, arcname=os.path.basename(file_path))
-            # Thêm file updater.exe
-            zf.write(updater_path, arcname="updater.exe")
-
-        print("Nén file .zip thành công.")
-
-        # --- 3. UPLOAD FILE .ZIP ---
-        progress_queue.put(("secret_status", "Đang upload file .zip..."))
-        _secret_update_file(temp_zip_path, zip_id)
-
-        # --- 4. DỌN DẸP ---
-        progress_queue.put(("secret_status", "Đang dọn dẹp file tạm..."))
-        if os.path.exists(temp_zip_path):
-            os.remove(temp_zip_path)
-
-        progress_queue.put(("secret_done", "Hoàn thành cả 2 file!"))
-
-    except Exception as e:
-        print(f"Lỗi trong secret_upload_thread: {e}")
-        progress_queue.put(("secret_error", str(e)))
-
-def _secret_update_file(file_path, file_id):
-    """Hàm helper (chạy ngầm) để upload (update) 1 file."""
-    global drive_service
-    try:
-        print(f"Đang update File ID: {file_id} bằng file: {file_path}")
-        # Dùng MediaFileUpload (không cần chunk)
-        media_body = MediaFileUpload(file_path, resumable=False)
-
-        # Gọi .update() để ghi đè file đã có
-        drive_service.files().update(
-            fileId=file_id,
-            media_body=media_body
-        ).execute()
-        print(f"Update thành công File ID: {file_id}")
-
-    except HttpError as error:
-        # Nếu lỗi, thử tạo file mới (phòng trường hợp ID bị xóa)
-        if error.resp.status == 404:
-            print(f"Lỗi 404: File ID {file_id} không tồn tại. Đang thử tạo file mới...")
-            file_metadata = {'name': os.path.basename(file_path), 'parents': [GOOGLE_DRIVE_FOLDER_ID]}
+    def _secret_update_file(file_path, file_id):
+        """Hàm helper (chạy ngầm) để upload (update) 1 file."""
+        global drive_service
+        try:
+            print(f"Đang update File ID: {file_id} bằng file: {file_path}")
+            # Dùng MediaFileUpload (không cần chunk)
             media_body = MediaFileUpload(file_path, resumable=False)
-            new_file = drive_service.files().create(
-                body=file_metadata,
-                media_body=media_body,
-                fields='id'
+
+            # Gọi .update() để ghi đè file đã có
+            drive_service.files().update(
+                fileId=file_id,
+                media_body=media_body
             ).execute()
-            print(f"TẠO FILE MỚI THAY THẾ. ID MỚI: {new_file.get('id')}")
-            progress_queue.put(("secret_status", f"Cảnh báo: ID cũ {file_id} bị lỗi.\nĐã tạo file mới với ID: {new_file.get('id')}"))
-        else:
-            raise error # Ném lại lỗi nếu không phải 404
-        
-drive_storage_label.bind("<Button-1>", on_secret_click)
+            print(f"Update thành công File ID: {file_id}")
 
-# Hàm on_backup_toggle (không đổi, chỉ copy vào đây)
-# Logic Toggle Backup
-def on_backup_toggle():
-    global local_config
-    is_enabled = g_backup_enabled.get()
-    local_config["backup_enabled"] = is_enabled
-    save_local_config(local_config)
-    print(f"Backup: {is_enabled}")
-
-backup_checkbutton = ttk.Checkbutton(
-    setting_frame,
-    text="💾 Tự động sao lưu (Backup)",
-    variable=g_backup_enabled,
-    command=on_backup_toggle,
-    style="Switch.TCheckbutton"
-)
-backup_checkbutton.pack(anchor=tk.W, pady=5)
-CreateToolTip(backup_checkbutton, "Sao lưu file cũ vào folder _BACKUPS trước khi cập nhật/cài đặt.")
-g_smart_mode_enabled = tk.BooleanVar(value=local_config.get("smart_mode_enabled", False))
-
-def on_smart_mode_toggle():
-    global local_config
-    is_enabled = g_smart_mode_enabled.get()
-    local_config["smart_mode_enabled"] = is_enabled
-    save_local_config(local_config)
-    print(f"Smart Game Mode: {is_enabled}")
-
-smart_checkbutton = ttk.Checkbutton(
-    setting_frame, 
-    text="🚀 Smart Game Mode (Ưu tiên Game & Dọn RAM toàn hệ thống)",
-    variable=g_smart_mode_enabled,
-    command=on_smart_mode_toggle,
-    style="Switch.TCheckbutton"
-)
-# pady=(0, 10) để tạo khoảng cách phía dưới tách biệt với các nút dọn dẹp
-smart_checkbutton.pack(anchor=tk.W, pady=5) 
-
-CreateToolTip(smart_checkbutton, "1. Dọn RAM cho TẤT CẢ ứng dụng đang chạy.\n"
-                                 "2. Chạy Game với mức ưu tiên CPU CAO (High Priority).")
-
-g_auto_close = tk.BooleanVar(value=local_config.get("auto_close", False))
-
-def on_auto_close_toggle():
-    global local_config
-    local_config["auto_close"] = g_auto_close.get()
-    save_local_config(local_config)
-    print(f"Auto Close: {g_auto_close.get()}")
-
-# Tạo Checkbox
-auto_close_check = ttk.Checkbutton(
-    setting_frame,
-    text="👻 Tự động tắt App khi vào Game",
-    variable=g_auto_close,
-    command=on_auto_close_toggle,
-    style="Switch.TCheckbutton"
-)
-auto_close_check.pack(anchor=tk.W, pady=5)
-CreateToolTip(auto_close_check, "Sau khi bấm 'Chạy Game', ứng dụng này sẽ tự tắt\nđể giải phóng hoàn toàn RAM cho game.")
-
-# --- [THÊM MỚI] NÚT GẠT HIỆU ỨNG VỤ NỔ ---
-g_chaos_effect_enabled = tk.BooleanVar(value=local_config.get("chaos_effect_enabled", False)) # Mặc định là Bật (True)
-
-def on_chaos_effect_toggle():
-    global local_config
-    local_config["chaos_effect_enabled"] = g_chaos_effect_enabled.get()
-    save_local_config(local_config)
-    print(f"Chaos Effect: {g_chaos_effect_enabled.get()}")
-
-chaos_checkbutton = ttk.Checkbutton(
-    setting_frame,
-    text="💥 Ảo Thuật của Uchiha Itachi ",
-    variable=g_chaos_effect_enabled,
-    command=on_chaos_effect_toggle,
-    style="Switch.TCheckbutton"
-)
-chaos_checkbutton.pack(anchor=tk.W, pady=5)
-CreateToolTip(chaos_checkbutton, "Khi bấm 'Chạy Game', giao diện sẽ nổ tung bay tứ tán.\nTắt đi nếu bạn thích sự nghiêm túc.")
-
-g_auto_translator = tk.BooleanVar(value=local_config.get("auto_start_translator", False))
-
-def on_translator_toggle():
-    global local_config
-    is_enabled = g_auto_translator.get()
-    
-    # 1. Lưu vào config
-    local_config["auto_start_translator"] = is_enabled
-    save_local_config(local_config)
-    
-    # 2. Xử lý Bật/Tắt ngay lập tức
-    if is_enabled:
-        start_translator_service()
-        print("Translator: ON")
-    else:
-        stop_translator_service()
-        print("Translator: OFF")
-
-translator_check = ttk.Checkbutton(
-    setting_frame,
-    text="🔮 Bật/Tắt Chức Năng Dịch Game ENG-VN (HotKey: Ctrl + Caps)",
-    variable=g_auto_translator,
-    command=on_translator_toggle,
-    style="Switch.TCheckbutton"
-)
-translator_check.pack(anchor=tk.W, pady=5)
-CreateToolTip(translator_check, "Tự động bật công cụ dịch (Ctrl+Q) khi mở App.\nNếu tắt, công cụ sẽ đóng ngay lập tức.")
-# --- Cột Phải: Công Cụ & Bảo Trì ---
-tools_frame = ttk.LabelFrame(settings_container, text="🛠️ Công Cụ & Bảo Trì", padding=10)
-tools_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
-
-# --- CẤU HÌNH LƯỚI ĐỂ CÁC NÚT BẰNG NHAU TUYỆT ĐỐI ---
-# uniform="btn_group": Ép buộc 2 cột này phải có cùng kích thước, bất kể nội dung text dài ngắn.
-tools_frame.columnconfigure(0, weight=1, uniform="btn_group")
-tools_frame.columnconfigure(1, weight=1, uniform="btn_group")
-# Cho phép giãn chiều cao nếu cần (tùy chọn)
-tools_frame.rowconfigure(0, weight=1)
-tools_frame.rowconfigure(1, weight=1)
-
-# Hàng 1 (Row 0)
-clean_temp_button = ttk.Button(tools_frame, text="Dọn %TEMP%", command=action_clean_temp_files)
-clean_temp_button.grid(row=0, column=0, sticky="nsew", padx=2, pady=2, ipady=5)
-CreateToolTip(clean_temp_button, "Xóa file .zip/.rar tạm tải về.")
-
-clear_img_cache_button = ttk.Button(tools_frame, text="Xóa Cache Ảnh", command=action_clear_image_cache)
-clear_img_cache_button.grid(row=0, column=1, sticky="nsew", padx=2, pady=2, ipady=5)
-CreateToolTip(clear_img_cache_button, "Tải lại ảnh bìa game nếu bị lỗi.")
-
-# Hàng 2 (Row 1)
-snapshot_btn = ttk.Button(tools_frame, text="📋 Kiểm Tra Cấu Hình", command=action_copy_system_info)
-snapshot_btn.grid(row=1, column=0, sticky="nsew", padx=2, pady=2, ipady=5)
-CreateToolTip(snapshot_btn, "Copy thông tin CPU/RAM/GPU để nhờ hỗ trợ.")
-
-global update_app_button
-update_app_button = ttk.Button(tools_frame, text="Kiểm tra Update App", command=action_manual_check_for_updates)
-update_app_button.grid(row=1, column=1, sticky="nsew", padx=2, pady=2, ipady=5)
-
-crosshair_btn = ttk.Button(tools_frame, text="🎯 Bật/Tắt Tâm Ảo", command=action_toggle_crosshair)
-crosshair_btn.grid(row=2, column=0, sticky="nsew", padx=2, pady=2, ipady=5)
-CreateToolTip(crosshair_btn, "Hiển thị tâm ngắm (Crosshair) màu xanh giữa màn hình.\nHỗ trợ bắn không cần ngắm (No-scope) trong game.")
-
-open_data_btn = ttk.Button(tools_frame, text="📂 Mở Data Folder", command=action_open_data_folder)
-open_data_btn.grid(row=2, column=1, sticky="nsew", padx=2, pady=2, ipady=5)
-CreateToolTip(open_data_btn, "Mở thư mục chứa settings.json và file log.")
-
-notes_btn = ttk.Button(tools_frame, text="📝 Note Dán Màn Hình", command=action_toggle_notes)
-notes_btn.grid(row=3, column=0, sticky="nsew", padx=2, pady=2, ipady=5)
-CreateToolTip(notes_btn, "Hiện tờ giấy ghi chú trong suốt trên màn hình game.\nDùng để ghi mật khẩu, nhiệm vụ...")
-
-
-# --- 3. PATH SETTINGS (Đường dẫn) ---
-path_settings_frame = ttk.LabelFrame(fourth_tab_frame, text="🔗 Liên Kết Launcher (Tự động tìm thấy)", padding=10)
-path_settings_frame.pack(fill=tk.X, pady=10)
-
-# Dùng Grid để căn thẳng hàng
-path_settings_frame.columnconfigure(1, weight=1)
-
-
-def action_save_path_settings():
-    """Lấy đường dẫn từ Entry và lưu vào config."""
-    global local_config
-    
-    try:
-        # 1. Lấy giá trị từ các ô Entry
-        # (Thêm kiểm tra 'in globals()' để tránh lỗi nếu UI chưa tạo)
-        if 'g_steam_path_entry' in globals():
-            steam_path = g_steam_path_entry.get()
-            local_config["steam_path"] = steam_path
-            print(f"Đã lưu Steam Path: {steam_path}")
+        except HttpError as error:
+            # Nếu lỗi, thử tạo file mới (phòng trường hợp ID bị xóa)
+            if error.resp.status == 404:
+                print(f"Lỗi 404: File ID {file_id} không tồn tại. Đang thử tạo file mới...")
+                file_metadata = {'name': os.path.basename(file_path), 'parents': [GOOGLE_DRIVE_FOLDER_ID]}
+                media_body = MediaFileUpload(file_path, resumable=False)
+                new_file = drive_service.files().create(
+                    body=file_metadata,
+                    media_body=media_body,
+                    fields='id'
+                ).execute()
+                print(f"TẠO FILE MỚI THAY THẾ. ID MỚI: {new_file.get('id')}")
+                progress_queue.put(("secret_status", f"Cảnh báo: ID cũ {file_id} bị lỗi.\nĐã tạo file mới với ID: {new_file.get('id')}"))
+            else:
+                raise error # Ném lại lỗi nếu không phải 404
             
-        if 'g_riot_path_entry' in globals():
-            riot_path = g_riot_path_entry.get()
-            local_config["riot_path"] = riot_path
-            print(f"Đã lưu Riot Path: {riot_path}")
+    drive_storage_label.bind("<Button-1>", on_secret_click)
 
-        # 2. Lưu file settings.json
+    # Hàm on_backup_toggle (không đổi, chỉ copy vào đây)
+    # Logic Toggle Backup
+    def on_backup_toggle():
+        global local_config
+        is_enabled = g_backup_enabled.get()
+        local_config["backup_enabled"] = is_enabled
+        save_local_config(local_config)
+        print(f"Backup: {is_enabled}")
+
+    backup_checkbutton = ttk.Checkbutton(
+        setting_frame,
+        text="💾 Tự động sao lưu (Backup)",
+        variable=g_backup_enabled,
+        command=on_backup_toggle,
+        style="Switch.TCheckbutton"
+    )
+    backup_checkbutton.pack(anchor=tk.W, pady=5)
+    CreateToolTip(backup_checkbutton, "Sao lưu file cũ vào folder _BACKUPS trước khi cập nhật/cài đặt.")
+    g_smart_mode_enabled = tk.BooleanVar(value=local_config.get("smart_mode_enabled", False))
+
+    def on_smart_mode_toggle():
+        global local_config
+        is_enabled = g_smart_mode_enabled.get()
+        local_config["smart_mode_enabled"] = is_enabled
+        save_local_config(local_config)
+        print(f"Smart Game Mode: {is_enabled}")
+
+    smart_checkbutton = ttk.Checkbutton(
+        setting_frame, 
+        text="🚀 Smart Game Mode (Ưu tiên Game & Dọn RAM toàn hệ thống)",
+        variable=g_smart_mode_enabled,
+        command=on_smart_mode_toggle,
+        style="Switch.TCheckbutton"
+    )
+    # pady=(0, 10) để tạo khoảng cách phía dưới tách biệt với các nút dọn dẹp
+    smart_checkbutton.pack(anchor=tk.W, pady=5) 
+
+    CreateToolTip(smart_checkbutton, "1. Dọn RAM cho TẤT CẢ ứng dụng đang chạy.\n"
+                                    "2. Chạy Game với mức ưu tiên CPU CAO (High Priority).")
+
+    g_auto_close = tk.BooleanVar(value=local_config.get("auto_close", False))
+
+    def on_auto_close_toggle():
+        global local_config
+        local_config["auto_close"] = g_auto_close.get()
+        save_local_config(local_config)
+        print(f"Auto Close: {g_auto_close.get()}")
+
+    # Tạo Checkbox
+    auto_close_check = ttk.Checkbutton(
+        setting_frame,
+        text="👻 Tự động tắt App khi vào Game",
+        variable=g_auto_close,
+        command=on_auto_close_toggle,
+        style="Switch.TCheckbutton"
+    )
+    auto_close_check.pack(anchor=tk.W, pady=5)
+    CreateToolTip(auto_close_check, "Sau khi bấm 'Chạy Game', ứng dụng này sẽ tự tắt\nđể giải phóng hoàn toàn RAM cho game.")
+
+    # --- [THÊM MỚI] NÚT GẠT HIỆU ỨNG VỤ NỔ ---
+    g_chaos_effect_enabled = tk.BooleanVar(value=local_config.get("chaos_effect_enabled", False)) # Mặc định là Bật (True)
+
+    def on_chaos_effect_toggle():
+        global local_config
+        local_config["chaos_effect_enabled"] = g_chaos_effect_enabled.get()
+        save_local_config(local_config)
+        print(f"Chaos Effect: {g_chaos_effect_enabled.get()}")
+
+    chaos_checkbutton = ttk.Checkbutton(
+        setting_frame,
+        text="💥 Ảo Thuật của Uchiha Itachi ",
+        variable=g_chaos_effect_enabled,
+        command=on_chaos_effect_toggle,
+        style="Switch.TCheckbutton"
+    )
+    chaos_checkbutton.pack(anchor=tk.W, pady=5)
+    CreateToolTip(chaos_checkbutton, "Khi bấm 'Chạy Game', giao diện sẽ nổ tung bay tứ tán.\nTắt đi nếu bạn thích sự nghiêm túc.")
+
+    g_auto_translator = tk.BooleanVar(value=local_config.get("auto_start_translator", False))
+
+    def on_translator_toggle():
+        global local_config
+        is_enabled = g_auto_translator.get()
+        
+        # 1. Lưu vào config
+        local_config["auto_start_translator"] = is_enabled
         save_local_config(local_config)
         
-    except Exception as e:
-        print(f"Lỗi khi lưu cài đặt đường dẫn: {e}")
-
-
-def action_launch_rustdesk():
-    """
-    Hiển thị hộp thoại tùy chỉnh (Custom Dialog) để chọn chế độ chạy RustDesk.
-    Có áp dụng Theme cho Titlebar.
-    """
-    # 1. Tạo biến lưu kết quả
-    selection_result = [None] 
-
-    # 2. Tạo cửa sổ Dialog
-    dialog = tk.Toplevel(root)
-    dialog.title("Tùy chọn Hỗ trợ")
-    
-    # --- [MỚI] ÁP DỤNG THEME CHO TITLE BAR ---
-    # Gọi hàm apply_theme_to_titlebar cho cửa sổ con này
-    # Dùng .after(10) để đảm bảo cửa sổ đã khởi tạo xong trước khi tô màu
-    dialog.after(10, lambda: apply_theme_to_titlebar(dialog))
-    # -----------------------------------------
-    
-    # Kích thước và căn giữa
-    dialog_width = 320
-    dialog_height = 180
-    center_window_on_screen(dialog, dialog_width, dialog_height)
-    
-    dialog.transient(root) 
-    dialog.grab_set()      
-    dialog.resizable(False, False)
-
-    # Frame nội dung
-    frame = ttk.Frame(dialog, padding=20)
-    frame.pack(fill=tk.BOTH, expand=True)
-
-    # Tiêu đề
-    lbl = ttk.Label(
-        frame, 
-        text="Bạn muốn khởi động RustDesk như thế nào?", 
-        wraplength=280, 
-        justify=tk.CENTER,
-        font=("Segoe UI", 10)
-    )
-    lbl.pack(pady=(0, 15))
-
-    # --- Hàm xử lý chọn ---
-    def on_choose_discord():
-        selection_result[0] = True
-        dialog.destroy() 
-
-    def on_choose_local():
-        selection_result[0] = False
-        dialog.destroy() 
-
-    # --- Nút bấm ---
-    btn_discord = ttk.Button(
-        frame, 
-        text="🚀 Gửi ID lên Discord (Nhờ Admin)", 
-        command=on_choose_discord, 
-        style="Accent.TButton"
-    )
-    btn_discord.pack(fill=tk.X, pady=5)
-
-    btn_local = ttk.Button(
-        frame, 
-        text="📂 Chỉ mở RustDesk (Không gửi)", 
-        command=on_choose_local
-    )
-    btn_local.pack(fill=tk.X, pady=5)
-
-    # --- CHỜ NGƯỜI DÙNG CHỌN ---
-    root.wait_window(dialog)
-
-    # 3. Xử lý kết quả
-    if selection_result[0] is None:
-        return
-
-    send_to_discord = selection_result[0]
-    discord_name = "Ẩn danh"
-
-    # 4. Nếu chọn Gửi Discord -> Mới hỏi tên
-    if send_to_discord:
-        import getpass
-        pc_user = getpass.getuser()
-        discord_name = custom_askstring(
-            "Xác nhận danh tính", 
-            "Nhập tên để còn biết ai chứ mày: ",
-            initialvalue=pc_user,
-            parent=root
-        )
-        if not discord_name: 
-            return 
-
-    # 5. Bắt đầu chạy Thread
-    if 'g_anydesk_button' in globals():
-        g_anydesk_button.config(state=tk.DISABLED, text="Đang mở RustDesk...")
-    
-    threading.Thread(target=launch_rustdesk_thread, args=(send_to_discord, discord_name), daemon=True).start()
-
-def apply_anydesk_connection_fix():
-    """
-    Sửa file config của AnyDesk để tắt 'Direct Connection' (Kết nối trực tiếp).
-    Giúp sửa lỗi Connecting/Disconnected liên tục.
-    """
-    try:
-        # AnyDesk lưu config ở %APPDATA%\AnyDesk\user.conf hoặc system.conf
-        appdata = os.getenv('APPDATA')
-        conf_dir = os.path.join(appdata, "AnyDesk")
-        
-        # Đảm bảo thư mục tồn tại
-        if not os.path.exists(conf_dir):
-            os.makedirs(conf_dir, exist_ok=True)
-            
-        # Chúng ta sẽ sửa file user.conf (file này ghi đè cài đặt hệ thống)
-        conf_file = os.path.join(conf_dir, "user.conf")
-        
-        print(f"Đang cấu hình AnyDesk tại: {conf_file}")
-        
-        lines = []
-        # 1. Đọc nội dung cũ nếu file tồn tại
-        if os.path.exists(conf_file):
-            try:
-                with open(conf_file, "r", encoding="utf-8", errors="ignore") as f:
-                    lines = f.readlines()
-            except Exception as e:
-                print(f"Lỗi đọc config cũ: {e}")
-
-        # 2. Xóa dòng cấu hình cũ (nếu có) để tránh trùng lặp
-        # Key cần tìm: ad.anynet.direct_connection
-        new_lines = [line for line in lines if "ad.anynet.direct_connection" not in line]
-        
-        # 3. Thêm dòng cấu hình mới (0 = Disable, 1 = Enable)
-        new_lines.append("ad.anynet.direct_connection=0\n")
-        
-        # 4. Ghi lại file
-        with open(conf_file, "w", encoding="utf-8") as f:
-            f.writelines(new_lines)
-            
-        print("--> Đã tắt 'Direct Connection' trong config thành công.")
-        return True
-
-    except Exception as e:
-        print(f"Lỗi khi sửa config AnyDesk: {e}")
-        return False
-
-def launch_rustdesk_thread(send_to_discord, discord_name):
-    """
-    (RUSTDESK FULL: AUTO INSTALL + SERVICE FIX)
-    1. Kiểm tra nếu chưa cài -> Tự động cài vào Program Files.
-    2. Cài đặt và Bật Service để lấy ID/Pass ổn định.
-    3. Dùng cơ chế 'Fire and Forget' để tránh treo App.
-    """
-    CREATE_NO_WINDOW = 0x08000000 
-    rustdesk_id = None
-    temp_password = "WGZSupport2025" 
-    
-    # Định nghĩa các đường dẫn
-    program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
-    installed_dir = os.path.join(program_files, "RustDesk")
-    installed_exe = os.path.join(installed_dir, "RustDesk.exe")
-    
-    # --- HÀM HELPER: CHẠY LỆNH AN TOÀN ---
-    def run_command_safe(cmd_list, wait_time=5):
-        """Chạy lệnh với timeout để tránh treo App."""
-        try:
-            print(f"Executing: {' '.join(cmd_list)}")
-            process = subprocess.Popen(
-                cmd_list, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.PIPE,
-                text=True,
-                creationflags=CREATE_NO_WINDOW
-            )
-            try:
-                stdout, stderr = process.communicate(timeout=wait_time)
-                return True
-            except subprocess.TimeoutExpired:
-                print(f"Lệnh tốn quá {wait_time}s (có thể đang chạy ngầm). Bỏ qua...")
-                return True 
-        except Exception as e:
-            print(f"Lỗi lệnh: {e}")
-            return False
-    # -------------------------------------
-
-    try:
-        # --- BƯỚC 1: TẮT RUSTDESK CŨ ---
-        print("Đang đóng RustDesk cũ...")
-        run_command_safe(["taskkill", "/F", "/IM", "RustDesk.exe"], wait_time=2)
-        time.sleep(1)
-
-        # --- BƯỚC 2: TÌM FILE GỐC (PORTABLE) ---
-        portable_exe = resource_path("RustDesk.exe")
-        if not os.path.exists(portable_exe):
-            portable_exe = "RustDesk.exe" 
-        
-        if not os.path.exists(portable_exe) and not os.path.exists(installed_exe):
-             progress_queue.put(("anydesk_error", "Không tìm thấy file RustDesk.exe gốc để cài đặt."))
-             return
-
-        # --- BƯỚC 3: KIỂM TRA & CÀI ĐẶT (NẾU CẦN) ---
-        target_exe = portable_exe 
-
-        if os.path.exists(installed_exe):
-            print("Phát hiện RustDesk đã được cài đặt.")
-            target_exe = installed_exe
+        # 2. Xử lý Bật/Tắt ngay lập tức
+        if is_enabled:
+            start_translator_service()
+            print("Translator: ON")
         else:
-            print("Chưa cài đặt. Đang kích hoạt bộ cài...")
-            if os.path.exists(portable_exe):
-                # 1. Chạy lệnh cài đặt nhưng KHÔNG đợi (Popen không communicate ngay)
-                print(f"Executing Install: {portable_exe} --install --silent")
-                install_proc = run_command_safe([portable_exe, "--install", "--silent"], wait_time=0)
-                
-                # 2. Vòng lặp kiểm tra file (Polling) thay vì Wait
-                # Quét mỗi 1 giây, tối đa 20 giây. Hễ thấy file là dừng.
-                print("Đang đợi file xuất hiện trong Program Files...")
-                install_success = False
-                for i in range(60):
-                    if os.path.exists(installed_exe):
-                        print(f"--> File đã xuất hiện sau {i+1} giây!")
-                        install_success = True
-                        break
-                    time.sleep(1)
-                
-                if install_success:
-                    # Chờ thêm 2s để file được ghi hoàn tất
-                    time.sleep(2)
-                    target_exe = installed_exe
-                    print("Cài đặt hoàn tất (Smart Check).")
-                    
-                    # (Tùy chọn) Kill tiến trình cài đặt nếu nó còn treo
-                    try: install_proc.kill() 
-                    except: pass
-                else:
-                    print("Cài đặt quá lâu hoặc thất bại. Dùng bản Portable.")
-                    target_exe = portable_exe
+            stop_translator_service()
+            print("Translator: OFF")
 
-        # --- BƯỚC 4: XỬ LÝ SERVICE (TỐI ƯU HÓA) ---
-        print(f"Đang cấu hình Service cho: {target_exe}")
+    translator_check = ttk.Checkbutton(
+        setting_frame,
+        text="🔮 Bật/Tắt Chức Năng Dịch Game ENG-VN (HotKey: Alt + ~)",
+        variable=g_auto_translator,
+        command=on_translator_toggle,
+        style="Switch.TCheckbutton"
+    )
+    translator_check.pack(anchor=tk.W, pady=5)
+    CreateToolTip(translator_check, "Tự động bật công cụ dịch (Alt + ~) khi mở App.\nNếu tắt, công cụ sẽ đóng ngay lập tức.")
+    # --- Cột Phải: Công Cụ & Bảo Trì ---
+    tools_frame = ttk.LabelFrame(settings_container, text="🛠️ Công Cụ & Bảo Trì", padding=10)
+    tools_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
+
+    # --- CẤU HÌNH LƯỚI ĐỂ CÁC NÚT BẰNG NHAU TUYỆT ĐỐI ---
+    # uniform="btn_group": Ép buộc 2 cột này phải có cùng kích thước, bất kể nội dung text dài ngắn.
+    tools_frame.columnconfigure(0, weight=1, uniform="btn_group")
+    tools_frame.columnconfigure(1, weight=1, uniform="btn_group")
+    # Cho phép giãn chiều cao nếu cần (tùy chọn)
+    tools_frame.rowconfigure(0, weight=1)
+    tools_frame.rowconfigure(1, weight=1)
+
+    # Hàng 1 (Row 0)
+    clean_temp_button = ttk.Button(tools_frame, text="Dọn %TEMP%", command=action_clean_temp_files)
+    clean_temp_button.grid(row=0, column=0, sticky="nsew", padx=2, pady=2, ipady=5)
+    CreateToolTip(clean_temp_button, "Xóa file .zip/.rar tạm tải về.")
+
+    clear_img_cache_button = ttk.Button(tools_frame, text="Xóa Cache Ảnh", command=action_clear_image_cache)
+    clear_img_cache_button.grid(row=0, column=1, sticky="nsew", padx=2, pady=2, ipady=5)
+    CreateToolTip(clear_img_cache_button, "Tải lại ảnh bìa game nếu bị lỗi.")
+
+    # Hàng 2 (Row 1)
+    snapshot_btn = ttk.Button(tools_frame, text="📋 Kiểm Tra Cấu Hình", command=action_copy_system_info)
+    snapshot_btn.grid(row=1, column=0, sticky="nsew", padx=2, pady=2, ipady=5)
+    CreateToolTip(snapshot_btn, "Copy thông tin CPU/RAM/GPU để nhờ hỗ trợ.")
+
+    global update_app_button
+    update_app_button = ttk.Button(tools_frame, text="Kiểm tra Update App", command=action_manual_check_for_updates)
+    update_app_button.grid(row=1, column=1, sticky="nsew", padx=2, pady=2, ipady=5)
+
+    crosshair_btn = ttk.Button(tools_frame, text="🎯 Bật/Tắt Tâm Ảo", command=action_toggle_crosshair)
+    crosshair_btn.grid(row=2, column=0, sticky="nsew", padx=2, pady=2, ipady=5)
+    CreateToolTip(crosshair_btn, "Hiển thị tâm ngắm (Crosshair) màu xanh giữa màn hình.\nHỗ trợ bắn không cần ngắm (No-scope) trong game.")
+
+    open_data_btn = ttk.Button(tools_frame, text="📂 Mở Data Folder", command=action_open_data_folder)
+    open_data_btn.grid(row=2, column=1, sticky="nsew", padx=2, pady=2, ipady=5)
+    CreateToolTip(open_data_btn, "Mở thư mục chứa settings.json và file log.")
+
+    notes_btn = ttk.Button(tools_frame, text="📝 Note Dán Màn Hình", command=action_toggle_notes)
+    notes_btn.grid(row=3, column=0, sticky="nsew", padx=2, pady=2, ipady=5)
+    CreateToolTip(notes_btn, "Hiện tờ giấy ghi chú trong suốt trên màn hình game.\nDùng để ghi mật khẩu, nhiệm vụ...")
+
+
+    # --- 3. PATH SETTINGS (Đường dẫn) ---
+    path_settings_frame = ttk.LabelFrame(fourth_tab_frame, text="🔗 Liên Kết Launcher (Tự động tìm thấy)", padding=10)
+    path_settings_frame.pack(fill=tk.X, pady=10)
+
+    # Dùng Grid để căn thẳng hàng
+    path_settings_frame.columnconfigure(1, weight=1)
+
+
+    def action_save_path_settings():
+        """Lấy đường dẫn từ Entry và lưu vào config."""
+        global local_config
         
-        # 1. Kiểm tra xem Service đã tồn tại chưa (để tránh bị timeout 10s vô ích)
-        service_exists = False
         try:
-            # Lệnh "sc query RustDesk" trả về 0 nếu service tồn tại, 1060 nếu không có
-            check_svc = subprocess.run(
-                ["sc", "query", "RustDesk"], 
-                capture_output=True, 
-                text=True, 
-                creationflags=CREATE_NO_WINDOW
+            # 1. Lấy giá trị từ các ô Entry
+            # (Thêm kiểm tra 'in globals()' để tránh lỗi nếu UI chưa tạo)
+            if 'g_steam_path_entry' in globals():
+                steam_path = g_steam_path_entry.get()
+                local_config["steam_path"] = steam_path
+                print(f"Đã lưu Steam Path: {steam_path}")
+                
+            if 'g_riot_path_entry' in globals():
+                riot_path = g_riot_path_entry.get()
+                local_config["riot_path"] = riot_path
+                print(f"Đã lưu Riot Path: {riot_path}")
+
+            # 2. Lưu file settings.json
+            save_local_config(local_config)
+            
+        except Exception as e:
+            print(f"Lỗi khi lưu cài đặt đường dẫn: {e}")
+
+
+    def action_launch_rustdesk():
+        """
+        Hiển thị hộp thoại tùy chỉnh (Custom Dialog) để chọn chế độ chạy RustDesk.
+        Có áp dụng Theme cho Titlebar.
+        """
+        # 1. Tạo biến lưu kết quả
+        selection_result = [None] 
+
+        # 2. Tạo cửa sổ Dialog
+        dialog = tk.Toplevel(root)
+        dialog.title("Tùy chọn Hỗ trợ")
+        
+        # --- [MỚI] ÁP DỤNG THEME CHO TITLE BAR ---
+        # Gọi hàm apply_theme_to_titlebar cho cửa sổ con này
+        # Dùng .after(10) để đảm bảo cửa sổ đã khởi tạo xong trước khi tô màu
+        dialog.after(10, lambda: apply_theme_to_titlebar(dialog))
+        # -----------------------------------------
+        
+        # Kích thước và căn giữa
+        dialog_width = 320
+        dialog_height = 180
+        center_window_on_screen(dialog, dialog_width, dialog_height)
+        
+        dialog.transient(root) 
+        dialog.grab_set()      
+        dialog.resizable(False, False)
+
+        # Frame nội dung
+        frame = ttk.Frame(dialog, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        # Tiêu đề
+        lbl = ttk.Label(
+            frame, 
+            text="Bạn muốn khởi động RustDesk như thế nào?", 
+            wraplength=280, 
+            justify=tk.CENTER,
+            font=("Segoe UI", 10)
+        )
+        lbl.pack(pady=(0, 15))
+
+        # --- Hàm xử lý chọn ---
+        def on_choose_discord():
+            selection_result[0] = True
+            dialog.destroy() 
+
+        def on_choose_local():
+            selection_result[0] = False
+            dialog.destroy() 
+
+        # --- Nút bấm ---
+        btn_discord = ttk.Button(
+            frame, 
+            text="🚀 Gửi ID lên Discord (Nhờ Admin)", 
+            command=on_choose_discord, 
+            style="Accent.TButton"
+        )
+        btn_discord.pack(fill=tk.X, pady=5)
+
+        btn_local = ttk.Button(
+            frame, 
+            text="📂 Chỉ mở RustDesk (Không gửi)", 
+            command=on_choose_local
+        )
+        btn_local.pack(fill=tk.X, pady=5)
+
+        # --- CHỜ NGƯỜI DÙNG CHỌN ---
+        root.wait_window(dialog)
+
+        # 3. Xử lý kết quả
+        if selection_result[0] is None:
+            return
+
+        send_to_discord = selection_result[0]
+        discord_name = "Ẩn danh"
+
+        # 4. Nếu chọn Gửi Discord -> Mới hỏi tên
+        if send_to_discord:
+            import getpass
+            pc_user = getpass.getuser()
+            discord_name = custom_askstring(
+                "Xác nhận danh tính", 
+                "Nhập tên để còn biết ai chứ mày: ",
+                initialvalue=pc_user,
+                parent=root
             )
-            if check_svc.returncode == 0:
-                service_exists = True
-                print("Service 'RustDesk' đã tồn tại. Bỏ qua bước cài đặt.")
-        except: pass
+            if not discord_name: 
+                return 
 
-        # 2. Chỉ cài đặt nếu chưa có
-        if not service_exists:
-            # Tăng timeout lên 15s cho chắc chắn
-            run_command_safe([target_exe, "--install-service"], wait_time=15)
-            time.sleep(1)
+        # 5. Bắt đầu chạy Thread
+        if 'g_anydesk_button' in globals():
+            g_anydesk_button.config(state=tk.DISABLED, text="Đang mở RustDesk...")
+        
+        threading.Thread(target=launch_rustdesk_thread, args=(send_to_discord, discord_name), daemon=True).start()
 
-        # 3. Đảm bảo đường dẫn Service trỏ đúng vào file exe hiện tại (Quan trọng khi update)
-        # Nếu file exe thay đổi vị trí, lệnh này sẽ cập nhật lại đường dẫn cho Service
+    def apply_anydesk_connection_fix():
+        """
+        Sửa file config của AnyDesk để tắt 'Direct Connection' (Kết nối trực tiếp).
+        Giúp sửa lỗi Connecting/Disconnected liên tục.
+        """
         try:
-            subprocess.run(
-                ["sc", "config", "RustDesk", f"binPath= \"{target_exe}\""],
-                capture_output=True,
-                creationflags=CREATE_NO_WINDOW
-            )
-        except: pass
-
-        # 4. Bật Service (Timeout 5s)
-        # Dùng 'sc start' đôi khi nhanh hơn 'net start'
-        run_command_safe(["sc", "start", "RustDesk"], wait_time=5)
-        time.sleep(2)
-
-        # --- BƯỚC 5: KHỞI ĐỘNG GIAO DIỆN ---
-        print("Mở giao diện RustDesk...")
-        subprocess.Popen([target_exe])
-
-        # --- BƯỚC 6: CHỜ GUI VÀ LẤY ID ---
-        print("⏳ Đang đợi cửa sổ App...")
-        for i in range(20): 
-            if gw.getWindowsWithTitle('RustDesk'):
-                break
-            time.sleep(0.5)
-
-        print("⏳ Đang lấy ID...")
-        # Hàm lấy ID nội bộ
-        def get_id_local():
-            # Thử lệnh cmd trước
-            try:
-                proc = subprocess.Popen([target_exe, "--get-id"], stdout=subprocess.PIPE, text=True, creationflags=CREATE_NO_WINDOW)
-                out, _ = proc.communicate(timeout=3)
-                val = out.strip().replace(" ", "")
-                if val.isdigit() and len(val) > 6: return val
-            except: pass
+            # AnyDesk lưu config ở %APPDATA%\AnyDesk\user.conf hoặc system.conf
+            appdata = os.getenv('APPDATA')
+            conf_dir = os.path.join(appdata, "AnyDesk")
             
-            # Thử đọc file config
-            paths = [
-                os.path.join(os.getenv('APPDATA'), 'RustDesk', 'config'),
-                os.path.join(os.getenv('LOCALAPPDATA'), 'RustDesk', 'config'),
-                os.path.join(os.environ.get("ProgramData", "C:\\ProgramData"), 'RustDesk', 'config') # Thêm ProgramData
-            ]
-            for d in paths:
-                for f in ['RustDesk.toml', 'RustDesk2.toml']:
-                    full = os.path.join(d, f)
-                    if os.path.exists(full):
-                        try:
-                            with open(full, 'r', encoding='utf-8') as file:
-                                match = re.search(r'id\s*=\s*[\'"]?(\d+)[\'"]?', file.read())
-                                if match: return match.group(1)
-                        except: pass
-            return None
-
-        # Vòng lặp chờ ID
-        for i in range(15):
-            rustdesk_id = get_id_local()
-            if rustdesk_id: break
-            time.sleep(1)
-            print(f"Đang chờ ID... {i}/15")
-
-        # --- BƯỚC 7: XỬ LÝ KẾT QUẢ ---
-        if rustdesk_id:
-            print(f"✅ ID: {rustdesk_id}")
+            # Đảm bảo thư mục tồn tại
+            if not os.path.exists(conf_dir):
+                os.makedirs(conf_dir, exist_ok=True)
+                
+            # Chúng ta sẽ sửa file user.conf (file này ghi đè cài đặt hệ thống)
+            conf_file = os.path.join(conf_dir, "user.conf")
             
-            # Đặt mật khẩu
-            print("Đang đặt mật khẩu...")
-            run_command_safe([target_exe, "--password", temp_password], wait_time=3)
-
-            # Gửi thông báo
-            install_status = "Installed & Service Running" if target_exe == installed_exe else "Portable Mode (Service Fix)"
+            print(f"Đang cấu hình AnyDesk tại: {conf_file}")
             
-            if send_to_discord and "YOUR_ID" not in DISCORD_WEBHOOK_URL:
+            lines = []
+            # 1. Đọc nội dung cũ nếu file tồn tại
+            if os.path.exists(conf_file):
                 try:
-                    content_ping = ""
-                    embed = {
-                        "title": "🚀 Hỗ trợ RustDesk",
-                        "color": 65280, 
-                        "fields": [
-                            { "name": "👤 User", "value": f"**{discord_name}**", "inline": True },
-                            { "name": "🆔 ID", "value": f"```{rustdesk_id}```", "inline": True },
-                            { "name": "🔑 Pass", "value": f"```{temp_password}```", "inline": True },
-                            { "name": "💻 Status", "value": install_status, "inline": False }
-                        ],
-                        "footer": { "text": "WGZ Updater" }
-                    }
-                    requests.post(DISCORD_WEBHOOK_URL, json={
-                        "content": content_ping, "username": "Bot RustDesk", "embeds": [embed]
-                    }, timeout=5)
-                    progress_queue.put(("anydesk_id_sent_to_discord", rustdesk_id))
-                except:
+                    with open(conf_file, "r", encoding="utf-8", errors="ignore") as f:
+                        lines = f.readlines()
+                except Exception as e:
+                    print(f"Lỗi đọc config cũ: {e}")
+
+            # 2. Xóa dòng cấu hình cũ (nếu có) để tránh trùng lặp
+            # Key cần tìm: ad.anynet.direct_connection
+            new_lines = [line for line in lines if "ad.anynet.direct_connection" not in line]
+            
+            # 3. Thêm dòng cấu hình mới (0 = Disable, 1 = Enable)
+            new_lines.append("ad.anynet.direct_connection=0\n")
+            
+            # 4. Ghi lại file
+            with open(conf_file, "w", encoding="utf-8") as f:
+                f.writelines(new_lines)
+                
+            print("--> Đã tắt 'Direct Connection' trong config thành công.")
+            return True
+
+        except Exception as e:
+            print(f"Lỗi khi sửa config AnyDesk: {e}")
+            return False
+
+    def launch_rustdesk_thread(send_to_discord, discord_name):
+        """
+        (RUSTDESK FULL: AUTO INSTALL + SERVICE FIX)
+        1. Kiểm tra nếu chưa cài -> Tự động cài vào Program Files.
+        2. Cài đặt và Bật Service để lấy ID/Pass ổn định.
+        3. Dùng cơ chế 'Fire and Forget' để tránh treo App.
+        """
+        CREATE_NO_WINDOW = 0x08000000 
+        rustdesk_id = None
+        temp_password = "WGZSupport2025" 
+        
+        # Định nghĩa các đường dẫn
+        program_files = os.environ.get("ProgramFiles", r"C:\Program Files")
+        installed_dir = os.path.join(program_files, "RustDesk")
+        installed_exe = os.path.join(installed_dir, "RustDesk.exe")
+        
+        # --- HÀM HELPER: CHẠY LỆNH AN TOÀN ---
+        def run_command_safe(cmd_list, wait_time=5):
+            """Chạy lệnh với timeout để tránh treo App."""
+            try:
+                print(f"Executing: {' '.join(cmd_list)}")
+                process = subprocess.Popen(
+                    cmd_list, 
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    creationflags=CREATE_NO_WINDOW
+                )
+                try:
+                    stdout, stderr = process.communicate(timeout=wait_time)
+                    return True
+                except subprocess.TimeoutExpired:
+                    print(f"Lệnh tốn quá {wait_time}s (có thể đang chạy ngầm). Bỏ qua...")
+                    return True 
+            except Exception as e:
+                print(f"Lỗi lệnh: {e}")
+                return False
+        # -------------------------------------
+
+        try:
+            # --- BƯỚC 1: TẮT RUSTDESK CŨ ---
+            print("Đang đóng RustDesk cũ...")
+            run_command_safe(["taskkill", "/F", "/IM", "RustDesk.exe"], wait_time=2)
+            time.sleep(1)
+
+            # --- BƯỚC 2: TÌM FILE GỐC (PORTABLE) ---
+            portable_exe = resource_path("RustDesk.exe")
+            if not os.path.exists(portable_exe):
+                portable_exe = "RustDesk.exe" 
+            
+            if not os.path.exists(portable_exe) and not os.path.exists(installed_exe):
+                progress_queue.put(("anydesk_error", "Không tìm thấy file RustDesk.exe gốc để cài đặt."))
+                return
+
+            # --- BƯỚC 3: KIỂM TRA & CÀI ĐẶT (NẾU CẦN) ---
+            target_exe = portable_exe 
+
+            if os.path.exists(installed_exe):
+                print("Phát hiện RustDesk đã được cài đặt.")
+                target_exe = installed_exe
+            else:
+                print("Chưa cài đặt. Đang kích hoạt bộ cài...")
+                if os.path.exists(portable_exe):
+                    # 1. Chạy lệnh cài đặt nhưng KHÔNG đợi (Popen không communicate ngay)
+                    print(f"Executing Install: {portable_exe} --install --silent")
+                    install_proc = run_command_safe([portable_exe, "--install", "--silent"], wait_time=0)
+                    
+                    # 2. Vòng lặp kiểm tra file (Polling) thay vì Wait
+                    # Quét mỗi 1 giây, tối đa 20 giây. Hễ thấy file là dừng.
+                    print("Đang đợi file xuất hiện trong Program Files...")
+                    install_success = False
+                    for i in range(60):
+                        if os.path.exists(installed_exe):
+                            print(f"--> File đã xuất hiện sau {i+1} giây!")
+                            install_success = True
+                            break
+                        time.sleep(1)
+                    
+                    if install_success:
+                        # Chờ thêm 2s để file được ghi hoàn tất
+                        time.sleep(2)
+                        target_exe = installed_exe
+                        print("Cài đặt hoàn tất (Smart Check).")
+                        
+                        # (Tùy chọn) Kill tiến trình cài đặt nếu nó còn treo
+                        try: install_proc.kill() 
+                        except: pass
+                    else:
+                        print("Cài đặt quá lâu hoặc thất bại. Dùng bản Portable.")
+                        target_exe = portable_exe
+
+            # --- BƯỚC 4: XỬ LÝ SERVICE (TỐI ƯU HÓA) ---
+            print(f"Đang cấu hình Service cho: {target_exe}")
+            
+            # 1. Kiểm tra xem Service đã tồn tại chưa (để tránh bị timeout 10s vô ích)
+            service_exists = False
+            try:
+                # Lệnh "sc query RustDesk" trả về 0 nếu service tồn tại, 1060 nếu không có
+                check_svc = subprocess.run(
+                    ["sc", "query", "RustDesk"], 
+                    capture_output=True, 
+                    text=True, 
+                    creationflags=CREATE_NO_WINDOW
+                )
+                if check_svc.returncode == 0:
+                    service_exists = True
+                    print("Service 'RustDesk' đã tồn tại. Bỏ qua bước cài đặt.")
+            except: pass
+
+            # 2. Chỉ cài đặt nếu chưa có
+            if not service_exists:
+                # Tăng timeout lên 15s cho chắc chắn
+                run_command_safe([target_exe, "--install-service"], wait_time=15)
+                time.sleep(1)
+
+            # 3. Đảm bảo đường dẫn Service trỏ đúng vào file exe hiện tại (Quan trọng khi update)
+            # Nếu file exe thay đổi vị trí, lệnh này sẽ cập nhật lại đường dẫn cho Service
+            try:
+                subprocess.run(
+                    ["sc", "config", "RustDesk", f"binPath= \"{target_exe}\""],
+                    capture_output=True,
+                    creationflags=CREATE_NO_WINDOW
+                )
+            except: pass
+
+            # 4. Bật Service (Timeout 5s)
+            # Dùng 'sc start' đôi khi nhanh hơn 'net start'
+            run_command_safe(["sc", "start", "RustDesk"], wait_time=5)
+            time.sleep(2)
+
+            # --- BƯỚC 5: KHỞI ĐỘNG GIAO DIỆN ---
+            print("Mở giao diện RustDesk...")
+            subprocess.Popen([target_exe])
+
+            # --- BƯỚC 6: CHỜ GUI VÀ LẤY ID ---
+            print("⏳ Đang đợi cửa sổ App...")
+            for i in range(20): 
+                if gw.getWindowsWithTitle('RustDesk'):
+                    break
+                time.sleep(0.5)
+
+            print("⏳ Đang lấy ID...")
+            # Hàm lấy ID nội bộ
+            def get_id_local():
+                # Thử lệnh cmd trước
+                try:
+                    proc = subprocess.Popen([target_exe, "--get-id"], stdout=subprocess.PIPE, text=True, creationflags=CREATE_NO_WINDOW)
+                    out, _ = proc.communicate(timeout=3)
+                    val = out.strip().replace(" ", "")
+                    if val.isdigit() and len(val) > 6: return val
+                except: pass
+                
+                # Thử đọc file config
+                paths = [
+                    os.path.join(os.getenv('APPDATA'), 'RustDesk', 'config'),
+                    os.path.join(os.getenv('LOCALAPPDATA'), 'RustDesk', 'config'),
+                    os.path.join(os.environ.get("ProgramData", "C:\\ProgramData"), 'RustDesk', 'config') # Thêm ProgramData
+                ]
+                for d in paths:
+                    for f in ['RustDesk.toml', 'RustDesk2.toml']:
+                        full = os.path.join(d, f)
+                        if os.path.exists(full):
+                            try:
+                                with open(full, 'r', encoding='utf-8') as file:
+                                    match = re.search(r'id\s*=\s*[\'"]?(\d+)[\'"]?', file.read())
+                                    if match: return match.group(1)
+                            except: pass
+                return None
+
+            # Vòng lặp chờ ID
+            for i in range(15):
+                rustdesk_id = get_id_local()
+                if rustdesk_id: break
+                time.sleep(1)
+                print(f"Đang chờ ID... {i}/15")
+
+            # --- BƯỚC 7: XỬ LÝ KẾT QUẢ ---
+            if rustdesk_id:
+                print(f"✅ ID: {rustdesk_id}")
+                
+                # Đặt mật khẩu
+                print("Đang đặt mật khẩu...")
+                run_command_safe([target_exe, "--password", temp_password], wait_time=3)
+
+                # Gửi thông báo
+                install_status = "Installed & Service Running" if target_exe == installed_exe else "Portable Mode (Service Fix)"
+                
+                if send_to_discord and "YOUR_ID" not in DISCORD_WEBHOOK_URL:
+                    try:
+                        content_ping = ""
+                        embed = {
+                            "title": "🚀 Hỗ trợ RustDesk",
+                            "color": 65280, 
+                            "fields": [
+                                { "name": "👤 User", "value": f"**{discord_name}**", "inline": True },
+                                { "name": "🆔 ID", "value": f"```{rustdesk_id}```", "inline": True },
+                                { "name": "🔑 Pass", "value": f"```{temp_password}```", "inline": True },
+                                { "name": "💻 Status", "value": install_status, "inline": False }
+                            ],
+                            "footer": { "text": "WGZ Updater" }
+                        }
+                        requests.post(DISCORD_WEBHOOK_URL, json={
+                            "content": content_ping, "username": "Bot RustDesk", "embeds": [embed]
+                        }, timeout=5)
+                        progress_queue.put(("anydesk_id_sent_to_discord", rustdesk_id))
+                    except:
+                        progress_queue.put(("anydesk_id_retrieved_locally", rustdesk_id))
+                else:
                     progress_queue.put(("anydesk_id_retrieved_locally", rustdesk_id))
             else:
-                progress_queue.put(("anydesk_id_retrieved_locally", rustdesk_id))
-        else:
-            progress_queue.put(("anydesk_error", "Không lấy được ID. Vui lòng kiểm tra lại RustDesk."))
+                progress_queue.put(("anydesk_error", "Không lấy được ID. Vui lòng kiểm tra lại RustDesk."))
 
-    except Exception as e:
-        print(f"Lỗi RustDesk: {e}")
-        progress_queue.put(("anydesk_error", str(e)))
-    
-    finally:
-        progress_queue.put(("anydesk_done", None))
-
-
-# --- THÊM MỚI: CÀI ĐẶT ĐƯỜNG DẪN STEAM ---
-ttk.Label(path_settings_frame, text="Steam Path:").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
-global g_steam_path_entry
-g_steam_path_entry = ttk.Entry(path_settings_frame)
-g_steam_path_entry.grid(row=0, column=1, sticky="ew")
-g_steam_path_entry.bind("<FocusOut>", lambda e: action_save_path_settings())
-
-def browse_steam_exe():
-    file_selected = filedialog.askopenfilename(title="Tìm steam.exe", filetypes=[("Executable", "steam.exe")])
-    if file_selected:
-        g_steam_path_entry.delete(0, tk.END)
-        g_steam_path_entry.insert(0, file_selected)
-        action_save_path_settings()
-
-ttk.Button(path_settings_frame, text="...", width=3, command=browse_steam_exe).grid(row=0, column=2, padx=(5, 0))
-
-# -- Riot --
-ttk.Label(path_settings_frame, text="Riot Client:").grid(row=1, column=0, sticky=tk.W, padx=(0, 10), pady=(10, 0))
-global g_riot_path_entry
-g_riot_path_entry = ttk.Entry(path_settings_frame)
-g_riot_path_entry.grid(row=1, column=1, sticky="ew", pady=(10, 0))
-g_riot_path_entry.bind("<FocusOut>", lambda e: action_save_path_settings())
-
-def browse_riot_exe():
-    file_selected = filedialog.askopenfilename(title="Tìm RiotClientServices.exe", filetypes=[("Executable", "RiotClientServices.exe")])
-    if file_selected:
-        g_riot_path_entry.delete(0, tk.END)
-        g_riot_path_entry.insert(0, file_selected)
-        action_save_path_settings()
-
-ttk.Button(path_settings_frame, text="...", width=3, command=browse_riot_exe).grid(row=1, column=2, padx=(5, 0), pady=(10, 0))
-
-
-# --- 4. SUPPORT SECTION ---
-support_frame = ttk.LabelFrame(fourth_tab_frame, text="🆘 Hỗ Trợ Kỹ Thuật", padding=10)
-support_frame.pack(fill=tk.X, pady=(0, 10))
-
-support_layout = ttk.Frame(support_frame)
-support_layout.pack(fill=tk.X)
-
-ttk.Label(support_layout, text="Gặp lỗi khó? Yêu cầu hỗ trợ từ xa.", style="secondary.TLabel").pack(side=tk.LEFT)
-
-global g_anydesk_button
-g_anydesk_button = ttk.Button(
-    support_layout,
-    text="🚀 Hỗ Trợ Từ Xa", # <--- Đổi tên hiển thị
-    command=action_launch_rustdesk,    # <--- Đổi hàm gọi
-    style="Accent.TButton"
-)
-g_anydesk_button.pack(side=tk.RIGHT)
-CreateToolTip(g_anydesk_button, "Mở RustDesk để Admin điều khiển máy hỗ trợ sửa lỗi.")
-
-# --- CREDITS FOOTER ---
-footer_label = ttk.Label(fourth_tab_frame, text="WIBU's Gaming Zone © 2025", style="secondary.TLabel", font=("Segoe UI", 8))
-footer_label.pack(side=tk.BOTTOM, pady=5)
-# --- Hàm cho luồng tải config ban đầu ---
-
-def load_config_thread():
-    """(ĐÃ SỬA) Tải cả config mod VÀ config theme."""
-    global fallback_options
-
-    # 1. Tải config Mod (như cũ)
-    mod_config = load_config_from_github()
-    if not mod_config:
-        mod_config = fallback_options
-
-    # 2. Tải config Theme (MỚI)
-    theme_config = {}
-    try:
-        # (Chúng ta dùng lại link raw của file config, chỉ thay tên file)
-        theme_url = "https://raw.githubusercontent.com/hoangdangnhatkha/-WGZ-GameUpdater/refs/heads/main/game_themes.json"
-        cache_buster = f"?_={int(time.time())}"
-        full_theme_url = theme_url + cache_buster
-
-        print(f"Đang tải config theme: {full_theme_url}")
-        response = requests.get(full_theme_url, timeout=10)
-        response.raise_for_status()
-        theme_config = response.json()
-        print("Tải config theme thành công.")
-
-    except Exception as e:
-        print(f"Lỗi khi tải game_themes.json (sẽ dùng icon mặc định): {e}")
-        theme_config = {} # Dùng dict rỗng nếu lỗi
-
-    # 3. Gộp 2 kết quả và gửi về 1 message
-    combined_data = {
-        "mods": mod_config,
-        "themes": theme_config
-    }
-    progress_queue.put(("config_loaded", combined_data))
-
-def preload_rocket_gif_thread():
-    """
-    Chạy ngầm ngay khi mở App để tải GIF vào RAM.
-    Giúp bấm nút 'Chạy Game' là hiện hiệu ứng ngay lập tức.
-    """
-    global g_rocket_raw_data, ROCKET_GIF_URL
-    
-    if g_rocket_raw_data: 
-        return # Đã có dữ liệu thì thôi
-
-    try:
-        print(f"Đang tải trước (Preload) GIF hiệu ứng...")
-        response = requests.get(ROCKET_GIF_URL, timeout=10)
-        response.raise_for_status()
-        g_rocket_raw_data = response.content # Lưu dữ liệu thô vào RAM
-        print("✅ Tải trước GIF hiệu ứng hoàn tất!")
-    except Exception as e:
-        print(f"⚠️ Lỗi khi tải trước GIF (Sẽ thử lại khi bấm nút): {e}")
-
-# --- THÊM MỚI: HÀM TẢI GIF ĐỘNG ---
-def load_gif_frames_thread():
-    """(Chạy ngầm) Tải GIF từ URL và tách các frame."""
-    try:
-        print(f"Đang tải GIF từ: {GIF_URL}")
-        response = requests.get(GIF_URL, timeout=10)
-        response.raise_for_status()
-
-        gif_data = io.BytesIO(response.content)
-        with Image.open(gif_data) as img:
-            frames = []
-            delay = img.info.get('duration', 100) # Lấy delay, mặc định 100ms
-
-            for i in range(img.n_frames):
-                img.seek(i)
-                # Tạo một bản copy của frame và chuyển sang RGBA
-                frame_rgba = img.copy().convert('RGBA')
-                tk_frame = ImageTk.PhotoImage(frame_rgba)
-                frames.append(tk_frame)
-
-        if frames:
-            print(f"Tải GIF thành công, {len(frames)} frames, delay {delay}ms.")
-            # Gửi danh sách frame và delay về queue
-            progress_queue.put(("gif_loaded", {"frames": frames, "delay": delay}))
-        else:
-            print("Lỗi: GIF không có frame nào.")
-
-    except Exception as e:
-        print(f"Lỗi nghiêm trọng khi tải hoặc xử lý GIF: {e}")
-
-def preload_all_images_thread(themes_dict, mod_config_dict):
-    """
-    (ĐÃ SỬA) Tải và cache TẤT CẢ các ảnh game (Song song).
-    """
-    try:
-        # 1. Tải các icon mặc định/dịch vụ (tuần tự, vì chúng quan trọng)
-        # (Bạn cần điền URL chính xác vào đây)
-        print("Đang tải icon mặc định...")
-        root.default_game_icon_small = load_image_from_url("https://i.imgur.com/g0tAUc2.png", size=(192, 89))
-        root.default_game_icon_large = load_image_from_url("https://i.imgur.com/g0tAUc2.png", size=(460, 215))
-        steam_url = "https://images.icon-icons.com/2428/PNG/512/steam_black_logo_icon_147078.png"
-        riot_url = "https://cdn2.steamgriddb.com/icon_thumb/ada216e157757c965a766aae6e21423a.png"
-        root.steam_icon_small = load_image_from_url(steam_url, size=(89, 89))
-        root.riot_icon_small = load_image_from_url(riot_url, size=(89, 89))
-        root.steam_icon_tiny = load_image_from_url(steam_url, size=(32, 32))
-        root.riot_icon_tiny = load_image_from_url(riot_url, size=(32, 32))
-        print(f"Bắt đầu tải trước {len(themes_dict)} ảnh themes (song song)...")
+        except Exception as e:
+            print(f"Lỗi RustDesk: {e}")
+            progress_queue.put(("anydesk_error", str(e)))
         
-        # 2. Dùng ThreadPoolExecutor để tải song song
-        # 'max_workers=10' có nghĩa là tải 10 ảnh cùng lúc
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            
-            # Tạo danh sách các "công việc" cần thực hiện
-            futures = []
-            for game_name, url in themes_dict.items():
-                if url:
-                    # Gửi công việc tải size nhỏ
-                    futures.append(executor.submit(load_image_from_url, url, (192, 89)))
-                    # Gửi công việc tải size lớn
-                    futures.append(executor.submit(load_image_from_url, url, (460, 215)))
-            
-            # (Không bắt buộc) Chờ tất cả công việc hoàn thành
-            concurrent.futures.wait(futures)
+        finally:
+            progress_queue.put(("anydesk_done", None))
 
-        print("Tải trước (preload) ảnh song song hoàn tất.")
 
-    except Exception as e:
-        print(f"Lỗi trong quá trình tải trước ảnh (song song): {e}")
-    finally:
-        # 3. Gửi tin nhắn (như cũ)
-        progress_queue.put(("all_images_preloaded", mod_config_dict))
+    # --- THÊM MỚI: CÀI ĐẶT ĐƯỜNG DẪN STEAM ---
+    ttk.Label(path_settings_frame, text="Steam Path:").grid(row=0, column=0, sticky=tk.W, padx=(0, 10))
+    global g_steam_path_entry
+    g_steam_path_entry = ttk.Entry(path_settings_frame)
+    g_steam_path_entry.grid(row=0, column=1, sticky="ew")
+    g_steam_path_entry.bind("<FocusOut>", lambda e: action_save_path_settings())
 
-# --- Chạy ứng dụng ---
-if __name__ == '__main__':
-    multiprocessing.freeze_support()
+    def browse_steam_exe():
+        file_selected = filedialog.askopenfilename(title="Tìm steam.exe", filetypes=[("Executable", "steam.exe")])
+        if file_selected:
+            g_steam_path_entry.delete(0, tk.END)
+            g_steam_path_entry.insert(0, file_selected)
+            action_save_path_settings()
 
-    try:
-        app_mutex_name = b"WGZ_GameUpdater_Singleton_Mutex"
-        g_singleton_lock = SingleInstance(app_mutex_name)
+    ttk.Button(path_settings_frame, text="...", width=3, command=browse_steam_exe).grid(row=0, column=2, padx=(5, 0))
+
+    # -- Riot --
+    ttk.Label(path_settings_frame, text="Riot Client:").grid(row=1, column=0, sticky=tk.W, padx=(0, 10), pady=(10, 0))
+    global g_riot_path_entry
+    g_riot_path_entry = ttk.Entry(path_settings_frame)
+    g_riot_path_entry.grid(row=1, column=1, sticky="ew", pady=(10, 0))
+    g_riot_path_entry.bind("<FocusOut>", lambda e: action_save_path_settings())
+
+    def browse_riot_exe():
+        file_selected = filedialog.askopenfilename(title="Tìm RiotClientServices.exe", filetypes=[("Executable", "RiotClientServices.exe")])
+        if file_selected:
+            g_riot_path_entry.delete(0, tk.END)
+            g_riot_path_entry.insert(0, file_selected)
+            action_save_path_settings()
+
+    ttk.Button(path_settings_frame, text="...", width=3, command=browse_riot_exe).grid(row=1, column=2, padx=(5, 0), pady=(10, 0))
+
+
+    # --- 4. SUPPORT SECTION ---
+    support_frame = ttk.LabelFrame(fourth_tab_frame, text="🆘 Hỗ Trợ Kỹ Thuật", padding=10)
+    support_frame.pack(fill=tk.X, pady=(0, 10))
+
+    support_layout = ttk.Frame(support_frame)
+    support_layout.pack(fill=tk.X)
+
+    ttk.Label(support_layout, text="Gặp lỗi khó? Yêu cầu hỗ trợ từ xa.", style="secondary.TLabel").pack(side=tk.LEFT)
+
+    global g_anydesk_button
+    g_anydesk_button = ttk.Button(
+        support_layout,
+        text="🚀 Hỗ Trợ Từ Xa", # <--- Đổi tên hiển thị
+        command=action_launch_rustdesk,    # <--- Đổi hàm gọi
+        style="Accent.TButton"
+    )
+    g_anydesk_button.pack(side=tk.RIGHT)
+    CreateToolTip(g_anydesk_button, "Mở RustDesk để Admin điều khiển máy hỗ trợ sửa lỗi.")
+
+    # --- CREDITS FOOTER ---
+    footer_label = ttk.Label(fourth_tab_frame, text="WIBU's Gaming Zone © 2025", style="secondary.TLabel", font=("Segoe UI", 8))
+    footer_label.pack(side=tk.BOTTOM, pady=5)
+    # --- Hàm cho luồng tải config ban đầu ---
+
+    def load_config_thread():
+        """(ĐÃ SỬA) Tải cả config mod VÀ config theme."""
+        global fallback_options
+
+        # 1. Tải config Mod (như cũ)
+        mod_config = load_config_from_github()
+        if not mod_config:
+            mod_config = fallback_options
+
+        # 2. Tải config Theme (MỚI)
+        theme_config = {}
+        try:
+            # (Chúng ta dùng lại link raw của file config, chỉ thay tên file)
+            theme_url = "https://raw.githubusercontent.com/hoangdangnhatkha/-WGZ-GameUpdater/refs/heads/main/game_themes.json"
+            cache_buster = f"?_={int(time.time())}"
+            full_theme_url = theme_url + cache_buster
+
+            print(f"Đang tải config theme: {full_theme_url}")
+            response = requests.get(full_theme_url, timeout=10)
+            response.raise_for_status()
+            theme_config = response.json()
+            print("Tải config theme thành công.")
+
+        except Exception as e:
+            print(f"Lỗi khi tải game_themes.json (sẽ dùng icon mặc định): {e}")
+            theme_config = {} # Dùng dict rỗng nếu lỗi
+
+        # 3. Gộp 2 kết quả và gửi về 1 message
+        combined_data = {
+            "mods": mod_config,
+            "themes": theme_config
+        }
+        progress_queue.put(("config_loaded", combined_data))
+
+    def preload_rocket_gif_thread():
+        """
+        Chạy ngầm ngay khi mở App để tải GIF vào RAM.
+        Giúp bấm nút 'Chạy Game' là hiện hiệu ứng ngay lập tức.
+        """
+        global g_rocket_raw_data, ROCKET_GIF_URL
         
-    except Exception as e:
-        print(f"Cảnh báo: Không thể tạo singleton mutex: {e}")
+        if g_rocket_raw_data: 
+            return # Đã có dữ liệu thì thôi
 
+        try:
+            print(f"Đang tải trước (Preload) GIF hiệu ứng...")
+            response = requests.get(ROCKET_GIF_URL, timeout=10)
+            response.raise_for_status()
+            g_rocket_raw_data = response.content # Lưu dữ liệu thô vào RAM
+            print("✅ Tải trước GIF hiệu ứng hoàn tất!")
+        except Exception as e:
+            print(f"⚠️ Lỗi khi tải trước GIF (Sẽ thử lại khi bấm nút): {e}")
+
+    # --- THÊM MỚI: HÀM TẢI GIF ĐỘNG ---
+    def load_gif_frames_thread():
+        """(Chạy ngầm) Tải GIF từ URL và tách các frame."""
+        try:
+            print(f"Đang tải GIF từ: {GIF_URL}")
+            response = requests.get(GIF_URL, timeout=10)
+            response.raise_for_status()
+
+            gif_data = io.BytesIO(response.content)
+            with Image.open(gif_data) as img:
+                frames = []
+                delay = img.info.get('duration', 100) # Lấy delay, mặc định 100ms
+
+                for i in range(img.n_frames):
+                    img.seek(i)
+                    # Tạo một bản copy của frame và chuyển sang RGBA
+                    frame_rgba = img.copy().convert('RGBA')
+                    tk_frame = ImageTk.PhotoImage(frame_rgba)
+                    frames.append(tk_frame)
+
+            if frames:
+                print(f"Tải GIF thành công, {len(frames)} frames, delay {delay}ms.")
+                # Gửi danh sách frame và delay về queue
+                progress_queue.put(("gif_loaded", {"frames": frames, "delay": delay}))
+            else:
+                print("Lỗi: GIF không có frame nào.")
+
+        except Exception as e:
+            print(f"Lỗi nghiêm trọng khi tải hoặc xử lý GIF: {e}")
+
+    def preload_all_images_thread(themes_dict, mod_config_dict):
+        """
+        (ĐÃ SỬA) Tải và cache TẤT CẢ các ảnh game (Song song).
+        """
+        try:
+            # 1. Tải các icon mặc định/dịch vụ (tuần tự, vì chúng quan trọng)
+            # (Bạn cần điền URL chính xác vào đây)
+            print("Đang tải icon mặc định...")
+            root.default_game_icon_small = load_image_from_url("https://i.imgur.com/g0tAUc2.png", size=(192, 89))
+            root.default_game_icon_large = load_image_from_url("https://i.imgur.com/g0tAUc2.png", size=(460, 215))
+            steam_url = "https://images.icon-icons.com/2428/PNG/512/steam_black_logo_icon_147078.png"
+            riot_url = "https://cdn2.steamgriddb.com/icon_thumb/ada216e157757c965a766aae6e21423a.png"
+            root.steam_icon_small = load_image_from_url(steam_url, size=(89, 89))
+            root.riot_icon_small = load_image_from_url(riot_url, size=(89, 89))
+            root.steam_icon_tiny = load_image_from_url(steam_url, size=(32, 32))
+            root.riot_icon_tiny = load_image_from_url(riot_url, size=(32, 32))
+            print(f"Bắt đầu tải trước {len(themes_dict)} ảnh themes (song song)...")
+            
+            # 2. Dùng ThreadPoolExecutor để tải song song
+            # 'max_workers=10' có nghĩa là tải 10 ảnh cùng lúc
+            with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+                
+                # Tạo danh sách các "công việc" cần thực hiện
+                futures = []
+                for game_name, url in themes_dict.items():
+                    if url:
+                        # Gửi công việc tải size nhỏ
+                        futures.append(executor.submit(load_image_from_url, url, (192, 89)))
+                        # Gửi công việc tải size lớn
+                        futures.append(executor.submit(load_image_from_url, url, (460, 215)))
+                
+                # (Không bắt buộc) Chờ tất cả công việc hoàn thành
+                concurrent.futures.wait(futures)
+
+            print("Tải trước (preload) ảnh song song hoàn tất.")
+
+        except Exception as e:
+            print(f"Lỗi trong quá trình tải trước ảnh (song song): {e}")
+        finally:
+            # 3. Gửi tin nhắn (như cũ)
+            progress_queue.put(("all_images_preloaded", mod_config_dict))
+
+    root.update_idletasks()
+
+
+    status_label_splash.config(text="Đang tải thư viện: Google Drive & GitHub...")
+    splash.update()
     root.protocol("WM_DELETE_WINDOW", on_closing)
     status_label.configure(text="Đang tải config phiên bản...", style="White.TLabel")
     progress_bar.start(10)
