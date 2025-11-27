@@ -2919,10 +2919,11 @@ def _process_run_gemini():
                     window.load_url("https://gemini.google.com/app")
 
                 elif "gemini.google.com" in current_url:
-                    log_debug("Step 4: Gemini Loaded. Locking Avatar...")
+                    log_debug("Step 4: Gemini Loaded. Locking Avatar & Hiding Settings...")
                     css_fix = """
                         var style = document.createElement('style');
                         style.textContent = `
+                            /* Khóa nút Tài khoản (Account) - Giữ nguyên hiển thị nhưng không click được */
                             a[href^="https://accounts.google.com"],
                             button[aria-label*="Google Account"],
                             button[aria-label*="Tài khoản Google"],
@@ -2931,6 +2932,15 @@ def _process_run_gemini():
                                 pointer-events: none !important;
                                 cursor: default !important;
                                 opacity: 1 !important;
+                            }
+
+                            /* Ẩn hoàn toàn nút Cài đặt (Settings) & Trợ giúp (Help) */
+                            button[aria-label*="Settings"],
+                            button[aria-label*="Cài đặt"],
+                            button[aria-label*="Help"],
+                            button[aria-label*="Trợ giúp"],
+                            a[href*="support.google.com"] {
+                                display: none !important;
                             }
                         `;
                         document.head.appendChild(style);
@@ -3359,6 +3369,7 @@ def action_set_game_path_from_page_2():
 
         # 4. (Quan trọng) Chạy lại hàm kiểm tra nút "Launch Game"
         update_guide_text()
+        update_single_game_card_state(g_current_game_name)
 
 # --- [MỚI] HÀM HIỆN NÚT RESET ---
 def show_reset_ui_button(parent_frame):
@@ -4302,6 +4313,7 @@ if __name__ == '__main__':
     
     root = TkinterDnD.Tk()
     root.withdraw()
+    
     # --- SPLASH SCREEN (BEGIN) ---
     splash = tk.Toplevel(root)
     splash.title("Loading")
@@ -4399,7 +4411,8 @@ if __name__ == '__main__':
     g_acct_grid_container = None
     g_acct_list_treeview = None
     g_acct_current_game = None # Tên game đang xem
-
+    global g_page1_ui_refs
+    g_page1_ui_refs = {}
 
     g_user_accounts_data = {} 
     g_user_accounts_file_id = None
@@ -5136,29 +5149,67 @@ if __name__ == '__main__':
         height = popup.winfo_height()
         center_window_on_screen(popup, width, height)
 
+    def update_single_game_card_state(game_name):
+        """
+        (HÀM MỚI) Chỉ cập nhật trạng thái nút bấm của 1 game duy nhất trên Trang 1.
+        Không vẽ lại toàn bộ lưới -> Siêu nhanh.
+        """
+        global local_config, g_page1_ui_refs
+
+        # Kiểm tra xem game này có tồn tại trên giao diện không
+        if game_name not in g_page1_ui_refs:
+            return
+
+        widgets = g_page1_ui_refs[game_name]
+        btn = widgets["btn"]
+        img_label = widgets["img_label"]
+
+        # 1. Kiểm tra lại đường dẫn (Logic giống hệt populate)
+        full_path_to_launch = None
+        
+        # Check Custom Game
+        if 'custom_games' in local_config and game_name in local_config['custom_games']:
+             full_path_to_launch = local_config['custom_games'][game_name].get("launch_path")
+        else:
+            # Check Server Game
+            current_global_path = local_config.get("game_paths", {}).get(game_name, "")
+            found_launch_file = local_config.get('game_launchers', {}).get(game_name)
+            
+            # Nếu config user chưa có, tìm trong dữ liệu tải về (fallback)
+            if not found_launch_file and 'download_options' in globals():
+                for _key, mod_data in download_options.get(game_name, []):
+                    if mod_data.get("launch_file"):
+                        found_launch_file = mod_data.get("launch_file"); break
+            
+            if found_launch_file and current_global_path and os.path.isdir(current_global_path):
+                full_path = os.path.join(current_global_path, found_launch_file)
+                if os.path.exists(full_path): full_path_to_launch = full_path
+
+        # 2. Cập nhật giao diện nút bấm
+        if full_path_to_launch:
+            btn.config(text="🚀 Chạy Game", state=tk.NORMAL, style="HoverAccent.TButton")
+            
+            # Cập nhật lệnh click (Bind lại sự kiện)
+            # Lưu ý: Bind Button-1 sẽ ghi đè bind cũ, rất tiện.
+            click_cmd = lambda e, p=full_path_to_launch, t=img_label: action_launch_game_from_page_1(p, t)
+            btn.bind("<Button-1>", click_cmd)
+        else:
+            btn.config(text="Chưa Cài Đặt", state=tk.DISABLED, style="TButton")
+            # (Không cần unbind, vì disabled thì không bấm được)
+
+        print(f"Đã cập nhật trạng thái thẻ game: {game_name}")
+
     def action_go_back_and_refresh_grid():
-        """
-        (HÀM MỚI) Refresh Lưới Game (Trang 1) và quay lại đó.
-        """
-        global download_options, g_game_search_entry
-
-        print("Đang quay lại và làm mới Lưới Game (Trang 1)...")
-        try:
-            # Lấy từ khóa tìm kiếm hiện tại (nếu có)
-            search_term = ""
-            if g_game_search_entry:
-                search_term = g_game_search_entry.get().lower()
-
-            # 1. Gọi hàm vẽ lại Trang 1
-            # (download_options là biến toàn cục đã có)
-            populate_page_1_grid(download_options, search_term)
-
-            # 2. Quay lại Trang 1
-            show_page(page_1_game_grid)
-        except Exception as e:
-            print(f"Lỗi khi quay lại và làm mới Lưới Game: {e}")
-            # Fallback: Dù lỗi cũng quay lại
-            show_page(page_1_game_grid)
+        """(ĐÃ TỐI ƯU) Quay lại và chỉ cập nhật game vừa xem."""
+        global g_current_game_name
+        
+        print("Quay lại Trang 1...")
+        
+        # Cập nhật nút bấm cho game vừa thao tác (nếu có)
+        if g_current_game_name:
+            update_single_game_card_state(g_current_game_name)
+            
+        show_page(page_1_game_grid)
 
 
     # --- HẾT CODE CHO TAB 2 ("Quản lý Account") ---
@@ -5241,35 +5292,33 @@ if __name__ == '__main__':
 
 
     def show_page(page_to_show):
-        """(ĐÃ SỬA) Chuyển trang (KHÔNG có hiệu ứng trượt)."""
+        """(PERFORMANCE FIX) Chuyển trang mượt mà bằng place_forget."""
         global g_current_page, page_2_back_button, g_set_path_button
         
-        # Nếu đang ở trang đó, không làm gì
         if g_current_page == page_to_show:
             return 
         
-        # Ẩn các nút nếu rời Trang 2
+        # Ẩn các nút điều hướng nếu rời Trang 2
         if g_current_page == page_2_mod_list and page_to_show != page_3_progress:
             if 'g_launch_game_button' in globals():
                 g_launch_game_button.pack_forget()
             if 'page_2_back_button' in globals():
                 page_2_back_button.pack_forget()
             if 'g_set_path_button' in globals():
-                g_set_path_button.pack_forget()
+                try: g_set_path_button.pack_forget()
+                except: pass
 
-        print(f"Đang chuyển trang: {g_current_page.winfo_name()} -> {page_to_show.winfo_name()}")
-
-        # --- SỬA LỖI: Bỏ animation ---
-        # 1. Ẩn trang hiện tại (đặt nó ở relx=1, bên phải)
-        g_current_page.place(relx=1, rely=0, relwidth=1, relheight=1)
+        # --- [TỐI ƯU HÓA] ---
+        # Thay vì đẩy sang phải (relx=1), ta gỡ bỏ hoàn toàn trang cũ (place_forget)
+        # Điều này giải phóng tài nguyên render ngay lập tức -> Hết giật
+        if g_current_page:
+            g_current_page.place_forget()
         
-        # 2. Hiển thị trang mới (đặt nó ở relx=0, ngay giữa)
+        # Hiện trang mới
         page_to_show.place(relx=0, rely=0, relwidth=1, relheight=1)
-        page_to_show.tkraise() # Đảm bảo nó ở trên cùng
+        page_to_show.tkraise()
         
-        # 3. Cập nhật trang hiện tại
         g_current_page = page_to_show
-        # --- HẾT SỬA ---
 
     # --- THÊM MỚI: HÀM ANIMATION TRƯỢT ---
     def animate_slide(page_from, page_to, direction="left"):
@@ -5808,42 +5857,40 @@ if __name__ == '__main__':
 
     # --- THÊM MỚI: CÁC HÀM ĐIỀU HƯỚNG MỚI ---
     def populate_page_1_grid(game_groups, search_term=""):
-        """(ĐÃ NÂNG CẤP) Hiển thị lưới game bao gồm cả Game Tùy Chỉnh."""
+        """
+        (ULTIMATE FIX) Batch Processing + Loading Screen.
+        Chia nhỏ việc vẽ giao diện thành từng đợt để không làm đơ ứng dụng.
+        """
         global g_game_grid_container, g_game_search_entry, page_1_canvas, page_1_canvas_window_id
+        global g_tab1_loading_frame # <-- THÊM DÒNG NÀY (Quan trọng)
 
         style.configure("HoverAccent.TButton", background="#0078d4", foreground="white", font=("Segoe UI", 10, "bold"), borderwidth=1, focuscolor="none")
         style.map("HoverAccent.TButton", background=[('active', '#ff0000'), ('disabled', '#cccccc')], foreground=[('active', 'cyan')])
 
-        def create_page1_launch_cmd(path):
-            def launch_and_stop_event(event=None):
-                action_launch_game_from_page_1(path)
-                return "break" 
-            return launch_and_stop_event
-        
-        try:
-            loading_frame = page_1_game_grid.nametowidget("tab1_loading_frame")
-            if loading_frame:
-                loading_frame.destroy()
-                root.update_idletasks() 
-        except KeyError: pass
-        
-        # =========================================================================
-        # [THÊM MỚI] NÚT GEMINI AI PRO (Góc Phải Trên Cùng)
-        # =========================================================================
-        gemini_btn = ttk.Button(
-            page_1_game_grid, 
-            text="✨ Gemini AI PRO", 
-            command=action_open_gemini_pro, 
-            style="Accent.TButton"
-        )
-        # relx=1.0, y=10, anchor="ne" -> Căn theo mép phải, cách trên 10px
-        gemini_btn.place(relx=1.0, x=-20, y=10, anchor="ne")
-        CreateToolTip(gemini_btn, "Mở trợ lý Google Gemini ngay trong App.")
-        # =========================================================================
+        # --- 1. XÓA LOADING SPINNER (Cải tiến mạnh mẽ) ---
+        # Cách 1: Xóa thông qua biến toàn cục (Chính xác nhất)
+        if 'g_tab1_loading_frame' in globals() and g_tab1_loading_frame:
+            try:
+                if g_tab1_loading_frame.winfo_exists():
+                    g_tab1_loading_frame.destroy()
+                    root.update_idletasks()
+            except Exception as e:
+                print(f"Lỗi xóa loading frame (global): {e}")
 
-        # --- 1. THANH TÌM KIẾM & NÚT THÊM GAME ---
+        # Cách 2: Quét và diệt (Phòng hờ nếu Cách 1 trượt)
+        # Duyệt qua tất cả con của Page 1, nếu cái nào tên có chữ "loading" thì xóa
+        try:
+            for widget in page_1_game_grid.winfo_children():
+                try:
+                    # Kiểm tra tên widget (tab1_loading_frame)
+                    if "loading" in str(widget.winfo_name()):
+                        widget.destroy()
+                except: pass
+        except: pass
+
+        # --- 1. KHỞI TẠO UI CƠ BẢN (Giữ nguyên) ---
         if g_game_search_entry is None:
-            # ... (Code logo cũ giữ nguyên) ...
+            # Logo
             try:
                 image_path = resource_path("logo.png")
                 my_image = Image.open(image_path).resize((150, 150), Image.Resampling.LANCZOS)
@@ -5856,19 +5903,20 @@ if __name__ == '__main__':
             search_frame.pack(fill=tk.X, pady=(0, 15), padx=50)
 
             ttk.Label(search_frame, text="Tìm game:").pack(side=tk.LEFT, padx=(0, 10))
-
             g_game_search_entry = ttk.Entry(search_frame)
             g_game_search_entry.pack(fill=tk.X, expand=True, side=tk.LEFT)
             g_game_search_entry.bind("<Return>", on_game_search)
 
             ttk.Button(search_frame, text="X", command=action_clear_game_search, width=3).pack(side=tk.LEFT, padx=(5,0))
             
-            # [MỚI] Nút Thêm Game
             add_game_btn = ttk.Button(search_frame, text="➕ Thêm Game", command=action_add_custom_game_popup)
             add_game_btn.pack(side=tk.LEFT, padx=(10, 0))
-            CreateToolTip(add_game_btn, "Thêm game bên ngoài vào Launcher.\n(Cần file .exe và link ảnh).")
+            CreateToolTip(add_game_btn, "Thêm game bên ngoài vào Launcher.")
+            
+            gemini_btn = ttk.Button(page_1_game_grid, text="✨ Gemini AI PRO", command=action_open_gemini_pro, style="Accent.TButton")
+            gemini_btn.place(relx=1.0, x=-20, y=10, anchor="ne")
+            CreateToolTip(gemini_btn, "Mở trợ lý Google Gemini ngay trong App.")
 
-        # --- 2. TẠO CANVAS (Giữ nguyên code cũ) ---
         if g_game_grid_container is None:
             canvas_host_frame = ttk.Frame(page_1_game_grid)
             canvas_host_frame.pack(fill=tk.BOTH, expand=True, pady=5, padx=5)
@@ -5880,26 +5928,35 @@ if __name__ == '__main__':
             page_1_scrollbar.config(command=page_1_canvas.yview)
             g_game_grid_container = ttk.Frame(page_1_canvas)
             page_1_canvas_window_id = page_1_canvas.create_window((0, 0), window=g_game_grid_container, anchor="n")
+            
             g_game_grid_container.bind("<Configure>", on_page_1_content_configure)
             page_1_canvas.bind("<Configure>", on_page_1_canvas_configure)
-            page_1_canvas.bind("<MouseWheel>", on_mouse_wheel)
-            g_game_grid_container.bind("<MouseWheel>", on_mouse_wheel)
-            page_1_canvas.bind("<Button-4>", on_mouse_wheel)
-            page_1_canvas.bind("<Button-5>", on_mouse_wheel)
-            g_game_grid_container.bind("<Button-4>", on_mouse_wheel)
-            g_game_grid_container.bind("<Button-5>", on_mouse_wheel)
+            for w in [page_1_canvas, g_game_grid_container]:
+                w.bind("<MouseWheel>", on_mouse_wheel)
+                w.bind("<Button-4>", on_mouse_wheel)
+                w.bind("<Button-5>", on_mouse_wheel)
 
+        # --- 2. CHUẨN BỊ DỮ LIỆU ---
+        
+        # Ẩn nội dung cũ ngay lập tức
+        page_1_canvas.itemconfigure(page_1_canvas_window_id, state='hidden')
+        
+        # Xóa widget cũ
         for widget in g_game_grid_container.winfo_children(): widget.destroy()
+
+        # Hiển thị LOADING SPINNER tạm thời
+        loading_overlay = ttk.Label(page_1_canvas, text="⚡ Đang tải danh sách...", font=("Segoe UI", 12), background="#1c1c1c", foreground="white")
+        # Đặt Loading vào giữa Canvas (dùng place để nổi lên trên)
+        loading_overlay.place(relx=0.5, rely=0.4, anchor=tk.CENTER)
+        
+        # Update UI để hiện Loading ngay lập tức
+        root.update_idletasks()
 
         if not hasattr(root, 'cached_game_icons_small'): root.cached_game_icons_small = {}
 
-        # --- 3. HỢP NHẤT DANH SÁCH GAME ---
-        # A. Game từ Server (GitHub)
         server_games = sorted(game_groups.keys())
         custom_games_data = local_config.get('custom_games', {})
-        # [MỚI] Lấy danh sách override
         theme_overrides = local_config.get('theme_overrides', {})
-        
         custom_game_names = sorted(custom_games_data.keys())
         all_game_names = custom_game_names + server_games 
         
@@ -5909,238 +5966,213 @@ if __name__ == '__main__':
         else:
             filtered_names = all_game_names
 
-        # 4. VẼ LƯỚI
+        # --- 3. BATCH PROCESSING (XỬ LÝ THEO LÔ) ---
+        BATCH_SIZE = 8  # Mỗi lần vẽ 8 game (con số này giúp UI mượt nhất)
         MAX_COLS = 4
-        col = 0
-        row = 0
-
-        for game_name in filtered_names:
-            is_custom = game_name in custom_games_data
-            icon_img = None
-            full_path_to_launch = None
-            
-            # --- XỬ LÝ HÌNH ẢNH (LOGIC MỚI) ---
-            
-            # 1. Kiểm tra xem có ảnh Override (Ưu tiên cao nhất cho Server Game) không
-            override_path = theme_overrides.get(game_name)
-            
-            local_img_path_to_load = None
-            
-            if is_custom:
-                # Game Custom: Lấy path từ config của nó
-                local_img_path_to_load = custom_games_data[game_name].get("image_local_path")
-            elif override_path and os.path.exists(override_path):
-                # Game Server: Nếu có override thì dùng
-                local_img_path_to_load = override_path
-                
-            # Nếu có đường dẫn file local (Custom hoặc Override), tải nó
-            if local_img_path_to_load and os.path.exists(local_img_path_to_load):
-                try:
-                    cache_key = f"local_{local_img_path_to_load}"
-                    if cache_key in root.cached_images:
-                        icon_img = root.cached_images[cache_key]
-                    else:
-                        with Image.open(local_img_path_to_load) as img:
-                            img_resized = img.resize((192, 89), Image.Resampling.LANCZOS)
-                            icon_img = ImageTk.PhotoImage(img_resized)
-                            root.cached_images[cache_key] = icon_img
-                except: pass
-
-            # Nếu vẫn chưa có ảnh (Server Game chưa override), tải từ URL Server
-            if not icon_img and not is_custom:
-                image_url = g_game_themes.get(game_name)
-                if image_url:
-                    icon_img = load_image_from_url(image_url, size=(192, 89))
-            
-            # Fallback icon mặc định
-            if not icon_img:
-                icon_img = root.default_game_icon_small
-
-            # --- XỬ LÝ ĐƯỜNG DẪN (Giữ nguyên) ---
-            if is_custom:
-                full_path_to_launch = custom_games_data[game_name].get("launch_path")
-            else:
-                current_global_path = local_config.get("game_paths", {}).get(game_name, "")
-                found_launch_file = None
-                if 'game_launchers' in local_config:
-                    found_launch_file = local_config['game_launchers'].get(game_name)
-                if not found_launch_file:
-                    mod_list = game_groups.get(game_name, [])
-                    for _key, mod_data in mod_list:
-                        if mod_data.get("launch_file"):
-                            found_launch_file = mod_data.get("launch_file")
-                            break
-                if found_launch_file and current_global_path and os.path.isdir(current_global_path):
-                    full_path = os.path.join(current_global_path, found_launch_file)
-                    if os.path.exists(full_path) and os.path.isfile(full_path):
-                        full_path_to_launch = full_path
-
-            # --- VẼ CARD ---
-            card_frame = ttk.Frame(g_game_grid_container, style="Card.TFrame", cursor="hand2")
-            card_frame.grid(row=row, column=col, padx=10, pady=10, sticky="ew")
-            card_frame.columnconfigure(0, weight=1)
-
-            img_label = ttk.Label(card_frame, image=icon_img, cursor="hand2")
-            img_label.grid(row=0, column=0, pady=(10, 5), padx=10)
-
-            display_name = local_config.get('display_name_overrides', {}).get(game_name, game_name)
-            if is_custom:
-                display_name = f"★ {display_name}"
-            name_label = ttk.Label(card_frame, text=display_name, anchor=tk.CENTER, cursor="hand2", font=("Segoe UI", 10, "bold"))
-            name_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky="ew")
-
-            # Nút Chạy (Logic cũ)
-            btn_text = "Chưa Cài Đặt"
-            btn_state = tk.DISABLED
-            btn_style = "TButton"
-            
-            if full_path_to_launch:
-                btn_text = "🚀 Chạy Game"
-                btn_state = tk.NORMAL
-                btn_style = "HoverAccent.TButton"
-                
-            launch_button_page1 = ttk.Button(card_frame, text=btn_text, state=btn_state, style=btn_style)
-            launch_button_page1.grid(row=2, column=0, pady=(0, 10), padx=10, sticky="ew")
-
-            # --- BINDING EVENTS (CLICK CHUỘT TRÁI - CŨ) ---
-            if full_path_to_launch:
-                click_cmd = lambda e, p=full_path_to_launch, t=img_label: action_launch_game_from_page_1(p, t)
-                launch_button_page1.bind("<Button-1>", click_cmd)
-            
-            if is_custom:
-                if full_path_to_launch:
-                    card_cmd = lambda e, p=full_path_to_launch, t=img_label: action_launch_game_from_page_1(p, t)
-                    card_frame.bind("<Button-1>", card_cmd)
-                    img_label.bind("<Button-1>", card_cmd)
-                    name_label.bind("<Button-1>", card_cmd)
-            else:
-                nav_cmd = lambda event, g=game_name: show_page_2_for_game(g)
-                card_frame.bind("<Button-1>", nav_cmd)
-                img_label.bind("<Button-1>", nav_cmd)
-                name_label.bind("<Button-1>", nav_cmd)
-
-            # --- [MỚI] BINDING CHUỘT PHẢI (CONTEXT MENU) ---
-            # Sử dụng lambda với default argument (g=game_name, c=is_custom) để bắt đúng giá trị trong vòng lặp
-            right_click_cmd = lambda e, g=game_name, c=is_custom: show_game_context_menu(e, g, c)
         
-            card_frame.bind("<Button-3>", right_click_cmd)
-            img_label.bind("<Button-3>", right_click_cmd)
-            name_label.bind("<Button-3>", right_click_cmd)
-            # (Không bind nút chạy game để tránh bấm nhầm)
+        def process_batch(start_index):
+            """Hàm đệ quy để vẽ từng nhóm nhỏ."""
+            end_index = min(start_index + BATCH_SIZE, len(filtered_names))
+            
+            for i in range(start_index, end_index):
+                game_name = filtered_names[i]
+                
+                # --- LOGIC TẠO CARD (Giữ nguyên) ---
+                is_custom = game_name in custom_games_data
+                icon_img = None
+                full_path_to_launch = None
+                
+                # ... (Logic ảnh - Giữ nguyên như cũ) ...
+                override_path = theme_overrides.get(game_name)
+                local_img_path_to_load = None
+                if is_custom: local_img_path_to_load = custom_games_data[game_name].get("image_local_path")
+                elif override_path and os.path.exists(override_path): local_img_path_to_load = override_path
+                    
+                if local_img_path_to_load and os.path.exists(local_img_path_to_load):
+                    try:
+                        cache_key = f"local_{local_img_path_to_load}"
+                        if cache_key in root.cached_images: icon_img = root.cached_images[cache_key]
+                        else:
+                            with Image.open(local_img_path_to_load) as img:
+                                img_resized = img.resize((192, 89), Image.Resampling.LANCZOS)
+                                icon_img = ImageTk.PhotoImage(img_resized)
+                                root.cached_images[cache_key] = icon_img
+                    except: pass
 
-            # Scroll bind
-            for w in [card_frame, img_label, name_label, launch_button_page1]:
-                w.bind("<MouseWheel>", on_mouse_wheel)
-                w.bind("<Button-4>", on_mouse_wheel)
-                w.bind("<Button-5>", on_mouse_wheel)
+                if not icon_img and not is_custom:
+                    image_url = g_game_themes.get(game_name)
+                    if image_url: icon_img = load_image_from_url(image_url, size=(192, 89))
+                if not icon_img: icon_img = root.default_game_icon_small
 
-            col += 1
-            if col >= MAX_COLS:
-                col = 0
-                row += 1
+                # ... (Logic Path - Giữ nguyên như cũ) ...
+                if is_custom:
+                    full_path_to_launch = custom_games_data[game_name].get("launch_path")
+                else:
+                    current_global_path = local_config.get("game_paths", {}).get(game_name, "")
+                    found_launch_file = local_config.get('game_launchers', {}).get(game_name)
+                    if not found_launch_file:
+                        for _key, mod_data in game_groups.get(game_name, []):
+                            if mod_data.get("launch_file"):
+                                found_launch_file = mod_data.get("launch_file"); break
+                    if found_launch_file and current_global_path and os.path.isdir(current_global_path):
+                        full_path = os.path.join(current_global_path, found_launch_file)
+                        if os.path.exists(full_path): full_path_to_launch = full_path
 
-        for i in range(MAX_COLS): g_game_grid_container.columnconfigure(i, weight=0)
+                # --- VẼ GRID ---
+                # Tính toán Row/Col dựa trên index tổng (i)
+                row = i // MAX_COLS
+                col = i % MAX_COLS
+
+                card_frame = ttk.Frame(g_game_grid_container, style="Card.TFrame", cursor="hand2")
+                card_frame.grid(row=row, column=col, padx=10, pady=10, sticky="ew")
+                card_frame.columnconfigure(0, weight=1)
+
+                img_label = ttk.Label(card_frame, image=icon_img, cursor="hand2")
+                img_label.grid(row=0, column=0, pady=(10, 5), padx=10)
+
+                display_name = local_config.get('display_name_overrides', {}).get(game_name, game_name)
+                if is_custom: display_name = f"★ {display_name}"
+                
+                name_label = ttk.Label(card_frame, text=display_name, anchor=tk.CENTER, cursor="hand2", font=("Segoe UI", 10, "bold"))
+                name_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky="ew")
+
+                btn_text = "🚀 Chạy Game" if full_path_to_launch else "Chưa Cài Đặt"
+                btn_state = tk.NORMAL if full_path_to_launch else tk.DISABLED
+                btn_style = "HoverAccent.TButton" if full_path_to_launch else "TButton"
+                
+                launch_button_page1 = ttk.Button(card_frame, text=btn_text, state=btn_state, style=btn_style)
+                launch_button_page1.grid(row=2, column=0, pady=(0, 10), padx=10, sticky="ew")
+                g_page1_ui_refs[game_name] = {
+                    "btn": launch_button_page1,
+                    "img_label": img_label
+                }
+
+                # Bindings
+                if full_path_to_launch:
+                    click_cmd = lambda e, p=full_path_to_launch, t=img_label: action_launch_game_from_page_1(p, t)
+                    launch_button_page1.bind("<Button-1>", click_cmd)
+                
+                right_click_cmd = lambda e, g=game_name, c=is_custom: show_game_context_menu(e, g, c)
+                
+                if is_custom and full_path_to_launch:
+                    card_cmd = lambda e, p=full_path_to_launch, t=img_label: action_launch_game_from_page_1(p, t)
+                    for w in [card_frame, img_label, name_label]: w.bind("<Button-1>", card_cmd)
+                else:
+                    nav_cmd = lambda event, g=game_name: show_page_2_for_game(g)
+                    for w in [card_frame, img_label, name_label]: w.bind("<Button-1>", nav_cmd)
+
+                for w in [card_frame, img_label, name_label]: w.bind("<Button-3>", right_click_cmd)
+                for w in [card_frame, img_label, name_label, launch_button_page1]:
+                    w.bind("<MouseWheel>", on_mouse_wheel)
+                    w.bind("<Button-4>", on_mouse_wheel)
+                    w.bind("<Button-5>", on_mouse_wheel)
+                
+            # --- KIỂM TRA ĐIỀU KIỆN DỪNG ---
+            if end_index < len(filtered_names):
+                # Nếu chưa xong, hẹn giờ 5ms sau chạy tiếp batch sau
+                # (Thời gian nghỉ này giúp UI không bị đơ)
+                root.after(5, lambda: process_batch(end_index))
+            else:
+                # --- KHI ĐÃ VẼ XONG TẤT CẢ ---
+                for i in range(MAX_COLS): g_game_grid_container.columnconfigure(i, weight=0)
+                
+                # Xóa loading spinner
+                loading_overlay.destroy()
+                
+                # Hiện lại lưới
+                page_1_canvas.itemconfigure(page_1_canvas_window_id, state='normal')
+                g_game_grid_container.update_idletasks()
+                page_1_canvas.configure(scrollregion=page_1_canvas.bbox("all"))
+                print("Đã vẽ xong toàn bộ Grid (Batch Mode).")
+
+        # Bắt đầu chạy batch đầu tiên
+        process_batch(0)
 
 
 
     def show_page_2_for_game(game_name):
-        """(ĐÃ VIẾT LẠI) Tải ảnh, điền mod, và chuyển sang Trang 2."""
-        global g_current_game_name, g_game_image_label, g_game_themes, local_config # <-- SỬA 1: Thêm 'local_config'
+        """
+        (INSTANT SWITCH) Chuyển trang ngay lập tức, đẩy việc load dữ liệu ra sau.
+        """
+        global g_current_game_name, g_game_image_label, page_2_back_button
         
-        local_config = load_local_config() # <-- SỬA 2: Thêm dòng này
-        
+        # 1. Cập nhật biến cơ bản
         g_current_game_name = game_name
-        path_entry.delete(0, tk.END)
-        # 1. Lấy path đã lưu cho game này
-        last_used_folder = local_config.get("last_used_folder", "")
-
-        path_entry.insert(0, last_used_folder)
-
+        
+        # 2. Reset UI cơ bản (Ẩn nút, đổi tên frame)
         if 'g_launch_game_button' in globals():
             g_launch_game_button.pack_forget()
-        global page_2_back_button, g_set_path_button
-        
-        page_2_back_button.pack(side=tk.LEFT)
-        # Đặt lại tiêu đề khung
-        options_frame.config(text=f"Các mod cho: {game_name}")
-
-        # Xóa ảnh cũ (nếu có)
-        g_game_image_label.pack_forget()
-        g_game_image_label.config(image='')
-
-        # --- THÊM MỚI: LOGIC TẢI ẢNH (TRONG THREAD) ---
-        def load_game_image_thread():
-            """
-            (Chạy ngầm) Lấy ảnh cho Trang 2 (Ưu tiên ảnh Local/Override).
-            """
-            global g_game_image_label, g_game_themes, local_config
-
-            icon_img = None
+        if 'g_set_path_button' in globals():
+            try: g_set_path_button.pack_forget()
+            except: pass
             
-            # 1. Tải lại config để đảm bảo lấy được thay đổi mới nhất
+        page_2_back_button.pack(side=tk.LEFT)
+        options_frame.config(text=f"Các mod cho: {game_name}")
+        
+        # Xóa ảnh cũ tạm thời (để tránh hiện ảnh game trước)
+        g_game_image_label.pack_forget() 
+        
+        # 3. CHUYỂN TRANG NGAY LẬP TỨC (Không chờ load dữ liệu)
+        show_page(page_2_mod_list)
+        
+        # 4. Hẹn giờ chạy logic nặng (Load Config, Load Ảnh, Vẽ Mod)
+        # 10ms là đủ để UI kịp vẽ trang mới trước khi bắt đầu xử lý nặng
+        root.after(10, lambda: _deferred_page_2_logic(game_name))
+
+    def _deferred_page_2_logic(game_name):
+        """Hàm phụ: Chạy sau khi giao diện đã chuyển xong."""
+        global local_config, path_entry
+        
+        # 1. Load Config (Nặng)
+        local_config = load_local_config()
+        
+        # 2. Điền đường dẫn
+        path_entry.delete(0, tk.END)
+        last_used_folder = local_config.get("last_used_folder", "")
+        # Nếu game này có đường dẫn riêng đã lưu, ưu tiên dùng nó
+        specific_path = local_config.get("game_paths", {}).get(game_name, "")
+        path_entry.insert(0, specific_path if specific_path else last_used_folder)
+
+        # 3. Bắt đầu tải ảnh (Thread ngầm)
+        # (Copy lại logic thread load ảnh từ code cũ của bạn vào đây)
+        def load_game_image_thread():
+            icon_img = None
             current_config = load_local_config()
             custom_games = current_config.get('custom_games', {})
             theme_overrides = current_config.get('theme_overrides', {})
             
-            # 2. Tìm đường dẫn ảnh trong máy (Local Path)
             local_path = None
-            
             if game_name in custom_games:
-                # Nếu là game Custom -> Lấy path từ config custom
                 local_path = custom_games[game_name].get("image_local_path")
             elif game_name in theme_overrides:
-                # Nếu là game Server nhưng có Override -> Lấy path override
                 local_path = theme_overrides[game_name]
                 
-            # 3. Nếu có ảnh local -> Load từ ổ cứng
             if local_path and os.path.exists(local_path):
                 try:
-                    # Tạo key cache riêng cho ảnh to
                     cache_key = f"local_big_{local_path}"
-                    
                     if cache_key in root.cached_images:
                         icon_img = root.cached_images[cache_key]
                     else:
                         with Image.open(local_path) as img:
-                            # Resize to cho Trang 2 (460x215)
                             img_resized = img.resize((460, 215), Image.Resampling.LANCZOS)
                             icon_img = ImageTk.PhotoImage(img_resized)
                             root.cached_images[cache_key] = icon_img
-                            print(f"Đã load ảnh local cho Page 2: {game_name}")
-                except Exception as e:
-                    print(f"Lỗi load ảnh local Page 2: {e}")
+                except: pass
 
-            # 4. Nếu chưa có ảnh (không có local), dùng URL từ Server
             if not icon_img:
                 image_url = g_game_themes.get(game_name)
                 if image_url:
-                    # Hàm này sẽ tự động cache
                     icon_img = load_image_from_url(image_url, size=(460, 215))
 
-            # 5. Nếu vẫn không có, dùng icon mặc định
             if not icon_img:
                 icon_img = root.default_game_icon_large 
 
-            # 6. Gửi về queue để cập nhật UI
             progress_queue.put(("game_image_loaded", icon_img))
 
-        # Bắt đầu tải ảnh ngầm (Việc này nhanh, giữ nguyên)
         threading.Thread(target=load_game_image_thread, daemon=True).start()
         
-        # --- SỬA LỖI TỐI ƯU HÓA (BEGIN) ---
-        
-        # 1. XÓA SẠCH WIDGET CŨ (của game trước) NGAY LẬP TỨC
-        # (Di chuyển code 'destroy' từ hàm update_radio_buttons lên đây)
-        for widget in content_frame.winfo_children(): 
-            widget.destroy()
-        
-        # 2. CHUYỂN TRANG NGAY LẬP TỨC (Khi trang còn trống)
-        # (Hàm này giờ chỉ là `place()`, rất nhanh)
-        show_page(page_2_mod_list) 
-        
-        # 3. HẸN GIỜ (10ms) ĐỂ BẮT ĐẦU VẼ CÁC NÚT MỚI
-        # Điều này cho phép UI chuyển trang mượt mà trước khi bị "khóa"
-        root.after(10, update_radio_buttons_text_for_game, game_name)
+        # 4. Vẽ danh sách mod (Hàm tối ưu bên dưới)
+        update_radio_buttons_text_for_game(game_name)
 
     def update_mod_button_states(selected_key):
         """Cập nhật trạng thái text và STYLE của tất cả các nút chọn mod."""
@@ -6166,161 +6198,141 @@ if __name__ == '__main__':
                 pass
 
     def update_radio_buttons_text_for_game(game_name_to_show):
-        """(ĐÃ VIẾT LẠI) Dùng Accent.TButton để chọn."""
+        """
+        (ULTIMATE BATCH) Xóa cực nhanh và Vẽ theo lô.
+        """
         global local_config, radio_buttons, g_mod_buttons, g_current_selected_key
-        
-        # Reset trackers
+        global content_frame, canvas
+
+        # 1. Reset dữ liệu
         g_mod_buttons.clear()
         g_current_selected_key = None
-        selected_option.set("") # Xóa lựa chọn cũ
-
-        radio_buttons = [] # Vẫn giữ, dù không dùng, để tránh lỗi ở chỗ khác
+        selected_option.set("") 
+        radio_buttons = []
 
         style.configure("New.TLabel", foreground="red", font=('TkDefaultFont', 9, 'bold'))
         style.configure("Installed.TLabel", foreground="green")
 
-        # --- Hàm helper để đóng/mở (toggle) ---
-        # (Hàm này không đổi)
-        def create_toggle_function(mod_frame, button, separator_widget):
-            def toggle():
-                if mod_frame.winfo_viewable(): 
-                    mod_frame.pack_forget()    
-                    button.config(text=f"{button.game_name} ▸") 
-                else:
-                    mod_frame.pack(fill=tk.X, expand=True, before=separator_widget, padx=(15, 0)) 
-                    button.config(text=f"{button.game_name} ▾") 
-            return toggle
+        # --- KỸ THUẬT DỌN DẸP SIÊU TỐC ---
+        # Mẹo: Ẩn frame đi trước khi destroy con của nó. 
+        # Tkinter sẽ không tốn sức tính toán lại layout cho từng cái bị xóa.
+        if content_frame.winfo_viewable():
+            # Tạm thời gỡ khỏi canvas (chỉ là ẩn hiển thị, ko mất dữ liệu)
+            # Lưu ý: content_frame nằm trong canvas window, ta dùng itemconfigure để ẩn
+            canvas.itemconfigure(canvas_window_id, state='hidden')
+        
+        # Bây giờ xóa rất nhanh
+        for widget in content_frame.winfo_children(): 
+            widget.destroy()
+            
+        # Hiện lại frame (đang trống)
+        canvas.itemconfigure(canvas_window_id, state='normal')
+        # --------------------------------
 
-        first_key_to_select = None
+        # Hiện Loading
+        loading_label = ttk.Label(content_frame, text="⏳ Đang tải danh sách mod...", font=("Segoe UI", 10))
+        loading_label.pack(pady=20)
+        
+        # Cập nhật UI ngay lập tức để người dùng thấy Loading
+        content_frame.update_idletasks()
 
+        # Chuẩn bị dữ liệu
         mod_list = download_options.get(game_name_to_show, [])
+        first_key_holder = [None] 
 
-        # --- HÀM CLICK MỚI (Đơn giản) ---
         def create_click_handler(key_value):
             def handler(event=None):
-                # 1. Cập nhật biến (để nút "Bắt đầu" hoạt động)
                 selected_option.set(key_value)
-                # 2. Cập nhật hướng dẫn
                 update_guide_text()
-                # 3. Cập nhật trạng thái các nút "Chọn"
                 update_mod_button_states(key_value)
             return handler
-        # --- KẾT THÚC HÀM CLICK ---
 
-        for (key, data) in mod_list:
+        BATCH_SIZE = 8 # Vẽ 8 cái một lúc
+        
+        def process_mod_batch(start_index):
+            end_index = min(start_index + BATCH_SIZE, len(mod_list))
             
-            display_name = data.get("name", "LỖI: THIẾU TÊN")
-            online_version = data.get("version")
-            if not online_version: continue 
+            if start_index == 0 and loading_label.winfo_exists():
+                loading_label.destroy()
 
-            installed_version = local_config.get("installed_versions", {}).get(key, "Chưa cài đặt")
-
-            # 1. Tạo Row Frame (Card nhỏ)
-            # (Không cần cursor="hand2" nữa)
-            row_frame = ttk.Frame(content_frame, style="Card.TFrame", padding=(10, 5))
-            row_frame.pack(fill=tk.X, pady=2) 
-            
-            # --- (BEGIN) THAY ĐỔI: THÊM FRAME NÚT ✓ BÊN TRÁI ---
-            # 1.a. Tạo frame chứa nút check bên trái
-            checkmark_frame = ttk.Frame(row_frame) # Đặt chiều rộng cố định
-            checkmark_frame.pack(side=tk.LEFT,padx=(0, 0))
-            
-            # 1.b. Tạo nút check (sẽ được 'update_mod_button_states' điều khiển)
-            checkmark_button = ttk.Button(
-                checkmark_frame, 
-                text="",                # Bắt đầu rỗng
-                style="Accent.TButton", # Dùng style Accent
-                state=tk.DISABLED       # Bắt đầu mờ
-            )
-            checkmark_button.pack(fill=tk.Y, expand=True)
-            # --- (END) THAY ĐỔI ---
-
-            # --- Frame bên trái cho Text ---
-            # (Không thay đổi)
-            left_frame = ttk.Frame(row_frame)
-            left_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-            left_frame.columnconfigure(0, weight=1) 
-
-            # --- Frame bên phải cho Nút ---
-            # (Không thay đổi)
-            right_frame = ttk.Frame(row_frame)
-            right_frame.pack(side=tk.RIGHT, padx=(0, 0))
-
-            # 2. Tạo Tên Mod (Label)
-            # (Không thay đổi)
-            name_label = ttk.Label(left_frame, text=display_name, font=("Segoe UI", 10, "bold"), anchor=tk.CENTER)
-            name_label.grid(row=0, column=0, sticky="ew")
-
-            # --- (BEGIN) THAY ĐỔI: Thêm 2 widget mới vào all_widgets_to_bind ---
-            all_widgets_to_bind = [row_frame, checkmark_frame, checkmark_button, left_frame, right_frame, name_label] 
-            # --- (END) THAY ĐỔI ---
-
-            # 3. Tạo các Label Trạng thái
-            # (Không thay đổi)
-            if online_version == installed_version:
-                status_text = f"✓ Đã cài đặt ({online_version})"
-                status_label = ttk.Label(left_frame, text=status_text, style="Installed.TLabel", anchor=tk.CENTER) 
-                status_label.grid(row=1, column=0, sticky="ew", pady=(2, 0)) 
-                all_widgets_to_bind.append(status_label)
-            else:
-                if installed_version == "Chưa cài đặt":
-                    status_text = f"🔥 Cần cài đặt ({online_version})"
-                else:
-                    status_text = f"🔥 Cập nhật ({online_version})" 
+            for i in range(start_index, end_index):
+                key, data = mod_list[i]
                 
-                new_label = ttk.Label(left_frame, text=status_text, style="New.TLabel", anchor=tk.CENTER)
-                new_label.grid(row=1, column=0, sticky="ew", pady=(2, 0))
-                all_widgets_to_bind.append(new_label)
+                display_name = data.get("name", "LỖI: THIẾU TÊN")
+                online_version = data.get("version")
+                if not online_version: continue 
 
-            # 4. Lấy key đầu tiên để tự động chọn
-            # (Không thay đổi)
-            if first_key_to_select is None:
-                first_key_to_select = key
+                installed_version = local_config.get("installed_versions", {}).get(key, "Chưa cài đặt")
 
-            # 5. TẠO NÚT "CHỌN" (Accent.TButton)
-            # (Không thay đổi)
-            click_command = create_click_handler(key)
-            
-            select_button = ttk.Button(
-                right_frame, 
-                text="Chọn", 
-                command=click_command
-            )
-            select_button.pack(fill=tk.Y, expand=True)
-            
-            # --- (BEGIN) THAY ĐỔI: Lưu cả 2 nút (dạng tuple) ---
-            g_mod_buttons[key] = (select_button, checkmark_button)
-            # --- (END) THAY ĐỔI ---
+                # Layout Row
+                row_frame = ttk.Frame(content_frame, style="Card.TFrame", padding=(10, 5))
+                row_frame.pack(fill=tk.X, pady=2) 
+                
+                # Checkbox
+                checkmark_frame = ttk.Frame(row_frame)
+                checkmark_frame.pack(side=tk.LEFT,padx=(0, 0))
+                checkmark_button = ttk.Button(checkmark_frame, text="", style="Accent.TButton", state=tk.DISABLED)
+                checkmark_button.pack(fill=tk.Y, expand=True)
 
-            all_widgets_to_bind.append(select_button) # Thêm vào để bind scroll
+                # Info
+                left_frame = ttk.Frame(row_frame)
+                left_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+                left_frame.columnconfigure(0, weight=1) 
 
-            # 6. Bind Mousewheel VÀ CLICK
-            # (Không thay đổi)
-            for widget in all_widgets_to_bind:
-                try:
-                    # Bind cuộn chuột (như cũ)
-                    widget.bind("<MouseWheel>", on_mouse_wheel)
-                    widget.bind("<Button-4>", on_mouse_wheel) 
-                    widget.bind("<Button-5>", on_mouse_wheel)
+                right_frame = ttk.Frame(row_frame)
+                right_frame.pack(side=tk.RIGHT, padx=(0, 0))
 
-                    # --- SỬA Ở ĐÂY: Bind Click chuột trái ---
-                    # (Không cần bind cho chính select_button, vì nó đã có 'command')
-                    if widget != select_button:
-                        widget.bind("<Button-1>", click_command)
+                name_label = ttk.Label(left_frame, text=display_name, font=("Segoe UI", 10, "bold"), anchor=tk.CENTER)
+                name_label.grid(row=0, column=0, sticky="ew")
 
-                except tk.TclError as e:
-                    print(f"Lỗi khi bind widget: {e}")
+                all_widgets_to_bind = [row_frame, checkmark_frame, checkmark_button, left_frame, right_frame, name_label] 
 
-        # 7. Tự động chọn mod đầu tiên
-        # (Không thay đổi)
-        if first_key_to_select:
-            # 1. Cập nhật biến
-            selected_option.set(first_key_to_select)
-            # 2. Cập nhật hướng dẫn
-            update_guide_text()
-            # 3. Cập nhật trạng thái các nút
-            update_mod_button_states(first_key_to_select)
+                # Status
+                if online_version == installed_version:
+                    status_text = f"✓ Đã cài đặt ({online_version})"
+                    status_label = ttk.Label(left_frame, text=status_text, style="Installed.TLabel", anchor=tk.CENTER) 
+                    status_label.grid(row=1, column=0, sticky="ew", pady=(2, 0)) 
+                    all_widgets_to_bind.append(status_label)
+                else:
+                    status_text = f"🔥 Cần cài đặt ({online_version})" if installed_version == "Chưa cài đặt" else f"🔥 Cập nhật ({online_version})"
+                    new_label = ttk.Label(left_frame, text=status_text, style="New.TLabel", anchor=tk.CENTER)
+                    new_label.grid(row=1, column=0, sticky="ew", pady=(2, 0))
+                    all_widgets_to_bind.append(new_label)
 
+                # Selection
+                if first_key_holder[0] is None: first_key_holder[0] = key
+
+                click_cmd = create_click_handler(key)
+                select_button = ttk.Button(right_frame, text="Chọn", command=click_cmd)
+                select_button.pack(fill=tk.Y, expand=True)
+                
+                g_mod_buttons[key] = (select_button, checkmark_button)
+                all_widgets_to_bind.append(select_button)
+
+                # Bindings
+                for widget in all_widgets_to_bind:
+                    try:
+                        widget.bind("<MouseWheel>", on_mouse_wheel)
+                        widget.bind("<Button-4>", on_mouse_wheel) 
+                        widget.bind("<Button-5>", on_mouse_wheel)
+                        if widget != select_button: widget.bind("<Button-1>", click_cmd)
+                    except: pass
+
+            if end_index < len(mod_list):
+                root.after(5, lambda: process_mod_batch(end_index))
+            else:
+                content_frame.update_idletasks()
+                canvas.configure(scrollregion=canvas.bbox("all"))
+                
+                # Auto select first
+                if first_key_holder[0]:
+                    selected_option.set(first_key_holder[0])
+                    update_guide_text()
+                    update_mod_button_states(first_key_holder[0])
+
+        process_mod_batch(0)
+
+        
     def refresh_mod_list_ui():
         """
         (Hàm mới) Xóa và vẽ lại danh sách mod (Trang 2) 
