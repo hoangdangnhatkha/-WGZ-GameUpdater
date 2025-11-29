@@ -211,24 +211,23 @@ class TooltipTranslator:
             print(f"✅ Đã khởi động xong! Vào game và bấm Ctrl+Q để dịch.")
             self.root.mainloop()
 
+    def toggle_selection_mode(self):
+        # Kiểm tra thực tế xem cửa sổ Overlay có đang tồn tại không
+        if hasattr(self, 'sel_win') and self.sel_win and self.sel_win.winfo_exists():
+            print("🔄 Phát hiện Overlay đang mở -> Thực hiện TẮT (Hủy chọn).")
+            # Tắt overlay
+            self.close_selection()
+            
+            # [QUAN TRỌNG] Sau khi tắt overlay bằng Hotkey, ta phải đảm bảo 
+            # tính năng "Click ra ngoài để đóng" vẫn đang chạy cho các cửa sổ cũ (nếu có).
+            if self.result_windows:
+                self.enable_auto_close()
+        else:
+            print("📸 Không thấy Overlay -> Thực hiện BẬT.")
+            self._show_overlay()
+
     def start_selection(self):
-        # LOGIC MỚI: Toggle (Bật/Tắt)
-        
-        # 1. Nếu đang trong chế độ chọn (is_selecting = True)
-        # -> Bấm lần nữa sẽ HỦY chọn (Tắt overlay)
-        if self.is_selecting: 
-            print("🔄 Đã hủy chọn vùng (Toggle OFF).")
-            # Gọi qua after để đảm bảo an toàn luồng UI
-            self.root.after(0, self.close_selection)
-            return
-        
-        # 2. Nếu chưa chọn -> Bắt đầu chế độ chọn
-        print("📸 Bắt đầu chụp màn hình...")
-        self.is_selecting = True 
-        
-        # Chỉ gửi tín hiệu để main thread mở overlay. 
-        # KHÔNG chụp màn hình ở đây nữa (để hàm _show_overlay lo)
-        self.root.after(0, self._show_overlay)
+        self.root.after(0, self.toggle_selection_mode)
 
     def process_quality_path(self, image, label_widget, btn_widget):
         try:
@@ -353,28 +352,26 @@ class TooltipTranslator:
             return "break"
 
     def _show_overlay(self):
-        # Bảo vệ kép: Nếu cửa sổ chọn đã tồn tại thì không tạo nữa
+        # 1. Bảo vệ: Nếu cửa sổ đã có thì thôi (dù logic toggle đã lo, nhưng check thêm cho chắc)
         if hasattr(self, 'sel_win') and self.sel_win and self.sel_win.winfo_exists():
             return
 
-        # Xóa sạch các cửa sổ cũ (nếu có sót)
-        self.close_all_windows()
-
         self.root.update()
+        
+        # 2. Set trạng thái Đang Chọn tại đây (trong luồng chính)
+        self.is_selecting = True
 
         import time 
-        time.sleep(0.1)
-        # --- CHỤP ẢNH (Di chuyển vào đây để an toàn luồng UI) ---
+        time.sleep(0.1) # Chờ menu ẩn đi
+        
         try:
             self.frozen_img = pyautogui.screenshot()
             self.tk_frozen = ImageTk.PhotoImage(self.frozen_img)
         except Exception as e:
             print(f"Lỗi chụp màn hình: {e}")
-            self.is_selecting = False # Nhả khóa nếu lỗi
+            self.is_selecting = False 
             return
-        # -------------------------------------------------------
 
-        # (Phần tạo cửa sổ bên dưới GIỮ NGUYÊN)
         self.sel_win = tk.Toplevel(self.root)
         self.sel_win.attributes('-fullscreen', True)
         self.sel_win.attributes('-topmost', True)
@@ -391,21 +388,37 @@ class TooltipTranslator:
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_down)
         self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up)
+        
+        # Bấm ESC -> Gọi toggle để tắt
         self.sel_win.bind("<Escape>", lambda e: self.close_selection())
 
     def close_selection(self):
+        print("Đang đóng Overlay...")
+        
+        # 1. Đảm bảo trạng thái được Reset NGAY LẬP TỨC
+        self.is_selecting = False
+        
+        # 2. Xử lý cửa sổ Overlay
         if hasattr(self, 'sel_win') and self.sel_win:
             try:
+                # Gỡ sự kiện bàn phím trước khi hủy
+                self.sel_win.unbind("<Escape>")
                 self.sel_win.grab_release()
                 self.sel_win.destroy()
-            except: pass
+            except Exception as e: 
+                print(f"Lỗi đóng window: {e}")
+            finally:
+                self.sel_win = None # Xóa tham chiếu
             
-        # Xóa ảnh để giải phóng RAM
-        if hasattr(self, 'frozen_img'): del self.frozen_img
-        if hasattr(self, 'tk_frozen'): del self.tk_frozen
-        
-        # [QUAN TRỌNG] Nhả khóa để cho phép bấm lần sau
-        self.is_selecting = False
+        # 3. Xóa ảnh khỏi RAM
+        try:
+            if hasattr(self, 'frozen_img'): del self.frozen_img
+            if hasattr(self, 'tk_frozen'): del self.tk_frozen
+        except: pass
+
+        # 4. Cập nhật lại giao diện (quan trọng để tránh bị lag UI)
+        self.root.update_idletasks()
+        print("✅ Đã đóng overlay hoàn tất.")
 
     def close_all_windows(self):
         for win in self.result_windows:
@@ -427,7 +440,7 @@ class TooltipTranslator:
         self.canvas.coords(self.rect, self.start_x, self.start_y, self.cur_x, self.cur_y)
 
     def on_mouse_up(self, event):
-        # 1. Tính toán vùng chọn gốc
+        # 1. Tính toán vùng chọn
         x1, y1 = min(self.start_x, self.cur_x), min(self.start_y, self.cur_y)
         x2, y2 = max(self.start_x, self.cur_x), max(self.start_y, self.cur_y)
         
@@ -435,49 +448,42 @@ class TooltipTranslator:
         h = y2 - y1
         screen_x, screen_y = x1, y1
         
-        # --- [SỬA LỖI: KHÔNG GỌI close_selection() Ở ĐÂY NỮA] ---
-        # (Code cũ gọi ở đây nên nó xóa mất self.frozen_img)
-
+        # 2. Xử lý logic
         if w > 10 and h > 10:
             try:
-                # --- LOGIC CẮT ẢNH (Thực hiện khi ảnh gốc vẫn còn) ---
-                
+                # Cắt ảnh
                 pad = 0
-                
-                img_w, img_h = self.frozen_img.size # Lấy kích thước ảnh gốc
-                
-                # Các dòng tính toán crop giữ nguyên
+                img_w, img_h = self.frozen_img.size 
                 crop_x1 = max(0, x1 - pad)
                 crop_y1 = max(0, y1 - pad)
                 crop_x2 = min(img_w, x2 + pad)
                 crop_y2 = min(img_h, y2 + pad)
                 
-                # Cắt ảnh
                 cropped_img = self.frozen_img.crop((crop_x1, crop_y1, crop_x2, crop_y2))
                 
+                # --- [QUAN TRỌNG] ĐÓNG OVERLAY NGAY TẠI ĐÂY ---
+                # Để người dùng thấy game trở lại ngay lập tức
                 self.close_selection() 
+                # ---------------------------------------------
 
-                # Hiện khung kết quả
+                # Hiện khung kết quả mới (Cửa sổ cũ vẫn còn vì ta không gọi close_all_windows)
                 win, label = self.create_result_window(screen_x, screen_y, w, h)
                 self.update_text_safe(label, "🔍 Đang đọc...", "#FFFF00")
-                # --- [MỚI] GẮN ẢNH VÀO NÚT ĐỂ DÙNG SAU ---
-                # Chúng ta cần truy cập vào cái nút opt_btn đã tạo trong create_result_window
+                
                 if hasattr(self, 'opt_btn'):
-                    self.opt_btn.target_image = cropped_img # Lưu ảnh vào nút
-                # -----------------------------------------
+                    self.opt_btn.target_image = cropped_img 
 
+                # Kích hoạt tính năng tự đóng khi click ra ngoài
                 self.enable_auto_close()
                 
-                # Chỉ chạy OCR (Groq) tự động
+                # Chạy OCR
                 threading.Thread(target=self.process_image, args=(cropped_img, label)).start()
-                
-                # --- [QUAN TRỌNG] ĐÃ XÓA DÒNG GỌI GEMINI TỰ ĐỘNG Ở ĐÂY ---
-                # (Không còn threading.Thread(target=self.process_quality_path...) nữa)
 
             except Exception as e:
                 print(f"Lỗi cắt ảnh: {e}")
                 self.close_selection()
         else:
+            # Nếu click nhầm (vùng quá nhỏ) -> Chỉ tắt overlay
             self.close_selection()
 
     def create_result_window(self, x, y, w, h):
@@ -534,176 +540,132 @@ class TooltipTranslator:
         except: pass
 
     def enable_auto_close(self):
-        # Hàm kiểm tra click chuột
+        # Kiểm tra: Nếu đã có listener VÀ nó vẫn ĐANG CHẠY thì thôi
+        if hasattr(self, 'mouse_listener_active') and self.mouse_listener_active:
+            # Kiểm tra kỹ hơn: Check xem thread còn sống không
+            alive_count = 0
+            for l in self.listeners:
+                if isinstance(l, mouse.Listener) and l.is_alive():
+                    alive_count += 1
+            
+            if alive_count > 0:
+                return # Vẫn còn listener sống -> Return
+            else:
+                print("⚠️ Listener cũ đã chết -> Khởi tạo lại.")
+                self.mouse_listener_active = False # Reset để tạo mới
+
         def on_click(x, y, button, pressed):
-            # Chỉ xử lý khi nhấn xuống (pressed=True)
             if pressed:
+                # Nếu đang chọn vùng (Overlay bật) -> Bỏ qua click
+                if self.is_selecting:
+                    return
+
                 is_click_inside = False
+                current_windows = list(self.result_windows)
                 
-                # Duyệt qua tất cả các cửa sổ kết quả đang mở
-                for win in self.result_windows:
+                for win in current_windows:
                     try:
                         if win.winfo_exists():
-                            # Lấy tọa độ và kích thước cửa sổ
                             win_x = win.winfo_rootx()
                             win_y = win.winfo_rooty()
                             win_w = win.winfo_width()
                             win_h = win.winfo_height()
                             
-                            # Kiểm tra xem chuột có nằm trong hình chữ nhật cửa sổ không
                             if (win_x <= x <= win_x + win_w) and (win_y <= y <= win_y + win_h):
                                 is_click_inside = True
-                                break # Đã tìm thấy click bên trong, dừng kiểm tra
-                    except:
-                        pass
+                                break 
+                    except: pass
                 
-                # LOGIC QUAN TRỌNG:
-                # Nếu click KHÔNG nằm trong cửa sổ nào -> Đóng tất cả
+                # Nếu click ra ngoài -> Đóng tất cả
                 if not is_click_inside:
                     self.root.after(0, self.close_all_windows)
-                # Ngược lại (click bên trong) -> Không làm gì cả (để Tkinter xử lý nút bấm)
 
-        # Lắng nghe chuột toàn cục
-        m_listener = mouse.Listener(on_click=on_click)
-        m_listener.start()
-        self.listeners.append(m_listener)
+        try:
+            m_listener = mouse.Listener(on_click=on_click)
+            m_listener.start()
+            self.listeners.append(m_listener)
+            self.mouse_listener_active = True
+            print("✅ Đã kích hoạt Mouse Listener.")
+        except Exception as e:
+            print(f"❌ Lỗi khởi tạo Listener: {e}")
         
-        # Vẫn giữ phím ESC để đóng khẩn cấp
-        def on_key_release(key):
-            if key == pynput_k.Key.esc:
-                self.root.after(0, self.close_all_windows)
-                
-        k_listener = pynput_k.Listener(on_release=on_key_release)
-        k_listener.start()
-        self.listeners.append(k_listener)
-
+        # ESC Listener (Giữ nguyên)
+        if not hasattr(self, 'key_listener_active') or not self.key_listener_active:
+            def on_key_release(key):
+                if key == pynput_k.Key.esc:
+                    self.root.after(0, self.close_all_windows)
+            try:       
+                k_listener = pynput_k.Listener(on_release=on_key_release)
+                k_listener.start()
+                self.listeners.append(k_listener)
+                self.key_listener_active = True
+            except: pass
+            
     def process_image(self, image, label_widget):
         global ocr_engine
         try:
-            # --- CHIẾN THUẬT "THỬ SAI" (MULTI-PASS OCR) ---
-            scale = 3
-            # Hàm con để xử lý ảnh và chạy OCR
-            def try_ocr(img_input, contrast_factor=2.0, threshold=140, invert=True):
-                # 1. Xử lý
+            # --- TỐI ƯU HÓA TỐC ĐỘ (SPEED OPTIMIZATION) ---
+            
+            # Logic: Chỉ phóng to nếu ảnh gốc quá bé (chiều cao < 50px)
+            # Nếu ảnh to, RapidOCR đọc tốt nhất ở tỉ lệ 1:1
+            if image.height < 50:
+                scale = 2.0  # Giảm từ 3 xuống 2 để nhanh hơn
+                resample_method = Image.Resampling.BILINEAR # Nhanh hơn LANCZOS rất nhiều
+            else:
+                scale = 1.0
+                resample_method = Image.Resampling.NEAREST # Giữ nguyên pixel gốc
+
+            # Hàm con xử lý ảnh nhanh
+            def try_ocr_optimized(img_input, contrast_factor=1.5, threshold=130, invert=True):
+                # 1. Chuyển xám
                 gray = img_input.convert('L')
-                enhancer = ImageEnhance.Contrast(gray)
-                high_contrast = enhancer.enhance(contrast_factor)
                 
-                # Threshold
-                bw = high_contrast.point(lambda x: 0 if x < threshold else 255, '1')
+                # 2. Tăng tương phản (Nhẹ nhàng hơn để đỡ tốn CPU)
+                if contrast_factor != 1.0:
+                    enhancer = ImageEnhance.Contrast(gray)
+                    gray = enhancer.enhance(contrast_factor)
                 
-                # Upscale
+                # 3. Resize (Chỉ thực hiện khi scale > 1)
+                if scale > 1.0:
+                    new_w = int(gray.width * scale)
+                    new_h = int(gray.height * scale)
+                    processed_img = gray.resize((new_w, new_h), resample_method)
+                else:
+                    processed_img = gray
+
+                # 4. Threshold (Nhị phân hóa) - Giúp chữ tách hẳn khỏi nền
+                # Dùng lambda đơn giản để tối ưu tốc độ
+                bw = processed_img.point(lambda x: 0 if x < threshold else 255, '1')
+
+                # 5. Invert (Đảo màu) - RapidOCR thích chữ đen nền trắng hơn
+                final = ImageOps.invert(bw.convert('L')) if invert else bw.convert('L')
                 
-                new_w, new_h = int(bw.width * scale), int(bw.height * scale)
-                upscaled = bw.resize((new_w, new_h), Image.Resampling.LANCZOS)
-                
-                # Sharpen
-                sharp = upscaled.filter(ImageFilter.SHARPEN)
-                
-                # Invert (Tùy chọn)
-                final = ImageOps.invert(sharp.convert('L')) if invert else sharp.convert('L')
-                
-                # 2. Chạy OCR
-                result, _ = ocr_engine(np.array(final))
+                # 6. Chạy OCR
+                # use_det=True (Mặc định): Phát hiện khung chữ
+                # use_cls=False: Tắt phân loại hướng chữ (xoay ngang dọc) để TĂNG TỐC
+                result, _ = ocr_engine(np.array(final), use_det=True, use_cls=False, use_rec=True)
                 return result
 
-            # --- THỬ LẦN 1: Cấu hình chuẩn (Tốt cho text body) ---
-            result = try_ocr(image, contrast_factor=2.0, threshold=128, invert=True)
+            # --- BƯỚC 1: Chạy thử cấu hình tối ưu (Ưu tiên tốc độ) ---
+            # Thường game RPG nền tối chữ sáng -> Invert=True
+            result = try_ocr_optimized(image, contrast_factor=1.5, threshold=120, invert=True)
             
-            # Kiểm tra xem đã đọc được dòng tiêu đề chưa?
-            # (Thường dòng tiêu đề nằm ở trên cùng, y < 50)
-            has_title = False
-            if result:
-                # Thuật toán gom dòng thông minh (TOLERANCE)
-                TOLERANCE = 35 # Dung sai cho phép lệch dòng
-                
-                # 1. Chuyển dữ liệu
-                word_blocks = []
-                for line in result:
-                    box = line[0]
-                    text = line[1]
-                    y_min = min(p[1] for p in box)
-                    y_max = max(p[1] for p in box)
-                    y_center = (y_min + y_max) / 2
-                    
-                    word_blocks.append({
-                        'text': text,
-                        'y_center': y_center,
-                        'height': y_max - y_min,
-                        'x': min(p[0] for p in box),
-                        'raw_h': abs(box[3][1] - box[0][1])
-                    })
+            # --- BƯỚC 2: Fallback (Chỉ chạy khi bước 1 thất bại hoàn toàn) ---
+            if not result:
+                print("⚠️ Ảnh khó, thử lại chế độ Deep Scan...")
+                # Thử lại: Không đảo màu (cho chữ tối nền sáng) + Tăng ngưỡng
+                result = try_ocr_optimized(image, contrast_factor=1.5, threshold=170, invert=False)
 
-                # 2. Sắp xếp theo Y
-                word_blocks.sort(key=lambda b: b['y_center'])
-                
-                lines = []
-                current_line = []
-                
-                # 3. Gom nhóm
-                for block in word_blocks:
-                    if not current_line:
-                        current_line.append(block)
-                        continue
-                    
-                    ref = current_line[0]
-                    # Nếu tâm nằm trong khoảng dung sai của dòng trước
-                    if abs(block['y_center'] - ref['y_center']) < TOLERANCE:
-                        current_line.append(block)
-                    else:
-                        lines.append(current_line)
-                        current_line = [block]
-                if current_line: lines.append(current_line)
-                
-                # 4. Nối chuỗi và tính chiều cao
-                final_lines = []
-                total_h = 0
-                count = 0
-                
-                for line in lines:
-                    line.sort(key=lambda b: b['x']) # Sort trái -> phải
-                    line_text = " ".join([b['text'] for b in line])
-                    final_lines.append(line_text)
-                    
-                    for b in line:
-                        # Bây giờ biến 'scale' đã được định nghĩa -> Không lỗi nữa
-                        total_h += (b['raw_h'] / scale)
-                        count += 1
-
-                if count > 0: avg_h_orig = total_h / count
-                raw_text = "\n".join(final_lines)
-                print(f"OCR Result:\n{raw_text}")
-
-            # --- THỬ LẦN 2: Cấu hình cho Tiêu đề (Nền sáng/Chữ to) ---
-            # Nếu chưa đọc được gì hoặc nghi ngờ thiếu
-            if not result or not has_title:
-                print("Thử lại với cấu hình Tiêu đề...")
-                # Không invert, threshold cao hơn để lọc nền vàng
-                result_v2 = try_ocr(image, contrast_factor=1.5, threshold=180, invert=False)
-                
-                if result_v2:
-                    if not result: 
-                        result = result_v2
-                    else:
-                        # Gộp kết quả: Lấy những dòng mà lần 1 chưa đọc được
-                        # (Logic đơn giản: Nếu lần 2 đọc được nhiều dòng hơn thì lấy lần 2)
-                        if len(result_v2) > len(result):
-                            result = result_v2
-
-            # --- (PHẦN CÒN LẠI GIỮ NGUYÊN: Sắp xếp, Nối dòng...) ---
+            # --- (PHẦN XỬ LÝ KẾT QUẢ GIỮ NGUYÊN NHƯ CŨ) ---
             raw_text = ""
             avg_h_orig = 20
             
             if result:
-                # --- [THUẬT TOÁN GOM DÒNG THÔNG MINH V2: CENTER Y] ---
-                
-                # 1. Chuyển đổi dữ liệu để dễ xử lý: [ {y_center, height, x, text}, ... ]
+                # [THUẬT TOÁN GOM DÒNG V2 - GIỮ NGUYÊN]
                 word_blocks = []
                 for line in result:
                     box = line[0]
                     text = line[1]
-                    
-                    # Tính Y trung tâm và Chiều cao
                     y_min = min(p[1] for p in box)
                     y_max = max(p[1] for p in box)
                     y_center = (y_min + y_max) / 2
@@ -715,68 +677,46 @@ class TooltipTranslator:
                         'y_center': y_center,
                         'height': height,
                         'x': x_min,
-                        'raw_h': abs(box[3][1] - box[0][1]) # Để tính font size
+                        'raw_h': abs(box[3][1] - box[0][1])
                     })
 
-                # 2. Sắp xếp sơ bộ theo Y để duyệt từ trên xuống
                 word_blocks.sort(key=lambda b: b['y_center'])
-                
                 lines = []
                 current_line = []
                 
-                # 3. Duyệt và gom nhóm
                 for block in word_blocks:
                     if not current_line:
                         current_line.append(block)
                         continue
-                    
-                    # Lấy block đầu tiên của dòng hiện tại làm chuẩn
                     ref_block = current_line[0]
-                    
-                    # Logic: Nếu tâm của block mới nằm trong phạm vi chiều cao của dòng hiện tại
-                    # (Cho phép sai số 50% chiều cao dòng)
-                    vertical_threshold = ref_block['height'] * 0.5
+                    vertical_threshold = ref_block['height'] * 0.6 # Tăng dung sai lên chút
                     
                     if abs(block['y_center'] - ref_block['y_center']) < vertical_threshold:
-                        # Cùng dòng
                         current_line.append(block)
                     else:
-                        # Khác dòng -> Lưu dòng cũ, bắt đầu dòng mới
                         lines.append(current_line)
                         current_line = [block]
+                if current_line: lines.append(current_line)
                 
-                # Lưu dòng cuối
-                if current_line:
-                    lines.append(current_line)
-                
-                # 4. Sắp xếp X trong từng dòng và nối chuỗi
                 final_text_lines = []
                 total_h = 0
                 count = 0
                 
                 for line in lines:
-                    # Sort từ trái qua phải
                     line.sort(key=lambda b: b['x'])
-                    
-                    # Nối các từ
                     line_text = " ".join([b['text'] for b in line])
                     final_text_lines.append(line_text)
-                    
-                    # Tính toán chiều cao trung bình
                     for b in line:
+                        # Chia cho scale để ra kích thước thật trên màn hình
                         total_h += (b['raw_h'] / scale)
                         count += 1
 
                 if count > 0: avg_h_orig = total_h / count
-                
-                # Kết quả cuối cùng
                 raw_text = "\n".join(final_text_lines)
+                print(f"OCR Fast Result:\n{raw_text}")
 
-            # ... (Phần Fallback, Tính font size, Gọi Groq... GIỮ NGUYÊN) ...
-            # (Copy y nguyên phần dưới từ code cũ vào)
-            
             if not raw_text.strip():
-                # Fallback
+                # Fallback cuối cùng: Đưa ảnh gốc vào (chậm nhưng chắc)
                 res_retry, _ = ocr_engine(np.array(image))
                 if res_retry: raw_text = "\n".join([r[1] for r in res_retry])
             
@@ -784,19 +724,20 @@ class TooltipTranslator:
                 self.update_text_safe(label_widget, "Không thấy chữ", "gray")
                 return
 
-            # Font Size
+            # Font Size Logic
             font_size = max(11, min(int(avg_h_orig * 0.85), 40))
             self.font_size = font_size
             dynamic_font = ("Segoe UI", font_size, "bold")
             label_widget.config(font=dynamic_font)
             label_widget.tag_config("highlight", foreground="#FFD700", font=dynamic_font)
 
-            # Groq
+            # Gọi Groq Translate
             final_input = f"{ROGUELIKE_PROMPT}\n\n(NỘI DUNG CẦN DỊCH:\n\n'{raw_text}')"
             translated_text = call_groq_with_rotation(final_input)
             clean_text = clean_translation_output(translated_text)
             self.root.after(0, lambda: self.update_text_safe(label_widget, clean_text, "white", "⏳ Đang tối ưu..."))
-            # Display
+            
+            # Hiển thị
             label_widget.config(state=tk.NORMAL)
             label_widget.delete("1.0", tk.END)
             label_widget.config(fg="#00ff00")
@@ -806,7 +747,6 @@ class TooltipTranslator:
                 if i % 2 == 0: label_widget.insert(tk.END, part)
                 else: label_widget.insert(tk.END, part, "highlight")
             
-            # Auto-fit
             label_widget.update_idletasks()
             count_res = label_widget.count("1.0", "end", "displaylines")
             num_lines = count_res[0] if count_res else 1
@@ -816,6 +756,7 @@ class TooltipTranslator:
                 
         except Exception as e:
             print(f"Lỗi xử lý: {e}")
+            traceback.print_exc()
             self.update_text_safe(label_widget, "Lỗi dịch", "red")
 
 

@@ -423,13 +423,16 @@ def custom_askstring(title, prompt, parent=None, show=None, initialvalue=None):
     return result[0]
 
 def resource_path(relative_path):
-    """ Lấy đường dẫn tuyệt đối, hoạt động cho cả .py và .exe """
+    """ Lấy đường dẫn tài nguyên tuyệt đối (Hỗ trợ PyInstaller + Nuitka + Dev) """
     try:
+        # PyInstaller tạo ra biến này
         base_path = sys._MEIPASS
     except Exception:
+        # Nuitka hoặc chạy thường (Dev)
+        # Nuitka onefile sẽ giải nén vào temp và __file__ sẽ trỏ tới đó
         base_path = os.path.dirname(os.path.abspath(__file__))
+
     return os.path.join(base_path, relative_path)
-# Thử tải logo cho splash (nếu lỗi thì bỏ qua)
 
 g_translator_process = None # Lưu trữ tiến trình đang chạy
 
@@ -719,8 +722,7 @@ class CreateToolTip(object):
 
 def check_for_updates(config_data):
     """
-    So sánh phiên bản hiện tại, HIỂN THỊ POPUP VÀ BẮT BUỘC CẬP NHẬT.
-    Trả về True nếu tìm thấy update, False nếu không.
+    Kiểm tra cập nhật và gọi Updater (Chế độ ONEDIR).
     """
     try:
         updater_info = config_data.get("updater")
@@ -729,62 +731,61 @@ def check_for_updates(config_data):
         latest_version_str = updater_info.get("latest_version")
         if not latest_version_str: return False
 
-        # So sánh phiên bản
         if version.parse(latest_version_str) > version.parse(CURRENT_VERSION):
             print(f"Phát hiện phiên bản mới: {latest_version_str}")
-
             notes = updater_info.get("release_notes", "Không có ghi chú.")
             url = updater_info.get("download_url") 
 
-            if not url:
-                print("Lỗi config: 'download_url' bị thiếu.")
-                return False
+            if not url: return False
 
-            # --- SỬA: Thay đổi nội dung tin nhắn thành tin nhắn BẮT BUỘC ---
             message = (
                 f"Đã có phiên bản mới: {latest_version_str}!\n"
                 f"(Bạn đang dùng: {CURRENT_VERSION})\n\n"
                 f"Ghi chú:\n{notes}\n\n"
-                "Đây là bản cập nhật bắt buộc. Ứng dụng sẽ tự động cập nhật ngay bây giờ."
+                "Bấm OK để tự động tải và cập nhật (dạng Folder)."
             )
 
-            # --- SỬA: Thay 'custom_askyesno' bằng 'custom_showwarning' ---
-            # Người dùng chỉ có thể bấm "OK"
-            custom_showwarning("Chuẩn Bị Cập Nhật!", message)
+            custom_showwarning("Cập Nhật Hệ Thống", message)
             
-            # --- SỬA: Xóa 'if' - Chạy logic cập nhật ngay lập tức ---
             try:
-                main_app_path = sys.executable
-                main_app_dir = os.path.dirname(main_app_path)
-                updater_exe_path = os.path.join(main_app_dir, "updater.exe") 
+                # 1. Xác định vị trí updater.exe hiện tại (nằm trong folder game)
+                if getattr(sys, 'frozen', False):
+                    app_dir = os.path.dirname(sys.executable)
+                    exe_name = os.path.basename(sys.executable)
+                else:
+                    app_dir = os.path.dirname(os.path.abspath(__file__))
+                    exe_name = "CapNhatNightReignMod_UI.py" # Tên giả khi dev
 
-                if not os.path.exists(updater_exe_path):
-                    raise FileNotFoundError("Không tìm thấy file 'updater.exe'.")
+                local_updater_path = os.path.join(app_dir, "updater.exe")
 
-                print("Đang xác thực file updater.exe...")
-                is_valid, reason = verify_file_hash(updater_exe_path, EXPECTED_UPDATER_HASH)
-
-                if not is_valid:
-                    custom_showerror("Lỗi An Ninh", f"Không thể chạy trình cập nhật. Lý do: {reason}.")
+                # 2. Copy updater ra thư mục Temp (để tránh lỗi đang lock file)
+                temp_dir = os.environ['TEMP']
+                temp_updater_path = os.path.join(temp_dir, "WGZ_Updater_Temp.exe")
+                
+                if os.path.exists(local_updater_path):
+                    shutil.copy2(local_updater_path, temp_updater_path)
+                else:
+                    custom_showerror("Lỗi", "Không tìm thấy file 'updater.exe' trong thư mục game.")
                     webbrowser.open_new_tab(url)
-                    return True # Vẫn trả về True vì đã tìm thấy
+                    return True
 
-                print("Xác thực thành công. Bắt đầu chạy updater...")
-                # (Chúng ta chạy updater và thoát ngay)
-                subprocess.Popen([updater_exe_path, url, main_app_path])
+                # 3. Chạy updater từ Temp
+                # Tham số: [URL_Tải_Zip] [Thư_Mục_Cài_Đặt] [Tên_File_Exe_Chính]
+                print(f"Gọi updater tại: {temp_updater_path}")
+                subprocess.Popen([temp_updater_path, url, app_dir, exe_name])
+                
+                # 4. Thoát app chính ngay lập tức
                 root.destroy()
+                sys.exit(0)
 
             except Exception as e:
-                # Nếu có lỗi khi chạy updater, mở link tải thủ công
                 custom_showerror("Lỗi Cập Nhật", f"Không thể chạy updater: {e}\nSẽ mở link tải thủ công.")
                 webbrowser.open_new_tab(url)
             
-            return True # Đã tìm thấy update
-            # --- HẾT SỬA ---
-
+            return True
         else:
             print("Ứng dụng đã ở phiên bản mới nhất.")
-            return False # Không tìm thấy update
+            return False
 
     except Exception as e:
         print(f"Lỗi khi kiểm tra cập nhật: {e}")
@@ -8553,11 +8554,11 @@ if __name__ == '__main__':
             g_secret_click_count = 0
             open_secret_uploader()
 
-    def action_browse_secret_exe():
-        """Thay thế kéo thả cho Secret Uploader."""
+    def action_browse_secret_zip(): # Đổi tên hàm cho đúng nghĩa
+        """Thay thế kéo thả cho Secret Uploader (Chế độ ZIP)."""
         file_path = filedialog.askopenfilename(
-            title="Chọn file .exe bản build mới",
-            filetypes=[("Executable", "*.exe")]
+            title="Chọn file Update đã nén (.zip)",
+            filetypes=[("Zip Files", "*.zip")]
         )
         
         if file_path:
@@ -8565,13 +8566,13 @@ if __name__ == '__main__':
             secret_drop_listbox.insert(tk.END, file_path)
 
     def open_secret_uploader():
-        """Mở cửa sổ upload bí mật."""
-        global secret_drop_listbox, secret_exe_id_entry, secret_zip_id_entry, secret_window
+        """Mở cửa sổ upload bí mật (Giao diện mới cho --onedir)."""
+        global secret_drop_listbox, secret_zip_id_entry, secret_window
 
         secret_window = tk.Toplevel(root)
-        secret_window.title("Secret Updater Config")
+        secret_window.title("Secret Updater (Onedir Mode)")
         secret_window.after(10, lambda: apply_theme_to_titlebar(secret_window))
-        center_window_on_screen(secret_window, 500, 350)
+        center_window_on_screen(secret_window, 500, 300)
         secret_window.transient(root)
         secret_window.grab_set()
 
@@ -8579,49 +8580,47 @@ if __name__ == '__main__':
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # 1. Khung kéo thả
-        drop_frame = ttk.LabelFrame(main_frame, text="1. Kéo 1 file .exe (bản build mới) vào đây")
+        drop_frame = ttk.LabelFrame(main_frame, text="1. Kéo file Update (.zip) vào đây")
         drop_frame.pack(fill=tk.BOTH, expand=True, pady=5)
-        ttk.Button(drop_frame, text="📂 Chọn File .exe", command=action_browse_secret_exe).pack(fill=tk.X, padx=5, pady=5)
+        
+        # Nút chọn file
+        ttk.Button(drop_frame, text="📂 Chọn File .zip", command=action_browse_secret_zip).pack(fill=tk.X, padx=5, pady=5)
+        
         secret_drop_listbox = tk.Listbox(drop_frame, height=3)
         secret_drop_listbox.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
         secret_drop_listbox.drop_target_register(DND_FILES)
         secret_drop_listbox.dnd_bind('<<Drop>>', handle_secret_drop)
 
-        # 2. Khung config
+        # 2. Khung config (Chỉ cần 1 ID)
         config_frame = ttk.LabelFrame(main_frame, text="2. Cấu hình Link Drive")
         config_frame.pack(fill=tk.X, pady=5)
 
-        row1 = ttk.Frame(config_frame)
-        row1.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Label(row1, text="File ID của .EXE Chính:", width=22).pack(side=tk.LEFT)
-        secret_exe_id_entry = ttk.Entry(row1)
-        secret_exe_id_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        secret_exe_id_entry.insert(0, local_config.get("secret_exe_id", ""))
-
         row2 = ttk.Frame(config_frame)
         row2.pack(fill=tk.X, padx=5, pady=5)
-        ttk.Label(row2, text="File ID của Bundle (.ZIP):", width=22).pack(side=tk.LEFT)
+        ttk.Label(row2, text="File ID bản Update (.zip):", width=22).pack(side=tk.LEFT)
 
         secret_zip_id_entry = ttk.Entry(row2)
         secret_zip_id_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        # Load ID cũ từ config (nếu có)
         secret_zip_id_entry.insert(0, local_config.get("secret_zip_id", ""))
+
         # 3. Nút bắt đầu
-        start_button = ttk.Button(main_frame, text="Bắt đầu Upload Lên 2 Link", 
+        start_button = ttk.Button(main_frame, text="🚀 Upload Ngay", 
                                 command=start_secret_upload, style="Accent.TButton")
         start_button.pack(pady=10)
 
     def handle_secret_drop(event):
-        """Xử lý khi kéo file vào cửa sổ bí mật."""
+        """Xử lý khi kéo file vào cửa sổ bí mật (Chỉ nhận .zip)."""
         secret_drop_listbox.delete(0, tk.END) # Chỉ cho phép 1 file
         raw_paths = root.tk.splitlist(event.data)
 
         if raw_paths:
             file_path = raw_paths[0] # Lấy file đầu tiên
-            if os.path.exists(file_path) and os.path.isfile(file_path) and file_path.endswith(".exe"):
+            if os.path.exists(file_path) and os.path.isfile(file_path) and file_path.lower().endswith(".zip"):
                 secret_drop_listbox.insert(tk.END, file_path)
             else:
-                secret_drop_listbox.insert(tk.END, "Lỗi: Chỉ chấp nhận 1 file .exe")
+                secret_drop_listbox.insert(tk.END, "Lỗi: Chỉ chấp nhận file .zip")
 
     def start_secret_upload():
         """Bắt đầu luồng upload bí mật."""
@@ -8630,25 +8629,22 @@ if __name__ == '__main__':
         try:
             file_path = secret_drop_listbox.get(0)
         except tk.TclError:
-            custom_showerror("Lỗi", "Chưa kéo file .exe vào.", parent=secret_window)
+            custom_showerror("Lỗi", "Chưa kéo file .zip vào.", parent=secret_window)
             return
 
-        exe_id = secret_exe_id_entry.get().strip()
         zip_id = secret_zip_id_entry.get().strip()
 
-        # --- THÊM MỚI: Lưu ID mới vào config ---
+        # --- Lưu ID vào config ---
         global local_config
-        local_config["secret_exe_id"] = exe_id
         local_config["secret_zip_id"] = zip_id
         save_local_config(local_config)
-        print("Đã lưu secret File IDs vào settings.json")
 
-        if not file_path or not exe_id or not zip_id:
-            custom_showerror("Lỗi", "Vui lòng kéo file và điền cả 2 File ID.", parent=secret_window)
+        if not file_path or not zip_id:
+            custom_showerror("Lỗi", "Thiếu file hoặc File ID.", parent=secret_window)
             return
 
-        if not file_path.endswith(".exe"):
-            custom_showerror("Lỗi", "File kéo vào phải là file .exe.", parent=secret_window)
+        if not file_path.lower().endswith(".zip"):
+            custom_showerror("Lỗi", "File phải là .zip.", parent=secret_window)
             return
 
         # Hiển thị cửa sổ "Đang tải"
@@ -8658,57 +8654,25 @@ if __name__ == '__main__':
         scan_loading_window.transient(secret_window)
         scan_loading_window.grab_set()
 
-        global secret_loading_label # Cần global để cập nhật text
+        global secret_loading_label
         secret_loading_label = ttk.Label(scan_loading_window, text="Đang chuẩn bị...")
         secret_loading_label.pack(expand=True, padx=20, pady=20)
 
+        # Chạy thread mới (gọn nhẹ hơn)
         threading.Thread(target=secret_upload_thread, 
-                        args=(file_path, exe_id, zip_id), 
+                        args=(file_path, zip_id), 
                         daemon=True).start()
 
-    def secret_upload_thread(file_path, exe_id, zip_id):
-        """(Chạy ngầm) Upload file .exe, nén .zip, và upload .zip."""
+    def secret_upload_thread(file_path, zip_id):
+        """(Chạy ngầm) Chỉ upload file .zip lên Drive."""
         try:
-            # --- 1. UPLOAD FILE .EXE CHÍNH ---
-            progress_queue.put(("secret_status", "Đang upload file .exe chính..."))
-            _secret_update_file(file_path, exe_id)
+            # 1. Update file ZIP lên Drive
+            progress_queue.put(("secret_status", f"Đang upload: {os.path.basename(file_path)}..."))
+            
+            # Gọi hàm helper có sẵn (nó sẽ tự xử lý Update hoặc Create nếu ID 404)
+            _secret_update_file(file_path, zip_id)
 
-            # --- 2. NÉN BUNDLE .ZIP ---
-            progress_queue.put(("secret_status", "Đang nén file .zip (gồm .exe và updater.exe)..."))
-
-            # SỬA: Tìm updater.exe BÊN CẠNH file .exe MỚI được thả vào
-            # 'file_path' là đường dẫn đến .exe MỚI (ví dụ: C:\NewBuild\WGZGameUpdater.exe)
-            new_app_dir = os.path.dirname(file_path)
-            updater_path = os.path.join(new_app_dir, "updater.exe")
-
-            if not os.path.exists(updater_path):
-                raise FileNotFoundError(f"Không tìm thấy 'updater.exe' trong cùng thư mục với file bạn vừa thả vào:\n({new_app_dir})")
-
-            temp_zip_path = os.path.join(os.environ['TEMP'], "_temp_secret_bundle.zip")
-
-            # Xóa file zip cũ nếu có
-            if os.path.exists(temp_zip_path):
-                os.remove(temp_zip_path)
-
-            print(f"Đang nén '{file_path}' và '{updater_path}' vào '{temp_zip_path}'")
-            with zipfile.ZipFile(temp_zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                # Thêm file .exe mới (đặt tên là tên file gốc)
-                zf.write(file_path, arcname=os.path.basename(file_path))
-                # Thêm file updater.exe
-                zf.write(updater_path, arcname="updater.exe")
-
-            print("Nén file .zip thành công.")
-
-            # --- 3. UPLOAD FILE .ZIP ---
-            progress_queue.put(("secret_status", "Đang upload file .zip..."))
-            _secret_update_file(temp_zip_path, zip_id)
-
-            # --- 4. DỌN DẸP ---
-            progress_queue.put(("secret_status", "Đang dọn dẹp file tạm..."))
-            if os.path.exists(temp_zip_path):
-                os.remove(temp_zip_path)
-
-            progress_queue.put(("secret_done", "Hoàn thành cả 2 file!"))
+            progress_queue.put(("secret_done", "Upload thành công!"))
 
         except Exception as e:
             print(f"Lỗi trong secret_upload_thread: {e}")
