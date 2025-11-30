@@ -16,6 +16,9 @@ import sys
 import traceback # Thư viện để in chi tiết lỗi
 import re
 import google.generativeai as genai
+import openai
+import base64
+from io import BytesIO
 
 try:
     # Giúp tool nhận diện đúng độ phân giải màn hình, cắt ảnh chuẩn xác hơn
@@ -24,14 +27,10 @@ except:
     pass
 # --- CẤU HÌNH ---
 try:
-    from key_secrets import GROQ_API_KEYS, GEMINI_API_KEY
+    from key_secrets import GEMINI_API_KEY, GROK_API_KEYS  # XÓA GROQ_API_KEYS
 except ImportError:
-    # Xử lý trường hợp người dùng tải về nhưng chưa tạo file key_secrets.py
-    print("Cảnh báo: Không tìm thấy file 'key_secrets.py'.")
-    print("Vui lòng tạo file này hoặc nhập Key thủ công.")
-    # Đặt danh sách rỗng để không crash ngay lập tức
-    GROQ_API_KEYS = []
     GEMINI_API_KEY = ""
+    GROK_API_KEYS = []
      
 HOTKEY = "<alt>+`"
 
@@ -39,6 +38,8 @@ HOTKEY = "<alt>+`"
 ocr_engine = None
 client = None
 current_key_index = 0
+grok_client = None
+current_grok_key_index = 0
 # --- PROMPT DỊCH ---
 ROGUELIKE_PROMPT = """
 [Nhiệm vụ: Dịch text game (từ OCR) sang Tiếng Việt theo ngữ cảnh RPG/Roguelike.
@@ -80,6 +81,20 @@ def enforce_admin():
     except Exception as e:
         print(f"❌ Lỗi khi xin quyền: {e}")
         input("Bấm Enter để xem lỗi...")
+
+def init_grok_client():
+    global grok_client, current_grok_key_index
+    if not GROK_API_KEYS:
+        return None
+    grok_client = openai.OpenAI(
+        api_key=GROK_API_KEYS[current_grok_key_index],
+        base_url="https://api.x.ai/v1"
+    )
+    print(f"Đã kết nối Grok - Key {current_grok_key_index + 1}")
+    return grok_client
+
+if GROK_API_KEYS:
+    init_grok_client()
 
 def clean_translation_output(text):
     """Dọn dẹp các câu dẫn dắt thừa (Tiếng Anh & Tiếng Việt)"""
@@ -157,44 +172,30 @@ def call_gemini_vision(image):
         print(f"❌ Lỗi Gemini: {e}")
         return None
 
-def call_groq_with_rotation(prompt):
-    global current_key_index
+def call_grok_with_rotation(prompt):
+    global current_grok_key_index, grok_client
     
-    # Thử tối đa số lần bằng số lượng key đang có
-    max_attempts = len(GROQ_API_KEYS)
-    
-    for attempt in range(max_attempts):
-        try:
-            # 1. Lấy key hiện tại
-            api_key = GROQ_API_KEYS[current_key_index]
-            client = Groq(api_key=api_key)
+    for _ in range(len(GROK_API_KEYS)):
+        if not grok_client:
+            init_grok_client()
             
-            # 2. Gọi API
-            chat_completion = client.chat.completions.create(
+        try:
+            response = grok_client.chat.completions.create(
+                model="grok-4-1-fast-non-reasoning",   # NHANH NHẤT + RẺ NHẤT CHO DỊCH TOOLTIP
                 messages=[{"role": "user", "content": prompt}],
-                model="llama-3.1-8b-instant",
                 temperature=0.1,
             )
-            # Nếu thành công -> Trả về kết quả ngay
-            return chat_completion.choices[0].message.content.strip()
-
+            return response.choices[0].message.content.strip()
+            
+        except openai.RateLimitError:
+            print(f"Rate limit key {current_grok_key_index + 1} → đổi key...")
+            current_grok_key_index = (current_grok_key_index + 1) % len(GROK_API_KEYS)
+            init_grok_client()
         except Exception as e:
-            err_msg = str(e)
-            # 3. Nếu gặp lỗi 429 (Rate Limit) -> Đổi Key
-            if "429" in err_msg:
-                print(f"⚠️ Key số {current_key_index + 1} bị giới hạn (429). Đang đổi key...")
-                
-                # Chuyển sang key tiếp theo (xoay vòng)
-                current_key_index = (current_key_index + 1) % len(GROQ_API_KEYS)
-                print(f"👉 Đã chuyển sang Key số {current_key_index + 1}")
-                
-                # Tiếp tục vòng lặp để thử key mới ngay lập tức
-                continue
-            else:
-                # Nếu là lỗi khác (mạng, server sập) -> Ném lỗi ra ngoài luôn
-                raise e
+            print(f"Lỗi Grok: {e}")
+            raise e
     
-    raise Exception("Tất cả các Key đều đã hết hạn mức!")
+    raise Exception("Hết Grok key khả dụng!")
 
 class TooltipTranslator:
     def __init__(self):
@@ -725,7 +726,7 @@ class TooltipTranslator:
                 return
 
             # Font Size Logic
-            font_size = max(11, min(int(avg_h_orig * 0.85), 40))
+            font_size = max(11, min(int(avg_h_orig * 0.85), 30))
             self.font_size = font_size
             dynamic_font = ("Segoe UI", font_size, "bold")
             label_widget.config(font=dynamic_font)
@@ -733,7 +734,7 @@ class TooltipTranslator:
 
             # Gọi Groq Translate
             final_input = f"{ROGUELIKE_PROMPT}\n\n(NỘI DUNG CẦN DỊCH:\n\n'{raw_text}')"
-            translated_text = call_groq_with_rotation(final_input)
+            translated_text = call_grok_with_rotation(final_input)
             clean_text = clean_translation_output(translated_text)
             self.root.after(0, lambda: self.update_text_safe(label_widget, clean_text, "white", "⏳ Đang tối ưu..."))
             
