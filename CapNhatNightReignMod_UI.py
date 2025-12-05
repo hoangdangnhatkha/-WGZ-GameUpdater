@@ -25,8 +25,12 @@ import threading
 import webview
 import queue
 import gdown
-
-
+import google.generativeai as genai
+try:
+    from key_secrets import GEMINI_API_KEY, GROK_API_KEYS  # XÓA GROQ_API_KEYS
+except ImportError:
+    GEMINI_API_KEY = ""
+    GROK_API_KEYS = []
 
 from google.auth.transport.requests import AuthorizedSession
 from tkinter import filedialog, messagebox, simpledialog # Added simpledialog
@@ -3062,36 +3066,27 @@ def run_global_ram_cleaner():
         return cleaned
     return 0
 
-def launch_with_high_priority(file_path):
+def launch_with_high_priority(file_path, args=""):
     """
-    Phiên bản V2: Dùng PowerShell thay vì CMD.
-    - Fix lỗi UAC bị minimize/ẩn.
-    - Fix lỗi game chạy ngầm không hiện cửa sổ.
-    - Vẫn giữ tính năng High Priority.
+    Phiên bản V3: Hỗ trợ ArgumentList để truyền Resolution.
     """
     try:
-        # Lấy thư mục làm việc
         working_dir = os.path.dirname(file_path)
-        
-        # Chuẩn hóa đường dẫn (đổi / thành \) để PowerShell không bị lỗi ký tự lạ
         file_path_win = os.path.normpath(file_path)
         working_dir_win = os.path.normpath(working_dir)
 
-        # Câu lệnh PowerShell:
-        # 1. Start-Process: Khởi chạy file
-        # 2. -WindowStyle Normal: BẮT BUỘC hiển thị cửa sổ (Fix lỗi minimize)
-        # 3. -PassThru: Trả về đối tượng process vừa tạo để chỉnh sửa tiếp
-        # 4. PriorityClass = 'High': Đặt ưu tiên cao
+        # Xây dựng lệnh PowerShell
+        # -ArgumentList: Truyền các tham số (như -w 1920 -h 1080) vào game
         ps_command = (
             f"Start-Process -FilePath '{file_path_win}' "
             f"-WorkingDirectory '{working_dir_win}' "
+            f"-ArgumentList '{args}' "  # <-- THÊM MỚI
             "-WindowStyle Normal "
             "-PassThru | ForEach-Object {$_.PriorityClass = 'High'}"
         )
         
         print(f"PowerShell Launch: {ps_command}")
         
-        # Chạy PowerShell (ẩn cửa sổ console đen đi bằng cờ 0x08000000)
         subprocess.Popen(
             ["powershell", "-NoProfile", "-Command", ps_command],
             creationflags=0x08000000, 
@@ -3102,6 +3097,7 @@ def launch_with_high_priority(file_path):
     except Exception as e:
         print(f"Lỗi Priority Launch (PowerShell): {e}")
         return False
+    
 def _perform_launch_tab2():
     """Hàm này chứa logic chạy game thực sự, được gọi sau khi delay."""
     global g_current_launch_path, g_smart_mode_enabled, g_auto_close
@@ -3161,26 +3157,32 @@ def action_launch_game():
     # 3. Hẹn giờ chạy logic game (Vẫn là 2 giây)
     root.after(2000, _perform_launch_tab2)
 
-def _perform_launch_page1(path_to_launch):
-    """Logic chạy game thực sự cho Page 1."""
+def _perform_launch_page1(path_to_launch, launch_args=""):
+    """Logic chạy game thực sự cho Page 1 (Có hỗ trợ Args)."""
     global g_smart_mode_enabled, g_auto_close
     
     exe_dir = os.path.dirname(path_to_launch)
     
+    print(f"Launching with Args: {launch_args}")
+
     # --- SMART MODE ---
     if g_smart_mode_enabled.get():
         threading.Thread(target=run_global_ram_cleaner, daemon=True).start()
         try:
-            success = launch_with_high_priority(path_to_launch)
+            # Truyền args vào hàm priority
+            success = launch_with_high_priority(path_to_launch, args=launch_args)
             if not success:
-                os.startfile(path_to_launch, cwd=exe_dir)
+                # Fallback: Nếu lỗi Priority thì dùng subprocess thường
+                subprocess.Popen([path_to_launch] + launch_args.split(), cwd=exe_dir)
         except Exception as e:
             custom_showerror("Lỗi Smart Mode", f"Lỗi: {e}")
-            os.startfile(path_to_launch, cwd=exe_dir)
+            # Fallback
+            subprocess.Popen([path_to_launch] + launch_args.split(), cwd=exe_dir)
     else:
         # --- NORMAL MODE ---
         try:
-            os.startfile(path_to_launch, cwd=exe_dir)
+            # Dùng subprocess thay vì os.startfile để truyền được tham số
+            subprocess.Popen([path_to_launch] + launch_args.split(), cwd=exe_dir)
         except Exception as e:
             custom_showerror("Lỗi Khởi chạy", f"Lỗi: {e}")
 
@@ -3192,12 +3194,31 @@ def _perform_launch_page1(path_to_launch):
 def action_launch_game_from_page_1(path_to_launch, btn_widget=None):
     if path_to_launch and os.path.exists(path_to_launch):
         
-        # [SỬA] Truyền nút bấm vào animation
+        # --- [THÊM MỚI] LOGIC TÌM RESOLUTION ---
+        launch_args = ""
+        try:
+            # Tìm game key dựa trên path (Hơi ngược nhưng hiệu quả)
+            # Hoặc đơn giản hơn: Chúng ta sẽ truyền game_name vào hàm này ở bước Binding
+            # Nhưng để tránh sửa quá nhiều, ta quét config custom_games:
+            for g_name, g_data in local_config.get('custom_games', {}).items():
+                if g_data.get('launch_path') == path_to_launch:
+                    res = g_data.get('resolution')
+                    if res and "x" in res:
+                        w, h = res.split("x")
+                        # Chuỗi lệnh chuẩn cho Unity, Unreal, Source Engine
+                        launch_args = f"-screen-width {w} -screen-height {h} -width {w} -height {h}"
+                        print(f"--> Áp dụng Resolution Custom: {res}")
+                    break
+        except Exception as e:
+            print(f"Lỗi đọc resolution: {e}")
+        # ---------------------------------------
+
+        # Hiệu ứng Rocket
         if btn_widget:
             play_rocket_animation(target_widget=btn_widget)
         
-        # Hẹn giờ chạy
-        root.after(2000, lambda: _perform_launch_page1(path_to_launch))
+        # Hẹn giờ chạy (truyền thêm launch_args)
+        root.after(2000, lambda: _perform_launch_page1(path_to_launch, launch_args))
         
     else:
         custom_showerror("Lỗi", "Không tìm thấy file khởi chạy.")
@@ -4141,6 +4162,21 @@ def process_queue():
         # --- THÊM MỚI: XỬ LÝ POP-UP SAU KHI TẢI XONG ---
         elif message_type == "download_complete":
             data = message_value
+            
+            # --- [FIX LỖI KẸT CỬA SỔ] ---
+            # Trước khi hiện thông báo, ép App phải nổi lên trên cùng
+            try:
+                if root.state() == 'iconic':
+                    root.deiconify() # Nếu đang thu nhỏ (minimized) thì bung ra
+                
+                root.lift() # Nâng cửa sổ lên tầng hiển thị cao hơn
+                root.attributes('-topmost', 1) # Ép luôn nổi trên cùng (Topmost)
+                root.attributes('-topmost', 0) # Tắt Topmost ngay lập tức (để người dùng còn dùng app khác)
+                root.focus_force() # Ép lấy tiêu điểm chuột
+            except Exception as e:
+                print(f"Lỗi khi đánh thức cửa sổ: {e}")
+            # ---------------------------
+
             if data["success"]:
                 # Hiển thị pop-up thành công
                 custom_showinfo(data["title"], data["message"])
@@ -5806,6 +5842,68 @@ if __name__ == '__main__':
             save_local_config(local_config)
             action_clear_game_search() # Làm mới giao diện
 
+    def action_change_resolution(game_key):
+        """Mở popup chọn độ phân giải cho Custom Game."""
+        # 1. Tạo cửa sổ
+        dialog = tk.Toplevel(root)
+        dialog.title(f"Resolution - {game_key}")
+        center_window_on_screen(dialog, 350, 200)
+        dialog.transient(root)
+        dialog.grab_set()
+        
+        # Theme cho titlebar
+        dialog.after(10, lambda: apply_theme_to_titlebar(dialog))
+
+        ttk.Label(dialog, text="Chọn độ phân giải khởi động (16:9):", font=("Segoe UI", 10)).pack(pady=15)
+
+        # 2. Danh sách Resolution 16:9 phổ biến
+        res_options = [
+            "Mặc định (Theo Game)",
+            "1280x720  (HD)",
+            "1366x768  (Laptop)",
+            "1600x900  (HD+)",
+            "1920x1080 (Full HD)",
+            "2560x1440 (2K)",
+            "3840x2160 (4K)"
+        ]
+
+        # Lấy giá trị hiện tại
+        current_res = "Mặc định (Theo Game)"
+        if 'custom_games' in local_config and game_key in local_config['custom_games']:
+            saved_res = local_config['custom_games'][game_key].get('resolution', "")
+            if saved_res:
+                # Tìm text khớp với saved_res (ví dụ "1920x1080")
+                for opt in res_options:
+                    if saved_res in opt:
+                        current_res = opt
+                        break
+
+        combo = ttk.Combobox(dialog, values=res_options, state="readonly", width=30)
+        combo.pack(pady=5)
+        combo.set(current_res)
+
+        def on_save():
+            selection = combo.get()
+            
+            # Trích xuất độ phân giải (VD: Lấy "1920x1080" từ "1920x1080 (Full HD)")
+            res_val = ""
+            if "x" in selection:
+                res_val = selection.split(" ")[0] # Lấy phần đầu tiên trước dấu cách
+
+            # Lưu vào config
+            if 'custom_games' in local_config and game_key in local_config['custom_games']:
+                local_config['custom_games'][game_key]['resolution'] = res_val
+                save_local_config(local_config)
+                
+                if res_val:
+                    custom_showinfo("Đã lưu", f"Game sẽ chạy ở độ phân giải: {res_val}\n(Lưu ý: Game phải hỗ trợ tham số dòng lệnh -screen-width / -w)")
+                else:
+                    custom_showinfo("Đã lưu", "Đã reset về mặc định của game.")
+                    
+                dialog.destroy()
+
+        ttk.Button(dialog, text="Lưu Thiết Lập", command=on_save, style="Accent.TButton").pack(pady=20)
+
     def action_remove_custom_image(game_key):
         """Xóa ảnh custom để quay về ảnh gốc từ Server."""
         if custom_askyesno("Khôi phục ảnh", f"Bạn muốn xóa ảnh tùy chỉnh của '{game_key}'\nvà quay lại dùng ảnh gốc từ Server?"):
@@ -5832,8 +5930,7 @@ if __name__ == '__main__':
         """
         Menu chuột phải thông minh:
         - Luôn hiện: Đổi Ảnh, Đổi Tên.
-        - Nếu là Server Game + Có Ảnh Custom: Hiện nút 'Khôi phục ảnh gốc'.
-        - Nếu là Custom Game: Hiện nút 'Xóa Game'.
+        - Custom Game: Hiện thêm 'Chỉnh Resolution' và 'Xóa Game'.
         """
         menu = tk.Menu(root, tearoff=0)
         
@@ -5844,52 +5941,62 @@ if __name__ == '__main__':
         menu.add_command(label="🖼️ Đổi Ảnh (URL)", command=lambda: action_change_game_image(game_key, is_custom))
         
         # 3. Khôi phục ảnh gốc (Chỉ cho Server Game đang dùng ảnh custom)
-        # Kiểm tra xem game này có trong danh sách override không
         if not is_custom and game_key in local_config.get('theme_overrides', {}):
             menu.add_command(label="↩️ Khôi phục Ảnh Gốc", command=lambda: action_remove_custom_image(game_key))
 
         menu.add_separator()
 
-        # 4. Xóa Game (Chỉ cho Custom Game)
+        # --- [THÊM MỚI] MENU RESOLUTION CHO CUSTOM GAME ---
         if is_custom:
+            menu.add_command(label="🖥️ Chỉnh Resolution (16:9)", command=lambda: action_change_resolution(game_key))
+            menu.add_separator()
             menu.add_command(label="❌ Xóa Game Khỏi List", command=lambda: action_delete_custom_game(game_key))
             
         menu.post(event.x_root, event.y_root)
 
+    def on_page_1_mouse_wheel(event):
+        """Hàm cuộn CHUYÊN BIỆT cho Trang 1 (Tránh xung đột với Tab 2)."""
+        global page_1_canvas
+        try:
+            if not page_1_canvas.winfo_exists(): return
+            
+            scroll_amount = 0
+            if sys.platform == "win32":
+                scroll_amount = int(-1 * (event.delta / 120))
+            elif sys.platform == "darwin": # macOS
+                scroll_amount = event.delta
+            else: # Linux
+                if event.num == 4: scroll_amount = -1
+                elif event.num == 5: scroll_amount = 1
+            
+            page_1_canvas.yview_scroll(scroll_amount, "units")
+        except Exception as e:
+            pass
+
     # --- THÊM MỚI: CÁC HÀM ĐIỀU HƯỚNG MỚI ---
     def populate_page_1_grid(game_groups, search_term=""):
         """
-        (ULTIMATE FIX) Batch Processing + Loading Screen.
-        Chia nhỏ việc vẽ giao diện thành từng đợt để không làm đơ ứng dụng.
+        (ĐÃ FIX SCROLL) Batch Processing + Loading Screen.
         """
         global g_game_grid_container, g_game_search_entry, page_1_canvas, page_1_canvas_window_id
-        global g_tab1_loading_frame # <-- THÊM DÒNG NÀY (Quan trọng)
+        global g_tab1_loading_frame
 
         style.configure("HoverAccent.TButton", background="#0078d4", foreground="white", font=("Segoe UI", 10, "bold"), borderwidth=1, focuscolor="none")
         style.map("HoverAccent.TButton", background=[('active', '#ff0000'), ('disabled', '#cccccc')], foreground=[('active', 'cyan')])
 
-        # --- 1. XÓA LOADING SPINNER (Cải tiến mạnh mẽ) ---
-        # Cách 1: Xóa thông qua biến toàn cục (Chính xác nhất)
+        # --- XÓA LOADING SPINNER ---
         if 'g_tab1_loading_frame' in globals() and g_tab1_loading_frame:
             try:
                 if g_tab1_loading_frame.winfo_exists():
                     g_tab1_loading_frame.destroy()
                     root.update_idletasks()
-            except Exception as e:
-                print(f"Lỗi xóa loading frame (global): {e}")
-
-        # Cách 2: Quét và diệt (Phòng hờ nếu Cách 1 trượt)
-        # Duyệt qua tất cả con của Page 1, nếu cái nào tên có chữ "loading" thì xóa
+            except: pass
         try:
             for widget in page_1_game_grid.winfo_children():
-                try:
-                    # Kiểm tra tên widget (tab1_loading_frame)
-                    if "loading" in str(widget.winfo_name()):
-                        widget.destroy()
-                except: pass
+                if "loading" in str(widget.winfo_name()): widget.destroy()
         except: pass
 
-        # --- 1. KHỞI TẠO UI CƠ BẢN (Giữ nguyên) ---
+        # --- 1. KHỞI TẠO UI CƠ BẢN ---
         if g_game_search_entry is None:
             # Logo
             try:
@@ -5912,45 +6019,39 @@ if __name__ == '__main__':
             
             add_game_btn = ttk.Button(search_frame, text="➕ Thêm Game", command=action_add_custom_game_popup)
             add_game_btn.pack(side=tk.LEFT, padx=(10, 0))
-            CreateToolTip(add_game_btn, "Thêm game bên ngoài vào Launcher.")
             
             gemini_btn = ttk.Button(page_1_game_grid, text="✨ Gemini AI PRO", command=action_open_gemini_pro, style="Accent.TButton")
             gemini_btn.place(relx=1.0, x=-20, y=10, anchor="ne")
-            CreateToolTip(gemini_btn, "Mở trợ lý Google Gemini ngay trong App.")
 
         if g_game_grid_container is None:
             canvas_host_frame = ttk.Frame(page_1_game_grid)
             canvas_host_frame.pack(fill=tk.BOTH, expand=True, pady=5, padx=5)
             path_label_credit = ttk.Label(page_1_game_grid, text="by Mr-Mime 2025", style="secondary.TLabel")
             path_label_credit.pack(side=tk.BOTTOM, pady=(5, 5))
+            
             page_1_scrollbar = ttk.Scrollbar(canvas_host_frame, orient="vertical")
             page_1_canvas = tk.Canvas(canvas_host_frame, borderwidth=0, highlightthickness=0, yscrollcommand=page_1_scrollbar.set)
             page_1_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             page_1_scrollbar.config(command=page_1_canvas.yview)
+            
             g_game_grid_container = ttk.Frame(page_1_canvas)
             page_1_canvas_window_id = page_1_canvas.create_window((0, 0), window=g_game_grid_container, anchor="n")
             
             g_game_grid_container.bind("<Configure>", on_page_1_content_configure)
             page_1_canvas.bind("<Configure>", on_page_1_canvas_configure)
+            
+            # --- FIX: BIND HÀM CUỘN RIÊNG CHO CANVAS CHÍNH ---
             for w in [page_1_canvas, g_game_grid_container]:
-                w.bind("<MouseWheel>", on_mouse_wheel)
-                w.bind("<Button-4>", on_mouse_wheel)
-                w.bind("<Button-5>", on_mouse_wheel)
+                w.bind("<MouseWheel>", on_page_1_mouse_wheel)
+                w.bind("<Button-4>", on_page_1_mouse_wheel)
+                w.bind("<Button-5>", on_page_1_mouse_wheel)
 
         # --- 2. CHUẨN BỊ DỮ LIỆU ---
-        
-        # Ẩn nội dung cũ ngay lập tức
         page_1_canvas.itemconfigure(page_1_canvas_window_id, state='hidden')
-        
-        # Xóa widget cũ
         for widget in g_game_grid_container.winfo_children(): widget.destroy()
 
-        # Hiển thị LOADING SPINNER tạm thời
         loading_overlay = ttk.Label(page_1_canvas, text="⚡ Đang tải danh sách...", font=("Segoe UI", 12), background="#1c1c1c", foreground="white")
-        # Đặt Loading vào giữa Canvas (dùng place để nổi lên trên)
         loading_overlay.place(relx=0.5, rely=0.4, anchor=tk.CENTER)
-        
-        # Update UI để hiện Loading ngay lập tức
         root.update_idletasks()
 
         if not hasattr(root, 'cached_game_icons_small'): root.cached_game_icons_small = {}
@@ -5967,23 +6068,22 @@ if __name__ == '__main__':
         else:
             filtered_names = all_game_names
 
-        # --- 3. BATCH PROCESSING (XỬ LÝ THEO LÔ) ---
-        BATCH_SIZE = 8  # Mỗi lần vẽ 8 game (con số này giúp UI mượt nhất)
+        # --- 3. BATCH PROCESSING ---
+        BATCH_SIZE = 8
         MAX_COLS = 4
         
         def process_batch(start_index):
-            """Hàm đệ quy để vẽ từng nhóm nhỏ."""
             end_index = min(start_index + BATCH_SIZE, len(filtered_names))
             
             for i in range(start_index, end_index):
                 game_name = filtered_names[i]
                 
-                # --- LOGIC TẠO CARD (Giữ nguyên) ---
+                # (Logic lấy ảnh/path giữ nguyên...)
                 is_custom = game_name in custom_games_data
                 icon_img = None
                 full_path_to_launch = None
                 
-                # ... (Logic ảnh - Giữ nguyên như cũ) ...
+                # --- Load Ảnh ---
                 override_path = theme_overrides.get(game_name)
                 local_img_path_to_load = None
                 if is_custom: local_img_path_to_load = custom_games_data[game_name].get("image_local_path")
@@ -6005,7 +6105,7 @@ if __name__ == '__main__':
                     if image_url: icon_img = load_image_from_url(image_url, size=(192, 89))
                 if not icon_img: icon_img = root.default_game_icon_small
 
-                # ... (Logic Path - Giữ nguyên như cũ) ...
+                # --- Load Path ---
                 if is_custom:
                     full_path_to_launch = custom_games_data[game_name].get("launch_path")
                 else:
@@ -6020,7 +6120,6 @@ if __name__ == '__main__':
                         if os.path.exists(full_path): full_path_to_launch = full_path
 
                 # --- VẼ GRID ---
-                # Tính toán Row/Col dựa trên index tổng (i)
                 row = i // MAX_COLS
                 col = i % MAX_COLS
 
@@ -6043,12 +6142,9 @@ if __name__ == '__main__':
                 
                 launch_button_page1 = ttk.Button(card_frame, text=btn_text, state=btn_state, style=btn_style)
                 launch_button_page1.grid(row=2, column=0, pady=(0, 10), padx=10, sticky="ew")
-                g_page1_ui_refs[game_name] = {
-                    "btn": launch_button_page1,
-                    "img_label": img_label
-                }
+                g_page1_ui_refs[game_name] = {"btn": launch_button_page1, "img_label": img_label}
 
-                # Bindings
+                # --- BINDINGS ---
                 if full_path_to_launch:
                     click_cmd = lambda e, p=full_path_to_launch, t=img_label: action_launch_game_from_page_1(p, t)
                     launch_button_page1.bind("<Button-1>", click_cmd)
@@ -6063,30 +6159,24 @@ if __name__ == '__main__':
                     for w in [card_frame, img_label, name_label]: w.bind("<Button-1>", nav_cmd)
 
                 for w in [card_frame, img_label, name_label]: w.bind("<Button-3>", right_click_cmd)
-                for w in [card_frame, img_label, name_label, launch_button_page1]:
-                    w.bind("<MouseWheel>", on_mouse_wheel)
-                    w.bind("<Button-4>", on_mouse_wheel)
-                    w.bind("<Button-5>", on_mouse_wheel)
                 
-            # --- KIỂM TRA ĐIỀU KIỆN DỪNG ---
+                # --- FIX SCROLL TẠI ĐÂY ---
+                # Sử dụng hàm on_page_1_mouse_wheel thay vì on_mouse_wheel cũ
+                for w in [card_frame, img_label, name_label, launch_button_page1]:
+                    w.bind("<MouseWheel>", on_page_1_mouse_wheel)
+                    w.bind("<Button-4>", on_page_1_mouse_wheel)
+                    w.bind("<Button-5>", on_page_1_mouse_wheel)
+                
             if end_index < len(filtered_names):
-                # Nếu chưa xong, hẹn giờ 5ms sau chạy tiếp batch sau
-                # (Thời gian nghỉ này giúp UI không bị đơ)
                 root.after(5, lambda: process_batch(end_index))
             else:
-                # --- KHI ĐÃ VẼ XONG TẤT CẢ ---
                 for i in range(MAX_COLS): g_game_grid_container.columnconfigure(i, weight=0)
-                
-                # Xóa loading spinner
                 loading_overlay.destroy()
-                
-                # Hiện lại lưới
                 page_1_canvas.itemconfigure(page_1_canvas_window_id, state='normal')
                 g_game_grid_container.update_idletasks()
                 page_1_canvas.configure(scrollregion=page_1_canvas.bbox("all"))
-                print("Đã vẽ xong toàn bộ Grid (Batch Mode).")
+                print("Đã vẽ xong Grid (Batch Mode).")
 
-        # Bắt đầu chạy batch đầu tiên
         process_batch(0)
 
 
@@ -6801,19 +6891,301 @@ if __name__ == '__main__':
     url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
     form_widgets["URL:"] = url_entry
 
-    def action_smart_paste():
+    # --- GIỮ NGUYÊN HÀM NÀY ---
+    def configure_gemini():
+        """Thiết lập Gemini API"""
+        if GEMINI_API_KEY and "DIEN_API_KEY" not in GEMINI_API_KEY:
+            genai.configure(api_key=GEMINI_API_KEY)
+            return True
+        return False
+
+    # --- GIỮ NGUYÊN HÀM NÀY ---    
+    def find_game_image_url_online(game_name):
+        """
+        Tìm ảnh bìa game từ Steam (hoặc nguồn khác) nếu game chưa có trong theme.
+        Sử dụng requests và regex để nhẹ nhàng lấy ảnh header của kết quả đầu tiên.
+        """
         try:
-            content = root.clipboard_get().strip()
-            # Trích xuất ID nếu là link drive
-            file_id = extract_gdrive_id_from_url(content)
-            if file_id:
+            print(f"Đang tìm ảnh cho game mới: {game_name}...")
+            
+            # 1. Tìm kiếm trên Steam Store
+            import urllib.parse
+            encoded_name = urllib.parse.quote(game_name)
+            search_url = f"https://store.steampowered.com/search/?term={encoded_name}"
+            
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            response = requests.get(search_url, headers=headers, timeout=5)
+            
+            if response.status_code == 200:
+                html = response.text
+                
+                # 2. Dùng Regex để tìm ảnh (capsule_sm_120 hoặc header)
+                # Tìm thẻ img src của kết quả tìm kiếm đầu tiên
+                # Mẫu HTML thường gặp: <img src="https://.../capsule_sm_120.jpg" ...>
+                
+                # Tìm link ảnh header (đẹp hơn capsule nhỏ)
+                # Chúng ta tìm link game trước, sau đó suy luận link ảnh header
+                # Pattern tìm App ID: data-ds-appid="123456"
+                match = re.search(r'data-ds-appid="(\d+)"', html)
+                
+                if match:
+                    app_id = match.group(1)
+                    # Tạo URL ảnh chuẩn của Steam (header.jpg - 460x215)
+                    # Đây là size chuẩn mà app bạn đang dùng
+                    image_url = f"https://cdn.akamai.steamstatic.com/steam/apps/{app_id}/header.jpg"
+                    print(f"--> Tìm thấy ảnh Steam: {image_url}")
+                    return image_url
+                    
+        except Exception as e:
+            print(f"Lỗi tìm ảnh online: {e}")
+        
+        # Fallback: Trả về None nếu không tìm thấy
+        return None
+    def analyze_filename_with_gemini(filename):
+        """
+        Gửi tên file cho Gemini để phân tích: Tên Game, Version, Nguồn, Password, VÀ FILE EXE.
+        """
+        if not configure_gemini():
+            return None
+
+        try:
+            model = genai.GenerativeModel('gemini-2.5-flash')
+
+            # Cập nhật Prompt: Yêu cầu đoán thêm "launch_file"
+            prompt = f"""
+            Analyze this filename carefully: "{filename}"
+
+            You are an expert in game modification and installation.
+            Your task is to deduce metadata, the likely extraction password, AND THE LIKELY LAUNCH EXECUTABLE (.exe).
+
+            Rules:
+            1. Password Deduction: 
+            - "LinkNeverDie" -> "linkneverdie.com"
+            - "khiphach" -> "khiphach.vn"
+            - "daominhha" -> "daominhha.com"
+            - "GOG" -> often empty or "gog.com"
+            - Else -> empty.
+            2. Launch File Deduction:
+            - Based on the Game Name, predict the standard .exe file name.
+            - Example: "Elden Ring" -> "eldenring.exe", "League of Legends" -> "LeagueClient.exe".
+            - If unsure, guess based on the game title (e.g. "GameName.exe").
+
+            Return ONLY a JSON object with these keys:
+            {{
+                "game_name": "Clean name of the game",
+                "version": "The version string (e.g. v1.02)",
+                "file_type": "zip, rar, or exe",
+                "password": "The deduced password",
+                "launch_file": "The predicted executable name (e.g. game.exe)"
+            }}
+            """
+
+            response = model.generate_content(prompt)
+            
+            text_res = response.text.strip()
+            if text_res.startswith("```"):
+                text_res = text_res.replace("```json", "").replace("```", "")
+            
+            import json
+            data = json.loads(text_res)
+            return data
+
+        except Exception as e:
+            print(f"Lỗi Gemini: {e}")
+            return None
+    # --- SỬA LẠI PHẦN NÀY ---
+
+    def apply_ui_update_from_thread(callback, *args):
+        """Hàm helper để chuyển lệnh vẽ UI về luồng chính an toàn."""
+        root.after(0, callback, *args)
+
+    def _ui_update_gemini_results(ai_data, real_filename, file_id):
+        """Hàm này CHẠY TRÊN LUỒNG CHÍNH để điền thông tin vào Form."""
+        global g_game_themes, g_master_game_list
+        
+        try:
+            # 1. Điền URL/ID
+            url_entry = form_widgets.get("URL:")
+            if url_entry:
                 url_entry.delete(0, tk.END)
                 url_entry.insert(0, file_id)
-                custom_showinfo("Smart Paste", "Đã trích xuất ID từ link Drive!")
-            else:
-                url_entry.delete(0, tk.END)
-                url_entry.insert(0, content)
-        except: pass
+
+            if not ai_data:
+                custom_showwarning("Gemini Error", "Gemini không trả về kết quả hợp lệ.")
+                return
+
+            detected_game_name = ai_data.get("game_name")
+
+            # --- LOGIC MỚI: TỰ ĐỘNG THÊM GAME NẾU THIẾU ---
+            if detected_game_name:
+                # Chuẩn hóa tên (bỏ khoảng trắng thừa)
+                detected_game_name = detected_game_name.strip()
+                
+                # Lấy danh sách hiện tại
+                combobox = form_widgets.get("Game:")
+                current_games = list(combobox['values']) if combobox else []
+                
+                # Kiểm tra xem tên game đã có trong danh sách chưa (so sánh không phân biệt hoa thường)
+                found = False
+                best_match = ""
+                
+                # Tìm khớp tương đối
+                for game in current_games:
+                    if game == "Thêm Game...": continue
+                    if detected_game_name.lower() == game.lower():
+                        best_match = game
+                        found = True
+                        break
+                
+                # NẾU CHƯA CÓ -> TỰ ĐỘNG TÌM ẢNH VÀ THÊM VÀO
+                if not found:
+                    print(f"Game '{detected_game_name}' chưa có trong hệ thống. Đang tự động thêm...")
+                    
+                    # 1. Tìm URL ảnh
+                    # Lưu ý: Hàm tìm ảnh nên chạy nhanh hoặc đã chạy ở thread trước. 
+                    # Tuy nhiên để đơn giản ta gọi ở đây (sẽ làm UI khựng nhẹ 1s, chấp nhận được)
+                    # Hoặc lý tưởng nhất là gọi nó trong process_smart_paste_background rồi truyền vào đây.
+                    # Để an toàn cho UI, tôi sẽ dùng ảnh mặc định trước, rồi tìm ảnh sau nếu cần.
+                    
+                    # Cách tối ưu: Gọi tìm ảnh ngay tại đây (chấp nhận khựng xíu để có ảnh ngay)
+                    new_image_url = find_game_image_url_online(detected_game_name)
+                    
+                    if new_image_url:
+                        # 2. Thêm vào g_game_themes
+                        g_game_themes[detected_game_name] = new_image_url
+                        
+                        # 3. Cập nhật danh sách tổng (g_master_game_list)
+                        if 'g_master_game_list' in globals():
+                            if detected_game_name not in g_master_game_list:
+                                g_master_game_list.append(detected_game_name)
+                                g_master_game_list.sort()
+                        
+                        # 4. Cập nhật Combobox
+                        new_values = sorted(list(g_game_themes.keys())) + ["Thêm Game..."]
+                        if combobox:
+                            combobox['values'] = new_values
+                            combobox.set(detected_game_name) # Chọn luôn game mới
+                        
+                        # 5. (Tùy chọn) Tự động Upload Theme lên GitHub để lưu lại
+                        # threading.Thread(target=upload_theme_json_thread, args=(detected_game_name,), daemon=True).start()
+                        print(f"Đã tự động thêm game mới: {detected_game_name}")
+                        
+                        best_match = detected_game_name
+                    else:
+                        # Nếu không tìm thấy ảnh, vẫn điền tên vào ô nhưng không thêm vào list chính thức
+                        # để người dùng tự xử lý
+                        if combobox: combobox.set(detected_game_name)
+                
+                else:
+                    # Nếu đã có thì chọn luôn
+                    if combobox: combobox.set(best_match)
+
+            # --- CÁC PHẦN KHÁC GIỮ NGUYÊN ---
+
+            # 3. Điền Tên Option
+            opt_name = ai_data.get("game_name", "")
+            if ai_data.get("version"):
+                opt_name += f" {ai_data['version']}"
+            
+            entry_opt = form_widgets.get("Option Name:")
+            if entry_opt:
+                entry_opt.delete(0, tk.END)
+                entry_opt.insert(0, opt_name)
+
+            # 4. Điền Version
+            entry_ver = form_widgets.get("Version:")
+            if entry_ver:
+                entry_ver.delete(0, tk.END)
+                entry_ver.insert(0, ai_data.get("version", ""))
+
+            # 5. Điền Loại File
+            ext = ai_data.get("file_type", "zip").lower()
+            combo_type = form_widgets.get("Type:")
+            if combo_type:
+                if "rar" in ext: combo_type.set("rar")
+                elif "exe" in ext: combo_type.set("exe")
+                else: combo_type.set("zip")
+
+            # 6. Điền Mật Khẩu
+            detected_pass = ai_data.get("password", "")
+            entry_pass = form_widgets.get("Password:")
+            if entry_pass:
+                entry_pass.delete(0, tk.END)
+                entry_pass.insert(0, detected_pass)
+
+            # 7. Điền Launch File (File EXE)
+            detected_launch = ai_data.get("launch_file", "")
+            entry_launch = form_widgets.get("Launch File:")
+            if entry_launch:
+                entry_launch.delete(0, tk.END)
+                entry_launch.insert(0, detected_launch)
+
+            # 8. Thông báo
+            msg = f"Gemini Xong!\nGame: {ai_data.get('game_name')}\nExe: {detected_launch}\nPass: {detected_pass}"
+            custom_showinfo("Thành công", msg)
+
+        except Exception as e:
+            print(f"Lỗi khi update UI: {e}")
+
+    def process_smart_paste_background(content):
+        """
+        Chạy ngầm: Chỉ gọi API, KHÔNG được chạm vào widget UI.
+        """
+        try:
+            file_id = extract_gdrive_id_from_url(content)
+            
+            if not file_id:
+                # Nếu lỗi, gửi lệnh về UI để hiện thông báo
+                apply_ui_update_from_thread(lambda: custom_showwarning("Lỗi", "Không tìm thấy ID Google Drive hợp lệ."))
+                return
+
+            # Kiểm tra Drive Service
+            global drive_service
+            if not drive_service:
+                apply_ui_update_from_thread(lambda: custom_showinfo("Yêu cầu", "Vui lòng Đăng nhập Drive ở Tab 3 để lấy tên file gốc."))
+                return
+
+            # 1. Lấy tên file gốc từ Drive (Mạng)
+            try:
+                file_meta = drive_service.files().get(
+                    fileId=file_id,
+                    fields='name, size, fileExtension'
+                ).execute()
+                
+                real_filename = file_meta.get('name', 'Unknown')
+                print(f"File gốc trên Drive: {real_filename}")
+                
+                # 2. Gọi GEMINI để phân tích (Mạng - Rất nặng)
+                print(f"Đang gửi tên file cho Gemini phân tích: {real_filename}")
+                
+                ai_data = analyze_filename_with_gemini(real_filename)
+                
+                # 3. Đã có dữ liệu -> Gọi hàm vẽ UI trên luồng chính
+                apply_ui_update_from_thread(_ui_update_gemini_results, ai_data, real_filename, file_id)
+
+            except Exception as e:
+                print(f"Lỗi Drive/Gemini: {e}")
+                apply_ui_update_from_thread(lambda: custom_showerror("Lỗi API", f"Có lỗi khi gọi API: {e}"))
+
+        except Exception as e:
+            print(f"Lỗi chung: {e}")
+
+    def action_smart_paste():
+        """Hàm kích hoạt nút Paste."""
+        try:
+            content = root.clipboard_get().strip()
+        except:
+            custom_showwarning("Lỗi", "Clipboard trống hoặc không đọc được.")
+            return
+
+        print("Đang bắt đầu xử lý Smart Paste...")
+        # Hiển thị thông báo chờ tạm thời trên UI
+        if "URL:" in form_widgets:
+            form_widgets["URL:"].delete(0, tk.END)
+            form_widgets["URL:"].insert(0, "Đang xử lý AI...")
+
+        # Chạy luồng ngầm
+        threading.Thread(target=process_smart_paste_background, args=(content,), daemon=True).start()
 
     def open_drive_picker_modal():
         """Mở popup chọn file từ Drive (dùng dữ liệu cache từ Tab 3)."""

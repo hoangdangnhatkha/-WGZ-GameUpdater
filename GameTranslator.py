@@ -19,6 +19,12 @@ import google.generativeai as genai
 import openai
 import base64
 from io import BytesIO
+import glob
+import time
+from datetime import datetime
+import tempfile
+import atexit
+import shutil
 
 try:
     # Giúp tool nhận diện đúng độ phân giải màn hình, cắt ảnh chuẩn xác hơn
@@ -33,6 +39,19 @@ except ImportError:
     GROK_API_KEYS = []
      
 HOTKEY = "<alt>+`"
+HOTKEY_CUTSCENE = "<alt>+c"
+CUTSCENE_TEMP_DIR = os.path.join(tempfile.gettempdir(), "GameTranslator_Cutscene")
+os.makedirs(CUTSCENE_TEMP_DIR, exist_ok=True)
+
+# Tự động dọn rác khi thoát chương trình
+def cleanup_temp():
+    if os.path.exists(CUTSCENE_TEMP_DIR):
+        try:
+            shutil.rmtree(CUTSCENE_TEMP_DIR)
+        except:
+            pass  # Không cần báo lỗi nếu đang dùng
+
+atexit.register(cleanup_temp)
 
 # Khai báo biến toàn cục (Chưa khởi tạo vội để tránh lỗi khi import)
 ocr_engine = None
@@ -205,12 +224,285 @@ class TooltipTranslator:
         self.is_selecting = False
         self.listeners = []
         self.font_size = 11
-        # Lắng nghe phím tắt (Global)
-        with pynput_k.GlobalHotKeys({HOTKEY: self.start_selection}) as h:
-            self.hotkey_listener = h
-            threading.Thread(target=h.join, daemon=True).start()
-            print(f"✅ Đã khởi động xong! Vào game và bấm Ctrl+Q để dịch.")
-            self.root.mainloop()
+        self.cutscene_mode = False
+        self.cutscene_frames = []           
+        self.last_text_content = ""
+        self.no_text_count = 0
+        self.subtitle_region = None         
+        self.cutscene_log_window = None
+
+        # --- In thông báo ---
+        print("✅ HOTKEY ĐÃ SẴN SÀNG:")
+        # In ra đúng biến HOTKEY để tránh nhầm lẫn
+        print(f"   {HOTKEY} : Dịch tooltip") 
+        print(f"   {HOTKEY_CUTSCENE} : Bật/Tắt Cutscene Record Mode")
+
+        # --- QUAN TRỌNG: Gộp cả 2 phím vào 1 Listener ---
+        # Nếu tách ra làm 2 lệnh 'with', phím tắt cutscene sẽ không chạy!
+        self.hotkey_listener = pynput_k.GlobalHotKeys({
+            HOTKEY: self.start_selection,              
+            HOTKEY_CUTSCENE: self.toggle_cutscene_mode 
+        })
+        
+        self.hotkey_listener.start() # Bắt đầu lắng nghe
+        self.listeners.append(self.hotkey_listener)
+
+        print(f"✅ Đã khởi động xong! Vào game và bấm phím tắt để dịch.")
+        self.root.mainloop()
+
+    def toggle_cutscene_mode(self):
+        print("ALT + C ĐÃ ĐƯỢC BẤM!")   # <--- Dòng này sẽ in ra console ngay lập tức
+        self.cutscene_mode = not self.cutscene_mode
+        
+        if self.cutscene_mode:
+            print("CUTSCENE RECORD MODE BẬT – Chọn vùng hội thoại...")
+            self.show_region_selector_for_cutscene()
+        else:
+            print(f"CUTSCENE RECORD MODE TẮT – Đã ghi {len(self.cutscene_frames)} ảnh")
+            self.stop_cutscene_recording()
+
+    def show_region_selector_for_cutscene(self):
+        # Dùng lại overlay chọn vùng (giống tooltip)
+        self.root.after(200, self._start_cutscene_region_selection)
+
+    def _start_cutscene_region_selection(self):
+        if hasattr(self, 'sel_win') and self.sel_win and self.sel_win.winfo_exists():
+            return
+        self._show_overlay()  # Dùng lại overlay
+        self.canvas.bind("<ButtonRelease-1>", self.on_cutscene_region_selected)
+
+    def on_cutscene_region_selected(self, event):
+        x1, y1 = min(self.start_x, self.cur_x), min(self.start_y, self.cur_y)
+        x2, y2 = max(self.start_x, self.cur_x), max(self.start_y, self.cur_y)
+        if x2 - x1 > 50 and y2 - y1 > 30:
+            self.subtitle_region = (x1, y1, x2, y2)
+            print(f"Vùng hội thoại đã chọn: {self.subtitle_region}")
+            self.close_selection()
+            
+            # Xóa ảnh cũ
+            for f in glob.glob(f"{CUTSCENE_TEMP_DIR}/*.jpg"):
+                try: os.remove(f)
+                except: pass
+            self.cutscene_frames = []
+            self.last_text_content = ""
+            self.no_text_count = 0
+            
+            self.show_cutscene_log()
+            self.root.after(300, self.monitor_cutscene)
+        else:
+            self.close_selection()
+            self.cutscene_mode = False
+
+    def monitor_cutscene(self):
+        if not self.cutscene_mode or not self.subtitle_region:
+            return
+
+        try:
+            # 1. Chụp màn hình vùng chọn
+            img = pyautogui.screenshot(region=self.subtitle_region)
+            img_np = np.array(img)
+
+            # 2. Chạy OCR (Dùng chế độ nhanh)
+            # use_det=True: Phát hiện khung, use_cls=False: Tắt xoay để nhanh
+            result, _ = ocr_engine(img_np, use_det=True, use_cls=False)
+            
+            # Biến chứa nội dung chữ hiện tại
+            current_raw_text = ""
+
+            if result:
+                # Ghép tất cả các dòng chữ tìm được thành 1 chuỗi
+                # Ví dụ: [('Hello', ...), ('World', ...)] -> "Hello World"
+                current_raw_text = " ".join([line[1] for line in result])
+            
+            # 3. Xử lý logic lọc trùng
+            # Xóa hết khoảng trắng và ký tự đặc biệt để so sánh cốt lõi
+            # Ví dụ: "Hello..." và "Hello" sẽ coi là một để tránh spam
+            import re
+            clean_text = re.sub(r'\W+', '', current_raw_text).lower()
+
+            # Điều kiện để LƯU ẢNH:
+            # a. Phải có chữ (clean_text không rỗng)
+            # b. Độ dài chữ phải > 1 (tránh nhiễu như dấu chấm, phẩy)
+            # c. Nội dung phải KHÁC với câu trước đó
+            if clean_text and len(clean_text) > 1 and clean_text != self.last_text_content:
+                
+                # Cập nhật nội dung mới
+                self.last_text_content = clean_text
+                self.no_text_count = 0 # Reset bộ đếm vắng chữ
+
+                # Lưu ảnh
+                timestamp = int(time.time() * 1000)
+                path = f"{CUTSCENE_TEMP_DIR}/frame_{len(self.cutscene_frames):04d}_{timestamp}.jpg"
+                img.save(path)
+                self.cutscene_frames.append(path)
+                
+                # In ra log nội dung đọc được để bạn dễ kiểm tra
+                print(f"✅ Đã lưu frame mới: {current_raw_text}")
+                self.update_cutscene_log(f"Đã chụp: {len(self.cutscene_frames)} khung\n(Hội thoại: {current_raw_text[:20]}...)")
+                
+            elif not clean_text:
+                # Nếu không thấy chữ
+                self.no_text_count += 1
+            
+            # Tự động tắt nếu không thấy chữ quá lâu (30 lần ~ 6 giây)
+            if self.no_text_count > 30 and len(self.cutscene_frames) > 0:
+                 print("💤 Không thấy sub quá lâu -> Tự động dừng quay.")
+                 self.root.after(0, self.toggle_cutscene_mode)
+                 return
+
+            # Lặp lại sau 200ms
+            self.root.after(200, self.monitor_cutscene)
+
+        except Exception as e:
+            print(f"Lỗi monitor cutscene: {e}")
+            traceback.print_exc()
+            self.root.after(1000, self.monitor_cutscene)
+
+    def stop_cutscene_recording(self):
+        if len(self.cutscene_frames) < 3:
+            self.update_cutscene_log("Quá ít khung hình → Hủy")
+            return
+        
+        self.update_cutscene_log(f"Đã ghi {len(self.cutscene_frames)} khung → Nhấn 'Dịch' để xử lý")
+        btn = tk.Button(self.cutscene_log_window, text="DỊCH TOÀN BỘ CUTSCENE", bg="#00ff00", fg="black",
+                        font=("Segoe UI", 12, "bold"), command=self.translate_cutscene)
+        btn.pack(pady=10)
+
+    def translate_cutscene(self):
+        if not self.cutscene_frames:
+            return
+        
+        images = []
+        # Kích thước tối ưu: 1280px chiều ngang là ĐỦ để đọc Subtitle
+        # (Nhỏ hơn 1024px có thể làm vỡ chữ, lớn hơn 1920px là thừa thãi)
+        TARGET_WIDTH = 1280 
+
+        print(f"🔄 Đang tối ưu hóa {len(self.cutscene_frames)} ảnh trước khi gửi...")
+
+        for path in sorted(self.cutscene_frames):
+            try:
+                img = Image.open(path)
+                
+                # --- LOGIC RESIZE THÔNG MINH ---
+                if img.width > TARGET_WIDTH:
+                    # Tính tỷ lệ để giữ nguyên khung hình (không bị méo)
+                    ratio = TARGET_WIDTH / float(img.width)
+                    new_height = int(float(img.height) * ratio)
+                    
+                    # Dùng LANCZOS: Thuật toán nén giữ nét chữ tốt nhất cho OCR
+                    img = img.resize((TARGET_WIDTH, new_height), Image.Resampling.LANCZOS)
+                # -------------------------------
+
+                images.append(img)
+            except Exception as e: 
+                print(f"Lỗi load ảnh {path}: {e}")
+        
+        if not images:
+            return
+
+        # Gửi sang luồng xử lý Gemini
+        threading.Thread(target=self.send_to_gemini_cutscene, args=(images,), daemon=True).start()
+
+    def send_to_gemini_cutscene(self, images):
+        try:
+            # --- CẤU HÌNH PROMPT MỚI ---
+            prompt = """
+            Bạn là dịch giả game chuyên nghiệp. Đây là các hình ảnh của một đoạn Cutscene vừa diễn ra.
+            
+            NHIỆM VỤ CỦA BẠN (Thực hiện 2 phần):
+            
+            PHẦN 1: TÓM TẮT DIỄN BIẾN (Của chính đoạn hội thoại này)
+            - Hãy đọc hết nội dung trong ảnh, sau đó tóm tắt ngắn gọn trong 2-3 câu: Các nhân vật đang nói về vấn đề gì? Có sự kiện gì quan trọng vừa xảy ra trong đoạn này không?
+            
+            PHẦN 2: DỊCH THUẬT CHI TIẾT (Toàn bộ hội thoại)
+            - Trích xuất và dịch toàn bộ lời thoại sang Tiếng Việt.
+            - Định dạng: **Tên nhân vật**: Lời thoại.
+            - Văn phong: Nhập vai, tự nhiên, cảm xúc.
+            
+            ĐỊNH DẠNG TRẢ VỀ BẮT BUỘC (Dễ nhìn):
+            ==========================
+            [TÓM TẮT NỘI DUNG]
+            <Viết phần tóm tắt ở đây>
+            
+            [BẢN DỊCH CHI TIẾT]
+            <Viết các dòng hội thoại ở đây>
+            ==========================
+            """
+            
+            self.update_cutscene_log("Đang gửi cho Gemini... (Đang phân tích & tóm tắt)")
+            
+            # Gửi request (Không cần gửi context cũ nữa)
+            response = gemini_model.generate_content([prompt] + images, 
+                generation_config={"temperature": 0.3, "max_output_tokens": 4096})
+            
+            translated = response.text.strip()
+            
+            # --- HIỂN THỊ KẾT QUẢ ---
+            result_win = tk.Toplevel(self.root)
+            result_win.title("Game Translator - Cutscene Summary")
+            result_win.geometry("900x750")
+            result_win.attributes('-topmost', True)
+            
+            # Tạo vùng hiển thị text
+            text_widget = tk.Text(result_win, font=("Segoe UI", 12), wrap=tk.WORD, 
+                                  bg="#1e1e1e", fg="#dddddd", padx=15, pady=15)
+            text_widget.pack(fill="both", expand=True)
+            
+            # Định nghĩa các Style (Tags) để tô màu
+            text_widget.tag_config("summary_header", foreground="#00ff00", font=("Segoe UI", 13, "bold")) # Xanh lá
+            text_widget.tag_config("summary_content", foreground="#a6e22e", font=("Segoe UI", 12, "italic")) # Vàng chanh
+            text_widget.tag_config("detail_header", foreground="#00ccff", font=("Segoe UI", 13, "bold"))  # Xanh dương
+            text_widget.tag_config("normal_text", foreground="white")
+
+            # Xử lý tô màu dựa trên từ khóa trong kết quả trả về
+            lines = translated.split('\n')
+            for line in lines:
+                if "[TÓM TẮT NỘI DUNG]" in line:
+                    text_widget.insert(tk.END, line + "\n", "summary_header")
+                elif "[BẢN DỊCH CHI TIẾT]" in line:
+                    text_widget.insert(tk.END, "\n" + line + "\n", "detail_header")
+                else:
+                    # Logic đơn giản: Nếu dòng này nằm trước phần "Bản dịch chi tiết", nó là nội dung tóm tắt
+                    # (Đây chỉ là logic hiển thị màu mè, bạn có thể insert bình thường nếu muốn)
+                    text_widget.insert(tk.END, line + "\n", "normal_text")
+
+            # Nút lưu file
+            btn_save = tk.Button(result_win, text="Lưu kết quả (.txt)", 
+                                 bg="#333", fg="white", font=("Segoe UI", 10),
+                                 command=lambda: self.save_cutscene_text(translated))
+            btn_save.pack(pady=5, fill='x')
+            
+            self.update_cutscene_log("HOÀN TẤT! Đã hiện bản dịch và tóm tắt.")
+            
+        except Exception as e:
+            self.update_cutscene_log(f"Lỗi Gemini: {e}")
+            traceback.print_exc()
+
+    def save_cutscene_text(self, text):
+        filename = f"Cutscene_VietHoa_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.startfile(filename)  # Mở file luôn
+
+    def show_cutscene_log(self):
+        if self.cutscene_log_window and tk.Tk().winfo_exists():
+            return
+        win = tk.Toplevel(self.root)
+        win.title("Cutscene Record Mode - Alt + C để tắt")
+        win.geometry("500x200")
+        win.attributes('-topmost', True)
+        win.config(bg="#1e1e1e")
+        
+        label = tk.Label(win, text="Đang ghi hội thoại...\nNhấn Alt + C khi kết thúc", 
+                         fg="white", bg="#1e1e1e", font=("Segoe UI", 12))
+        label.pack(expand=True)
+        
+        self.cutscene_log_status = label
+        self.cutscene_log_window = win
+
+    def update_cutscene_log(self, msg):
+        if self.cutscene_log_status:
+            self.root.after(0, lambda: self.cutscene_log_status.config(text=msg))
 
     def toggle_selection_mode(self):
         # Kiểm tra thực tế xem cửa sổ Overlay có đang tồn tại không
@@ -767,7 +1059,7 @@ def main():
     global ocr_engine, client
     
     # 1. Xin quyền Admin trước
-    # enforce_admin()
+    enforce_admin()
     
    # 2. Khởi tạo thư viện nặng
     print("--- Đang khởi tạo RapidOCR... ---")
