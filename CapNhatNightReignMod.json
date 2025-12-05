@@ -147,5 +147,16 @@
         "launch_file": "MIMESIS.v0.2.5_LinkNeverDie.Com/_MIMESIS - LND Game Launcher.exe",
         "path_guide": "Giải nén bất cứ.",
         "delete_before_extract": []
+    },
+    "14": {
+        "name": "BET v0.11.5.1",
+        "url": "https://drive.google.com/uc?id=12VSkalB5oXAc1RJB8npLd898du4pDL6-",
+        "version": "v0.11.5.1",
+        "game": "BET",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "launch_file": null,
+        "path_guide": null,
+        "delete_before_extract": []
     }
 }
