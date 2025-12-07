@@ -639,7 +639,7 @@ global g_mod_buttons
 g_mod_buttons = {}
 global g_current_selected_key
 g_current_selected_key = None
-CURRENT_VERSION = "1.3.3"
+CURRENT_VERSION = "1.3.6"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
 ROCKET_GIF_URL = "https://media.tenor.com/ike6N7DwCa0AAAAM/%D8%B1%D9%8A%D8%A7%D9%84-%D9%85%D8%AF%D8%B1%D9%8A%D8%AF.gif"
@@ -3814,7 +3814,7 @@ def process_queue():
             icon_file = root.drive_icon_unknown
 
             # Định nghĩa layout lưới (ví dụ: 6 cột)
-            MAX_COLS = 10
+            MAX_COLS = 12
             current_row = 0
             current_col = 0
 
@@ -4495,7 +4495,7 @@ if __name__ == '__main__':
 
     # Bắt buộc Tkinter phải vẽ splash screen ngay lập tức
 
-    app_width = 1050
+    app_width = 1250
     app_height = 950
 
     # Lấy kích thước màn hình
@@ -4513,6 +4513,7 @@ if __name__ == '__main__':
 
     g_backup_enabled = tk.BooleanVar(value=local_config.get("backup_enabled", False))
     root.cached_images = {}
+    root.cached_game_icons_small = {}
     # --- Định nghĩa Style ---
 
     style = ttk.Style()
@@ -4522,7 +4523,7 @@ if __name__ == '__main__':
     style.configure("New.TLabel", foreground="red", font=('TkDefaultFont', 9, 'bold'))
     style.configure("Green.TRadiobutton", foreground="green")
     style.configure("Installed.TLabel", foreground="green")
-
+    style.configure("Big.Accent.TButton", font=("Segoe UI", 10, "bold"))
 
 
     try: rarfile.UNRAR_TOOL = resource_path("UnRAR.exe")
@@ -4773,7 +4774,7 @@ if __name__ == '__main__':
         game_names_with_accounts = sorted(user_accounts_data.keys())
 
         # 6. Vẽ lưới game
-        MAX_COLS = 4    
+        MAX_COLS = 5    
         col = 0
         row = 0
         
@@ -6071,8 +6072,8 @@ if __name__ == '__main__':
                 custom_showerror("Lỗi", f"Lỗi khi xóa ảnh: {e}")
 
     def get_ctx_icon(name, color):
-        """Tạo icon vector đơn giản cho Menu (Fix lỗi căn lề)."""
-        key = f"ctx_icon_{name}"
+        """Tạo icon vector đơn giản cho Menu (Đã thêm Bánh răng)."""
+        key = f"ctx_icon_{name}_{color}" # Thêm color vào key để cache đúng màu
         if key in root.cached_images: return root.cached_images[key]
         
         # Tạo ảnh trong suốt 20x20
@@ -6098,6 +6099,29 @@ if __name__ == '__main__':
         elif name == "restore": # Mũi tên quay lại
             draw.arc((5, 5, 15, 15), 20, 280, fill=color, width=2)
             draw.polygon([(5,5), (5,9), (1,5)], fill=color)
+            
+        # --- [MỚI] VẼ BÁNH RĂNG (GEAR) ---
+        elif name == "gear":
+            import math
+            cx, cy = 10, 10 # Tâm ảnh
+            
+            # 1. Vẽ 8 răng cưa tỏa ra từ tâm
+            for i in range(8):
+                angle = math.radians(i * 45) # 360 / 8 = 45 độ
+                
+                # Tính điểm bắt đầu (sát tâm) và kết thúc (ngoài rìa)
+                # R_in = 4, R_out = 9
+                x1 = cx + 4 * math.cos(angle)
+                y1 = cy + 4 * math.sin(angle)
+                x2 = cx + 9 * math.cos(angle)
+                y2 = cy + 9 * math.sin(angle)
+                
+                draw.line((x1, y1, x2, y2), fill=color, width=3)
+
+            # 2. Vẽ vòng tròn thân ở giữa (đè lên chân các răng để làm mịn)
+            # Bbox: (left, top, right, bottom) -> Vẽ vòng tròn bán kính ~5
+            draw.ellipse((5, 5, 15, 15), outline=color, width=2)
+        # ---------------------------------
 
         tk_img = ImageTk.PhotoImage(img)
         root.cached_images[key] = tk_img
@@ -6369,9 +6393,9 @@ if __name__ == '__main__':
         content_container = ttk.Frame(main_layout)
         content_container.grid(row=0, column=1, sticky="nsew")
 
-        detail_canvas = tk.Canvas(content_container, highlightthickness=0, bg="#1b2838")
+        detail_canvas = tk.Canvas(content_container, highlightthickness=0, bg="#181818")
         detail_scrollbar = ttk.Scrollbar(content_container, orient="vertical", command=detail_canvas.yview)
-        g_steam_detail_frame = tk.Frame(detail_canvas, bg="#1b2838")
+        g_steam_detail_frame = tk.Frame(detail_canvas, bg="#181818")
         
         detail_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         detail_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -6438,13 +6462,13 @@ if __name__ == '__main__':
                     except: pass
             if not raw_banner_pil:
                 try: raw_banner_pil = Image.open(resource_path("logo.png"))
-                except: raw_banner_pil = Image.new('RGB', (800, 300), color='#1b2838')
+                except: raw_banner_pil = Image.new('RGB', (800, 300), color='#181818')
 
-            banner_frame = tk.Frame(g_steam_detail_frame, bg="#1b2838")
+            banner_frame = tk.Frame(g_steam_detail_frame, bg="#181818")
             banner_frame.pack(fill=tk.X, anchor="n")
             
             FIXED_BANNER_HEIGHT = 300
-            hero_canvas = tk.Canvas(banner_frame, height=FIXED_BANNER_HEIGHT, bg="#1b2838", highlightthickness=0)
+            hero_canvas = tk.Canvas(banner_frame, height=FIXED_BANNER_HEIGHT, bg="#181818", highlightthickness=0)
             hero_canvas.pack(fill=tk.X, expand=True)
             banner_img_id = hero_canvas.create_image(0, 0, anchor="nw")
 
@@ -6471,7 +6495,7 @@ if __name__ == '__main__':
             # hero_canvas.create_text(30, 240, text=display_name, font=("Segoe UI", 30, "bold"), fill="white", anchor="w", tags="text_layer")
 
             # Play Bar
-            play_bar_frame = tk.Frame(g_steam_detail_frame, bg="#2a3f5a", height=80, padx=30, pady=15)
+            play_bar_frame = tk.Frame(g_steam_detail_frame, bg="#252526", height=80, padx=30, pady=15)
             play_bar_frame.pack(fill=tk.X)
 
             # Logic kiểm tra Path (Giữ nguyên)
@@ -6489,8 +6513,8 @@ if __name__ == '__main__':
                 if found_launch_file and current_path_folder and os.path.isdir(current_path_folder):
                     full_path = os.path.join(current_path_folder, found_launch_file)
                     if os.path.exists(full_path): full_path_to_launch = full_path
-
-            g_launch_game_button = ttk.Button(play_bar_frame, text="🚀 Chạy Game ", style="Accent.TButton")
+            
+            g_launch_game_button = ttk.Button(play_bar_frame, text="🚀 Chạy Game ", style="Big.Accent.TButton")
             g_launch_game_button.pack(side=tk.LEFT, ipady=5, ipadx=15)
             
             if full_path_to_launch:
@@ -6499,18 +6523,26 @@ if __name__ == '__main__':
             else:
                 g_launch_game_button.config(state=tk.DISABLED, text="Chưa Cài Đặt")
                 status_text = "Hãy chọn folder & cài đặt Game"
-
-            tk.Label(play_bar_frame, text=status_text, fg="#8b929a", bg="#2a3f5a", font=("Segoe UI", 10)).pack(side=tk.LEFT, padx=20)
             
-            tk.Button(play_bar_frame, text="⚙", bg="#3d4450", fg="white", bd=0, font=("Segoe UI", 12), cursor="hand2", padx=10, pady=5,
-                    command=lambda: show_game_context_menu(gear_btn, game_name, is_custom)).pack(side=tk.RIGHT)
+
+            gear_btn = ttk.Button(
+                play_bar_frame, 
+                image=get_ctx_icon("gear", "white"), # <-- GỌI HÀM VỪA SỬA
+                text="",              
+                width=3
+            )
+            
+            # Cấu hình lệnh
+            gear_btn.configure(command=lambda: show_game_context_menu(gear_btn, game_name, is_custom))
+            
+            gear_btn.pack(side=tk.RIGHT, padx=5)
             gear_btn = play_bar_frame.winfo_children()[-1]
 
             # Content (Path & Mod List)
-            content_frame = tk.Frame(g_steam_detail_frame, bg="#1b2838", padx=30, pady=20)
+            content_frame = tk.Frame(g_steam_detail_frame, bg="#181818", padx=30, pady=20)
             content_frame.pack(fill=tk.BOTH, expand=True)
 
-            path_group = tk.LabelFrame(content_frame, text="📂 Vị Trí Cài Đặt", bg="#1b2838", fg="white", padx=10, pady=10)
+            path_group = tk.LabelFrame(content_frame, text="📂 Vị Trí Cài Đặt", bg="#181818", fg="white", padx=10, pady=10)
             path_group.pack(fill=tk.X, pady=(0, 20))
             
             path_entry = ttk.Entry(path_group)
@@ -6520,33 +6552,33 @@ if __name__ == '__main__':
             ttk.Button(path_group, text="Chọn đường dẫn...", command=browse_for_folder).pack(side=tk.LEFT, padx=5)
             # ttk.Button(path_group, text="Cài file mở Game", command=action_set_game_path_from_page_2).pack(side=tk.LEFT)
 
-            mod_group = tk.LabelFrame(content_frame, text="📦 Các bản Cài đặt / Mod", bg="#1b2838", fg="white", padx=10, pady=10)
+            mod_group = tk.LabelFrame(content_frame, text="📦 Các bản Cài đặt / Mod", bg="#181818", fg="white", padx=10, pady=10)
             mod_group.pack(fill=tk.BOTH, expand=True)
 
             mod_list_data = download_options.get(game_name, [])
             
             if not mod_list_data:
-                tk.Label(mod_group, text="Hiện không có cài đặt nào", bg="#1b2838", fg="gray").pack(pady=20)
+                tk.Label(mod_group, text="Hiện không có cài đặt nào", bg="#181818", fg="gray").pack(pady=20)
             else:
                 for i, (key, data) in enumerate(mod_list_data):
                     mod_name = data.get("name", key)
                     mod_ver = data.get("version", "v?")
                     installed_ver = local_config.get("installed_versions", {}).get(key, "Not installed")
                     
-                    card = tk.Frame(mod_group, bg="#212c3d", pady=10, padx=10)
+                    card = tk.Frame(mod_group, bg="#252526", pady=10, padx=10)
                     card.pack(fill=tk.X, pady=2)
                     
                     status_icon = "✔" if mod_ver == installed_ver else "⬇"
-                    chk_btn = tk.Button(card, text=status_icon, bg="#2a3f5a", fg="white", width=4, bd=0, cursor="hand2")
+                    chk_btn = tk.Button(card, text=status_icon, bg="#252526", fg="white", width=4, bd=0, cursor="hand2")
                     chk_btn.pack(side=tk.LEFT, fill=tk.Y)
                     
-                    info_frame = tk.Frame(card, bg="#212c3d", padx=10)
+                    info_frame = tk.Frame(card, bg="#252526", padx=10)
                     info_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-                    tk.Label(info_frame, text=mod_name, fg="white", bg="#212c3d", font=("Segoe UI", 11, "bold"), anchor="w").pack(fill=tk.X)
+                    tk.Label(info_frame, text=mod_name, fg="white", bg="#252526", font=("Segoe UI", 11, "bold"), anchor="w").pack(fill=tk.X)
                     
                     ver_text = f"Version: {mod_ver}"
                     if installed_ver != "Not installed": ver_text += f" (Installed: {installed_ver})"
-                    tk.Label(info_frame, text=ver_text, fg="#8b929a", bg="#212c3d", font=("Segoe UI", 9), anchor="w").pack(fill=tk.X)
+                    tk.Label(info_frame, text=ver_text, fg="#8b929a", bg="#252526", font=("Segoe UI", 9), anchor="w").pack(fill=tk.X)
 
                     g_mod_buttons[key] = (chk_btn, card)
 
@@ -6557,8 +6589,8 @@ if __name__ == '__main__':
                                 mc.config(bg="#3d4450")
                                 mb.config(bg="#4cff00", fg="black")
                             else:
-                                mc.config(bg="#212c3d")
-                                mb.config(bg="#2a3f5a", fg="white")
+                                mc.config(bg="#252526")
+                                mb.config(bg="#3d4450", fg="white")
 
                     chk_btn.config(command=on_mod_click)
                     card.bind("<Button-1>", lambda e, k=key: on_mod_click(k))
@@ -6568,7 +6600,7 @@ if __name__ == '__main__':
                 if mod_list_data:
                     g_mod_buttons[mod_list_data[0][0]][0].invoke()
 
-            action_bar = tk.Frame(content_frame, bg="#1b2838", pady=20)
+            action_bar = tk.Frame(content_frame, bg="#181818", pady=20)
             action_bar.pack(fill=tk.X)
             
             if 'g_auto_add_exclusion' not in globals():
