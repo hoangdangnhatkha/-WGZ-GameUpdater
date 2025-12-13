@@ -158,5 +158,22 @@
         "launch_file": "BET.v0.11.5.1_LinkNeverDie.Com/_Backrooms Escape Together - LND Game Launcher.exe",
         "path_guide": null,
         "delete_before_extract": []
+    },
+    "15": {
+        "name": "Tải Game Clair Obscur Expedition 33",
+        "urls": [
+            "https://drive.google.com/uc?id=1AllS3NU313k_vZbPIJ1Exg98QUGZ5Uxg",
+            "https://drive.google.com/uc?id=1gEyogzVSgLoBU_kXjKg12xV8reduxe87",
+            "https://drive.google.com/uc?id=1viY6YeKHqzg_xQdQVLyVYTXSskAQTRZL",
+            "https://drive.google.com/uc?id=1iDtiRyLnXwc1Eh3YuIvniNQtTm6ecNuc"
+        ],
+        "version": "v1.5.0",
+        "game": "Clair Obscur Expedition 33",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "launch_file": null,
+        "path_guide": "Tải về bất cứ đâu",
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=1AllS3NU313k_vZbPIJ1Exg98QUGZ5Uxg"
     }
 }
