@@ -1,6 +1,7 @@
 # Save this file as 'CapNhatNightReignMod_Ui.py'
 import sys
 import os
+import socketio
 if sys.platform == "win32":
     class NullWriter:
         def write(self, data): pass
@@ -327,6 +328,8 @@ def _show_custom_dialog(title, message, dialog_type="info", parent=None):
     root.wait_window(dlg)
     return result[0]
 
+
+
 # --- CÁC HÀM WRAPPER (Dùng để thay thế messagebox) ---
 
 def custom_showinfo(title, message, parent=None):
@@ -631,6 +634,8 @@ class SingleInstance:
 scan_loading_window = None
 g_secret_click_count = 0
 g_current_game_name = None
+global g_show_login_selector
+g_show_login_selector = None # Biến này sẽ chứa hàm mở popup
 g_game_search_entry = None
 g_game_grid_container = None
 g_all_mods_flat = {}
@@ -1415,7 +1420,8 @@ def launch_riot_login_thread(riot_client_path, username, password):
 
 def load_accounts_from_drive_thread():
     """
-    (CHẠY NGẦM) Tải, và TỰ ĐỘNG DI CHUYỂN data cũ.
+    (FIX SSL ERROR) Tải config account bằng AuthorizedSession (Requests)
+    thay vì httplib2 để tránh lỗi WRONG_VERSION_NUMBER.
     """
     global drive_service, g_user_accounts_data, g_user_accounts_file_id
     global g_accounts_loaded
@@ -1424,85 +1430,94 @@ def load_accounts_from_drive_thread():
         print("Config account đã được tải. Bỏ qua.")
         return
 
-    if not drive_service:
-        print("Lỗi: Không thể tải config account vì chưa đăng nhập Drive.")
+    # Kiểm tra token
+    token_path = resource_path('token.json')
+    if not os.path.exists(token_path):
+        print("Chưa có token.json, bỏ qua tải account.")
         return
 
     try:
+        # 1. Tạo Session xác thực (Mạnh hơn drive_service chuẩn)
+        creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+        authed_session = AuthorizedSession(creds)
+
         print(f"Đang tìm file config account: {ACCOUNT_CONFIG_FILENAME}...")
         
-        query = f"name = '{ACCOUNT_CONFIG_FILENAME}' and '{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false"
-        response = drive_service.files().list(
-            q=query, spaces='drive', fields='files(id, name)'
-        ).execute()
-        files = response.get('files', [])
+        # 2. Tìm ID file (Vẫn dùng drive_service để list file vì nó nhẹ)
+        # Nếu drive_service chưa init (do lỗi SSL khi build), ta dùng requests để tìm luôn
+        found_file_id = None
+        
+        if drive_service:
+            try:
+                query = f"name = '{ACCOUNT_CONFIG_FILENAME}' and '{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false"
+                response = drive_service.files().list(q=query, fields='files(id, name)').execute()
+                files = response.get('files', [])
+                if files: found_file_id = files[0]['id']
+            except Exception as e:
+                print(f"Lỗi tìm file bằng Service: {e}. Đang thử cách khác...")
 
-        if files:
-            file_info = files[0]
-            g_user_accounts_file_id = file_info['id']
-            print(f"Tìm thấy config: {g_user_accounts_file_id}. Đang tải nội dung...")
-            
-            request = drive_service.files().get_media(fileId=g_user_accounts_file_id)
-            file_content = io.BytesIO()
-            downloader = MediaIoBaseDownload(file_content, request)
-            
-            done = False
-            while done is False:
-                status, done = downloader.next_chunk()
-                if status:
-                    print(f"Đang tải config account: {int(status.progress() * 100)}%")
+        # Nếu drive_service lỗi, tìm thủ công bằng requests (Fallback)
+        if not found_file_id:
+            search_url = "https://www.googleapis.com/drive/v3/files"
+            params = {
+                "q": f"name = '{ACCOUNT_CONFIG_FILENAME}' and '{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false",
+                "fields": "files(id, name)"
+            }
+            res = authed_session.get(search_url, params=params)
+            if res.status_code == 200:
+                files = res.json().get('files', [])
+                if files: found_file_id = files[0]['id']
 
-            print("Tải config account hoàn tất.")
+        # 3. Tải nội dung
+        if found_file_id:
+            g_user_accounts_file_id = found_file_id
+            print(f"Tìm thấy ID: {g_user_accounts_file_id}. Đang tải trực tiếp (Requests)...")
+            
+            download_url = f"https://www.googleapis.com/drive/v3/files/{g_user_accounts_file_id}?alt=media"
+            response = authed_session.get(download_url)
+            response.raise_for_status() # Báo lỗi nếu 403/404
+            
+            file_content = response.content # Dữ liệu dạng bytes
+            print("Tải config account hoàn tất (Direct).")
             
             try:
-                # 1. Tải raw data
-                raw_data = json.loads(file_content.getvalue().decode('utf-8'))
+                # Parse JSON
+                raw_data = json.loads(file_content.decode('utf-8'))
                 
-                # --- LOGIC DI CHUYỂN (MỚI) ---
+                # Logic di chuyển dữ liệu cũ (như code cũ)
                 is_old_structure = False
-                if raw_data: # Kiểm tra xem có rỗng không
+                if raw_data:
                     first_key = next(iter(raw_data.keys()))
-                    # Nếu key là "Steam" hoặc "Riot", đây là cấu trúc cũ
                     if first_key == "Steam" or first_key == "Riot":
                         is_old_structure = True
                 
                 if is_old_structure:
-                    print("Phát hiện cấu trúc data cũ (theo Dịch vụ). Đang di chuyển...")
-                    # 2. Gọi hàm di chuyển
+                    print("Phát hiện cấu trúc cũ. Đang di chuyển...")
                     g_user_accounts_data = migrate_data_to_game_keys(raw_data)
-                    
-                    # 3. Tự động lưu lại cấu trúc mới (chỉ 1 lần)
-                    print("Di chuyển hoàn tất. Đang tự động lưu cấu trúc mới lên Drive...")
+                    # Lưu lại cấu trúc mới
                     threading.Thread(target=save_accounts_to_drive_thread, daemon=True).start()
                 else:
-                    # Nếu cấu trúc đã đúng (key là Game), gán bình thường
                     g_user_accounts_data = raw_data
-                # --- HẾT LOGIC DI CHUYỂN ---
 
             except json.JSONDecodeError:
-                print("Lỗi: File config trên Drive bị hỏng (JSON Lỗi). Dùng dict rỗng.")
+                print("Lỗi: File config JSON bị hỏng. Dùng dict rỗng.")
                 g_user_accounts_data = {}
-
         else:
-            # (Code tạo file mới không đổi)
-            print("Không tìm thấy config. Đang tạo file mới trên Drive...")
+            print("Không tìm thấy config. Đang tạo file mới...")
             g_user_accounts_data = {}
-            new_file_id = create_empty_account_file_on_drive()
-            if new_file_id:
-                g_user_accounts_file_id = new_file_id
-                print(f"Đã tạo file mới với ID: {g_user_accounts_file_id}")
-            else:
-                print("LỖI NGHIÊM TRỌNG: Không thể tạo file config mới.")
-                return
+            # Tạo file mới (vẫn dùng logic cũ hoặc requests)
+            new_id = create_empty_account_file_on_drive()
+            if new_id:
+                g_user_accounts_file_id = new_id
 
+        # Đánh dấu đã tải xong
         mark_accounts_as_saved()
-
         g_accounts_loaded = True
         progress_queue.put(("accounts_loaded", None))
 
     except Exception as e:
-        print(f"Lỗi nghiêm trọng khi tải/tạo config account: {e}")
-        custom_showerror("Lỗi Tải Account", f"Không thể tải file config account: {e}")
+        print(f"Lỗi nghiêm trọng khi tải Account (Fixed Version): {e}")
+        # Không hiện popup lỗi làm phiền, chỉ log
         progress_queue.put(("accounts_load_failed", str(e)))
 
 def create_empty_account_file_on_drive():
@@ -1848,7 +1863,12 @@ def upload_theme_json_to_github(repo, theme_dict_to_upload, current_sha):
 # Biến này sẽ lưu trữ dịch vụ Google Drive sau khi đăng nhập
 drive_service = None
 # Phạm vi (quyền) mà chúng ta yêu cầu: chỉ upload file
-SCOPES = ['https://www.googleapis.com/auth/drive']
+SCOPES = [
+    'https://www.googleapis.com/auth/drive',
+    'https://www.googleapis.com/auth/userinfo.profile',
+    'https://www.googleapis.com/auth/userinfo.email',
+    'openid'
+]
 
 GOOGLE_DRIVE_FOLDER_ID = "1lO7qc485mhdLpirFgyhqMGKXAQvHoQYA"
 ACCOUNT_CONFIG_FILENAME = "wgz_user_accounts.json"
@@ -2873,7 +2893,7 @@ def _process_run_gemini():
             loaderDiv.className = 'loader';
             var textDiv = document.createElement('div');
             textDiv.style.fontSize = '18px';
-            textDiv.textContent = 'Đang xác kết nối với Gemini AI';
+            textDiv.textContent = 'Đang kết nối với Gemini AI';
             
             document.body.appendChild(loaderDiv);
             document.body.appendChild(textDiv);
@@ -4420,6 +4440,224 @@ def show_new_feature_banner(parent, title, message, link_url=None):
     # Bắt đầu đếm ngược
     update_timer(AUTO_CLOSE_SECONDS)
 
+def setup_custom_titlebar(root_window, app_title="App Name", on_google_login=None):
+    """
+    Tạo thanh tiêu đề tùy chỉnh phong cách Modern (Windows 11 Style).
+    """
+    # 1. Cấu hình cửa sổ không viền
+    root_window.overrideredirect(True)
+    
+    # --- MÀU SẮC MODERN (Dark Theme) ---
+    BG_COLOR = "#1c1c1c"       # Màu nền tối hơn, sang hơn
+    FG_COLOR = "#ffffff"       # Màu chữ trắng
+    BTN_HOVER_BG = "#333333"   # Màu hover nhẹ cho nút thường
+    CLOSE_HOVER_BG = "#e81123" # Màu đỏ chuẩn Windows khi hover nút đóng
+    ACCENT_COLOR = "#4cc2ff"   # Màu xanh điểm nhấn
+    
+    # 2. Frame Thanh Tiêu Đề (Tăng chiều cao lên 40px cho thoáng)
+    title_bar = tk.Frame(root_window, bg=BG_COLOR, relief='flat', bd=0, height=40)
+    title_bar.pack(side=tk.TOP, fill=tk.X)
+    title_bar.pack_propagate(False) # Cố định chiều cao
+
+    # --- LOGIC DI CHUYỂN CỬA SỔ (DRAG WINDOW) ---
+    def start_move(event):
+        root_window.x = event.x
+        root_window.y = event.y
+
+    def do_move(event):
+        deltax = event.x - root_window.x
+        deltay = event.y - root_window.y
+        x = root_window.winfo_x() + deltax
+        y = root_window.winfo_y() + deltay
+        root_window.geometry(f"+{x}+{y}")
+
+    # Bind sự kiện kéo thả cho nền title bar
+    title_bar.bind("<ButtonPress-1>", start_move)
+    title_bar.bind("<B1-Motion>", do_move)
+
+    # --- KHU VỰC TRÁI: ICON & TÊN APP & ONLINE ---
+    left_container = tk.Frame(title_bar, bg=BG_COLOR)
+    left_container.pack(side=tk.LEFT, padx=10)
+    left_container.bind("<ButtonPress-1>", start_move)
+    left_container.bind("<B1-Motion>", do_move)
+
+    # 1. Icon App (Nếu có)
+    try:
+        icon_path = resource_path("logo.png") 
+        img = Image.open(icon_path).resize((22, 22), Image.Resampling.LANCZOS)
+        icon_tk = ImageTk.PhotoImage(img)
+        lbl_icon = tk.Label(left_container, image=icon_tk, bg=BG_COLOR, bd=0)
+        lbl_icon.image = icon_tk
+        lbl_icon.pack(side=tk.LEFT, padx=(0, 10))
+        lbl_icon.bind("<ButtonPress-1>", start_move)
+        lbl_icon.bind("<B1-Motion>", do_move)
+    except: pass
+
+    # 2. Tên App (Font Segoe UI Semibold)
+    lbl_title = tk.Label(left_container, text=app_title, bg=BG_COLOR, fg=FG_COLOR, font=("Segoe UI Semibold", 10))
+    lbl_title.pack(side=tk.LEFT)
+    lbl_title.bind("<ButtonPress-1>", start_move)
+    lbl_title.bind("<B1-Motion>", do_move)
+
+    # 3. Trạng thái Online (Phân cách bằng dấu gạch đứng)
+    separator = tk.Label(left_container, text=" | ", bg=BG_COLOR, fg="#555555", font=("Segoe UI", 10))
+    separator.pack(side=tk.LEFT, padx=5)
+    separator.bind("<ButtonPress-1>", start_move)
+    separator.bind("<B1-Motion>", do_move)
+
+    global g_online_count_label
+    g_online_count_label = tk.Label(
+        left_container, 
+        text="● Connecting...", 
+        bg=BG_COLOR, 
+        fg="#888888", 
+        font=("Segoe UI", 9),
+        bd=0
+    )
+    g_online_count_label.pack(side=tk.LEFT)
+    g_online_count_label.bind("<ButtonPress-1>", start_move)
+    g_online_count_label.bind("<B1-Motion>", do_move)
+
+    # --- KHU VỰC PHẢI: USER PROFILE & WINDOW CONTROLS ---
+    
+    # Frame chứa các nút điều khiển cửa sổ (Close, Min, Max)
+    window_controls_frame = tk.Frame(title_bar, bg=BG_COLOR)
+    window_controls_frame.pack(side=tk.RIGHT, fill=tk.Y)
+
+    # Hàm tạo nút điều khiển chuẩn Windows 11
+    def create_sys_btn(symbol, cmd, is_close=False):
+        # Nút Close sẽ có màu đỏ khi hover, nút khác màu xám
+        hover_bg = CLOSE_HOVER_BG if is_close else BTN_HOVER_BG
+        hover_fg = "white" # Chữ luôn trắng khi hover
+        
+        btn = tk.Button(
+            window_controls_frame, 
+            text=symbol, 
+            bg=BG_COLOR, 
+            fg=FG_COLOR, 
+            bd=0, 
+            font=("Segoe UI", 10), 
+            width=6, # Rộng hơn để dễ bấm
+            command=cmd, 
+            activebackground=hover_bg, 
+            activeforeground=hover_fg,
+            cursor="arrow"
+        )
+        btn.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Hiệu ứng Hover
+        btn.bind("<Enter>", lambda e: btn.config(bg=hover_bg, fg=hover_fg))
+        btn.bind("<Leave>", lambda e: btn.config(bg=BG_COLOR, fg=FG_COLOR))
+        return btn
+
+    # Nút Close (✕)
+    def custom_on_close():
+        if 'on_closing' in globals():
+            globals()['on_closing']()
+        else:
+            root_window.destroy()
+            sys.exit(0)
+    create_sys_btn("✕", custom_on_close, is_close=True)
+
+    # Nút Maximize (◻)
+    def toggle_max():
+        if root_window.state() == "zoomed":
+            root_window.state("normal")
+        else:
+            root_window.state("zoomed")
+    create_sys_btn("◻", toggle_max)
+
+    # Nút Minimize (─)
+    def minimize_win():
+        root_window.state('withdraw')
+        root_window.overrideredirect(False)
+        root_window.state('iconic')
+        
+    def on_map(event):
+        if event.widget == root_window and root_window.state() == 'normal':
+            if not root_window.overrideredirect():
+                root_window.overrideredirect(True)
+    root_window.bind('<Map>', on_map)
+    
+    create_sys_btn("─", minimize_win)
+
+    # --- KHU VỰC USER / GOOGLE LOGIN (Nằm bên trái nút Minimize) ---
+    global g_titlebar_google_frame
+    g_titlebar_google_frame = tk.Frame(title_bar, bg=BG_COLOR)
+    g_titlebar_google_frame.pack(side=tk.RIGHT, padx=(0, 5), fill=tk.Y)
+
+    # Nút Đăng Nhập Mặc Định (Style bo tròn nhẹ)
+    # Dùng Canvas hoặc Frame bọc Button để căn chỉnh đẹp hơn
+    btn_google = tk.Button(
+        g_titlebar_google_frame,
+        text=" Đăng nhập ", 
+        bg="#4285F4",       
+        fg="white",
+        font=("Segoe UI", 9, "bold"),
+        bd=0,
+        cursor="hand2",
+        command=on_google_login,
+        relief="flat"
+    )
+    # Căn giữa theo chiều dọc bằng pack kết hợp pady ảo
+    btn_google.pack(ipady=4, pady=4) 
+
+    # Hover cho nút Login
+    btn_google.bind("<Enter>", lambda e: btn_google.config(bg="#357ae8"))
+    btn_google.bind("<Leave>", lambda e: btn_google.config(bg="#4285F4"))
+
+    return title_bar
+
+
+# ==========================================
+# [TÍNH NĂNG MỚI] KẾT NỐI SERVER ONLINE
+# ==========================================
+sio = socketio.Client()
+
+# Địa chỉ Server của bạn (Lấy từ IP Oracle Cloud bạn đã cung cấp)
+SERVER_URL = "http://140.83.53.151:3000"
+
+@sio.event
+def connect():
+    print("✅ Đã kết nối tới Server Game!")
+    # Lấy tên người dùng máy tính để làm tên hiển thị tạm thời
+    import getpass
+    username = getpass.getuser()
+    
+    # Gửi sự kiện đăng nhập lên server
+    sio.emit('client-login', username)
+
+@sio.on('update-user-list')
+def on_user_list(data):
+    count = len(data)
+    print(f"👥 Danh sách Online cập nhật: {count} người")
+    
+    # --- CẬP NHẬT LÊN TITLE BAR ---
+    if 'g_online_count_label' in globals():
+        try:
+            # Thay "🟢" bằng "●" và tô màu xanh neon (#4cff00)
+            g_online_count_label.config(text=f"● Online: {count}", fg="#4cff00")
+        except:
+            pass
+
+@sio.event
+def disconnect():
+    print("❌ Mất kết nối Server.")
+    # Cập nhật trạng thái Offline lên Title Bar
+    if 'g_online_count_label' in globals():
+        try:
+            g_online_count_label.config(text="🔴 Offline", fg="#ff4d4d")
+        except: pass
+
+def start_socket_service():
+    """Hàm chạy ngầm để kết nối server"""
+    try:
+        sio.connect(SERVER_URL)
+        sio.wait()
+    except Exception as e:
+        print(f"Không thể kết nối Server Game: {e}")
+
+# ==========================================
 
 # --- Chạy ứng dụng ---
 if __name__ == '__main__':
@@ -4454,7 +4692,11 @@ if __name__ == '__main__':
     
     root = TkinterDnD.Tk()
     root.withdraw()
-    
+    setup_custom_titlebar(
+        root, 
+        app_title="[WGZ] Game Updater v" + CURRENT_VERSION, 
+        on_google_login=lambda: g_show_login_selector() if g_show_login_selector else custom_showwarning("Chờ chút", "App đang tải, vui lòng đợi...")
+    )
     # --- SPLASH SCREEN (BEGIN) ---
     splash = tk.Toplevel(root)
     splash.title("Loading")
@@ -4494,7 +4736,7 @@ if __name__ == '__main__':
     splash.update()
 
     # Bắt buộc Tkinter phải vẽ splash screen ngay lập tức
-
+    
     app_width = 1250
     app_height = 950
 
@@ -5629,6 +5871,28 @@ if __name__ == '__main__':
             root.cached_images[cache_key] = None # Lưu lỗi (None) vào RAM
             return None
 
+    def make_circle_avatar(image_data, size=(30, 30)):
+        """Chuyển đổi dữ liệu ảnh thành hình tròn (Avatar)."""
+        try:
+            # 1. Load ảnh từ data
+            im = Image.open(io.BytesIO(image_data)).convert("RGBA")
+            
+            # 2. Resize
+            im = im.resize(size, Image.Resampling.LANCZOS)
+            
+            # 3. Tạo mặt nạ tròn
+            mask = Image.new("L", size, 0)
+            draw = ImageDraw.Draw(mask)
+            draw.ellipse((0, 0, size[0], size[1]), fill=255)
+            
+            # 4. Áp dụng mặt nạ
+            output = Image.new("RGBA", size, (0, 0, 0, 0))
+            output.paste(im, (0, 0), mask=mask)
+            
+            return ImageTk.PhotoImage(output)
+        except Exception as e:
+            print(f"Lỗi tạo avatar: {e}")
+            return None
     # Lưu vào root để không bị garbage-collected
     root.drive_icon_zip = load_drive_icon("zip_icon.png")
     root.drive_icon_exe = load_drive_icon("exe_icon.png")
@@ -8297,64 +8561,273 @@ if __name__ == '__main__':
         
         upload_files_button.config(state=tk.NORMAL) # Bật nút upload
 
+    def update_user_ui_on_main_thread(name, email, avatar_bytes):
+        """
+        Cập nhật giao diện Titlebar.
+        - Khi Login: Hiện Avatar + Tên.
+        - Khi Logout: Reset về nút Đăng nhập mà KHÔNG TẮT APP.
+        """
+        global g_titlebar_google_frame, drive_service
+        
+        # Màu sắc
+        BG_TITLEBAR = "#1c1c1c"
+        BG_HOVER = "#333333"
+        FG_TEXT = "#ffffff"
+        
+        # 1. Cập nhật Tab 3 (Trạng thái đã kết nối)
+        if 'drive_auth_button' in globals():
+            drive_auth_button.config(text="Đã kết nối Drive", style="Green.TButton")
+            
+        # 2. Cập nhật Title Bar
+        if g_titlebar_google_frame:
+            # Xóa hết nội dung cũ (Nút đăng nhập hoặc Avatar cũ)
+            for widget in g_titlebar_google_frame.winfo_children():
+                widget.destroy()
+            
+            # --- TẠO KHUNG PROFILE ---
+            profile_frame = tk.Frame(g_titlebar_google_frame, bg=BG_TITLEBAR, cursor="hand2", padx=10, pady=2)
+            profile_frame.pack(fill=tk.Y, side=tk.RIGHT)
+
+            # Avatar
+            if avatar_bytes:
+                avatar_tk = make_circle_avatar(avatar_bytes, size=(24, 24))
+                root.cached_images["auto_user_avatar"] = avatar_tk 
+                lbl_avt = tk.Label(profile_frame, image=avatar_tk, bg=BG_TITLEBAR, bd=0)
+                lbl_avt.pack(side=tk.LEFT, padx=(0, 8))
+            else:
+                lbl_avt = tk.Label(profile_frame, text="👤", bg=BG_TITLEBAR, fg=FG_TEXT, font=("Segoe UI", 12))
+                lbl_avt.pack(side=tk.LEFT, padx=(0, 8))
+
+            # Tên User
+            lbl_name = tk.Label(profile_frame, text=name, bg=BG_TITLEBAR, fg=FG_TEXT, font=("Segoe UI", 9))
+            lbl_name.pack(side=tk.LEFT)
+
+            # --- LOGIC ĐĂNG XUẤT MỚI (KHÔNG TẮT APP) ---
+            def perform_logout():
+                # 1. Xóa file token
+                token_path = resource_path('token.json')
+                if os.path.exists(token_path):
+                    try: os.remove(token_path)
+                    except: pass
+                
+                # 2. Reset biến toàn cục
+                drive_service = None
+                
+                # 3. Reset giao diện Tab 3
+                if 'drive_auth_button' in globals():
+                    drive_auth_button.config(text="Đăng nhập Google Drive", state=tk.NORMAL, style="Accent.TButton")
+                if 'upload_files_button' in globals():
+                    upload_files_button.config(state=tk.DISABLED)
+                    
+                # 4. Reset Title Bar (Vẽ lại nút Đăng Nhập)
+                if g_titlebar_google_frame:
+                    # Xóa Avatar hiện tại
+                    for widget in g_titlebar_google_frame.winfo_children():
+                        widget.destroy()
+                    
+                    # Tạo lại nút Đăng Nhập (Code copy từ setup_custom_titlebar)
+                    btn_login = tk.Button(
+                        g_titlebar_google_frame,
+                        text=" Đăng nhập ", 
+                        bg="#4285F4", fg="white",
+                        font=("Segoe UI", 9, "bold"), bd=0,
+                        cursor="hand2", command=action_drive_login, # Gọi lại hàm login
+                        relief="flat"
+                    )
+                    btn_login.pack(ipady=4, pady=4)
+                    
+                    # Hiệu ứng hover cho nút mới
+                    btn_login.bind("<Enter>", lambda e: btn_login.config(bg="#357ae8"))
+                    btn_login.bind("<Leave>", lambda e: btn_login.config(bg="#4285F4"))
+
+                custom_showinfo("Đăng xuất", "Đã đăng xuất thành công.")
+
+            # --- MENU POPUP ---
+            def show_user_menu(e):
+                menu = tk.Menu(root, tearoff=0)
+                menu.add_command(label=f"📧 {email}", state=tk.DISABLED)
+                menu.add_separator()
+                menu.add_command(label="Đăng xuất", command=perform_logout) # Gọi hàm logout mới
+                
+                x = profile_frame.winfo_rootx()
+                y = profile_frame.winfo_rooty() + profile_frame.winfo_height()
+                menu.post(x, y)
+
+            # --- HIỆU ỨNG HOVER ---
+            def on_enter(e):
+                profile_frame.config(bg=BG_HOVER)
+                lbl_avt.config(bg=BG_HOVER)
+                lbl_name.config(bg=BG_HOVER)
+
+            def on_leave(e):
+                profile_frame.config(bg=BG_TITLEBAR)
+                lbl_avt.config(bg=BG_TITLEBAR)
+                lbl_name.config(bg=BG_TITLEBAR)
+
+            for widget in [profile_frame, lbl_avt, lbl_name]:
+                widget.bind("<Button-1>", show_user_menu)
+                widget.bind("<Enter>", on_enter)
+                widget.bind("<Leave>", on_leave)
+
     def try_auto_login_drive_thread():
-        """(Chạy ngầm) Tự động đăng nhập Drive nếu có token.json."""
+        """(Chạy ngầm) Tự động đăng nhập, lấy User Info và cập nhật UI."""
         global drive_service
         
         token_path = resource_path('token.json')
         creds_path = resource_path('credentials.json')
         
-        if not os.path.exists(creds_path): 
-            progress_queue.put(("accounts_load_failed", "credentials.json missing")) # <-- THÊM MỚI
-            return # Không có file credentials
-        if not os.path.exists(token_path): 
-            progress_queue.put(("accounts_load_failed", "token.json missing")) # <-- THÊM MỚI
-            return # Chưa đăng nhập lần nào
+        # Kiểm tra file tồn tại
+        if not os.path.exists(creds_path) or not os.path.exists(token_path): 
+            return 
         
         try:
-            print("Đang thử tự động đăng nhập Google Drive...")
+            print("Auto-Login: Đang kiểm tra token...")
             creds = Credentials.from_authorized_user_file(token_path, SCOPES)
             
-            # Nếu token hết hạn, làm mới
+            # Làm mới token nếu hết hạn
             if not creds.valid and creds.expired and creds.refresh_token:
                 creds.refresh(Request())
             
             if creds.valid:
+                # 1. Khởi tạo Drive Service
                 drive_service = build('drive', 'v3', credentials=creds)
-                print("Tự động đăng nhập Drive thành công.")
+                print("Auto-Login: Drive Service OK.")
                 
-                # --- BẮT ĐẦU TẢI ACCOUNT CONFIG ---
-                load_accounts_from_drive_thread() # (Không cần thread lồng nhau)
+                # 2. Lấy thông tin User (Profile & Avatar)
+                try:
+                    user_service = build('oauth2', 'v2', credentials=creds)
+                    user_info = user_service.userinfo().get().execute()
+                    
+                    name = user_info.get('name', 'User')
+                    email = user_info.get('email', '')
+                    pic_url = user_info.get('picture', '')
+                    
+                    # Tải ảnh avatar (nếu có URL)
+                    avatar_data = None
+                    if pic_url:
+                        try:
+                            res = requests.get(pic_url, timeout=5)
+                            if res.status_code == 200:
+                                avatar_data = res.content
+                        except: pass
+                    
+                    # 3. Cập nhật UI (Chuyển về luồng chính để an toàn)
+                    # Dùng root.after để đảm bảo thread safe
+                    root.after(0, lambda: update_user_ui_on_main_thread(name, email, avatar_data))
+                    
+                except Exception as e:
+                    print(f"Auto-Login Warning: Không thể lấy info user ({e})")
+
+                # 4. Tiếp tục các công việc tải dữ liệu khác
+                root.after(0, action_refresh_drive_list) # Refresh list file ở Tab 3
+                load_accounts_from_drive_thread() # Tải account game
+                
             else:
-                print("Tự động đăng nhập thất bại (token không hợp lệ).")
-                progress_queue.put(("accounts_load_failed", "Invalid token")) # <-- THÊM MỚI
+                print("Auto-Login: Token không hợp lệ.")
                 
         except Exception as e:
-            print(f"Lỗi khi tự động đăng nhập Drive: {e}")
-            progress_queue.put(("accounts_load_failed", str(e)))
+            print(f"Auto-Login Error: {e}")
 
     def action_drive_login():
-        entered_pin = custom_askstring("Xác nhận PIN", "Nhập mã PIN quản trị:", show='*')
-        correct_pin = "2408" # Mã PIN cứng
-
-        if entered_pin != correct_pin:
-            custom_showerror("Sai PIN", "Mã PIN không chính xác. Đã hủy upload.")
-            return # Dừng nếu PIN sai
-        # Gọi hàm xác thực
-        drive_auth_button.config(text="Đang đăng nhập...", state=tk.DISABLED)
+        """Đăng nhập và gọi hàm update UI chuẩn để đồng bộ giao diện."""
+        global drive_service
+        
+        # Cập nhật trạng thái nút
+        if 'drive_auth_button' in globals():
+            drive_auth_button.config(text="Đang kết nối Google...", state=tk.DISABLED)
         root.update_idletasks()
         
-        service = authenticate_google_drive() # Hàm này chúng ta đã thêm ở Bước 4
+        # 1. Xác thực
+        service = authenticate_google_drive() 
         
         if service:
-            drive_auth_button.config(text="Đã đăng nhập Google Drive", style="Green.TButton")
-            # Kiểm tra xem có file chờ upload không
-            if files_to_upload_list:
+            print("Đăng nhập thành công.")
+            
+            # Cập nhật Tab 3
+            if 'drive_auth_button' in globals():
+                drive_auth_button.config(text="Đã kết nối Drive", style="Green.TButton")
+            if files_to_upload_list and 'upload_files_button' in globals():
                 upload_files_button.config(state=tk.NORMAL)
+            
             action_refresh_drive_list()
-            threading.Thread(target=load_accounts_from_drive_thread, daemon=True).start()
+
+            # 2. Lấy thông tin User
+            try:
+                token_path = resource_path('token.json')
+                creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+                user_service = build('oauth2', 'v2', credentials=creds)
+                user_info = user_service.userinfo().get().execute()
+                
+                name = user_info.get('name', 'User')
+                email = user_info.get('email', '')
+                pic_url = user_info.get('picture', '')
+
+                # Tải ảnh avatar thành dạng bytes
+                avatar_data = None
+                if pic_url:
+                    try:
+                        res = requests.get(pic_url, timeout=5)
+                        if res.status_code == 200:
+                            avatar_data = res.content
+                    except Exception as e:
+                        print(f"Lỗi tải avatar: {e}")
+
+                # 3. [QUAN TRỌNG] GỌI HÀM UPDATE UI CHUẨN (Thay vì tự vẽ)
+                # Hàm này đã được chỉnh màu #1c1c1c nên sẽ đẹp ngay lập tức
+                update_user_ui_on_main_thread(name, email, avatar_data)
+
+            except Exception as e:
+                print(f"Lỗi lấy info sau đăng nhập: {e}")
+                # Nếu lỗi vẫn cập nhật UI mặc định
+                update_user_ui_on_main_thread("User", "", None)
+
         else:
-            drive_auth_button.config(text="Đăng nhập Google Drive", state=tk.NORMAL)
+            if 'drive_auth_button' in globals():
+                drive_auth_button.config(text="Đăng nhập Google Drive", state=tk.NORMAL)
+
+    def show_login_selector_popup():
+        """Hiển thị popup chọn phương thức đăng nhập."""
+        popup = tk.Toplevel(root)
+        popup.title("Đăng Nhập")
+        
+        # Kích thước & Căn giữa
+        w, h = 350, 200
+        center_window_on_screen(popup, w, h)
+        popup.transient(root)
+        popup.grab_set() # Chặn tương tác với cửa sổ chính
+        
+        # Áp dụng theme cho titlebar (nếu có)
+        popup.after(10, lambda: apply_theme_to_titlebar(popup))
+
+        # UI Content
+        frame = ttk.Frame(popup, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text="Chọn tài khoản để tiếp tục:", font=("Segoe UI", 11)).pack(pady=(0, 20))
+        
+        # --- NÚT 1: GOOGLE DRIVE ---
+        def on_google_click():
+            popup.destroy() # Đóng popup trước
+            action_drive_login() # Gọi hàm đăng nhập gốc (Tab 3)
+            
+        btn_google = ttk.Button(
+            frame, 
+            text="Google", 
+            command=on_google_click, 
+            style="Accent.TButton" # Nút xanh nổi bật
+        )
+        btn_google.pack(fill=tk.X, ipady=5, pady=5)
+        
+        # --- NÚT 2: (VÍ DỤ) API KEY RIÊNG ---
+        # (Bạn có thể thêm nút nhập API Key thủ công ở đây sau này)
+        # btn_apikey = ttk.Button(frame, text="🔑  Sử dụng API Key riêng", ...)
+        # btn_apikey.pack(fill=tk.X, ipady=5, pady=5)
+
+        # Nút Đóng
+        ttk.Button(frame, text="Hủy bỏ", command=popup.destroy).pack(fill=tk.X, pady=(10, 0))
+
+    # [QUAN TRỌNG] Gán hàm này vào biến toàn cục để Title Bar gọi được
+    g_show_login_selector = show_login_selector_popup
 
     def action_start_upload_all():
         # Bắt đầu upload tất cả các file trong danh sách
@@ -10484,6 +10957,8 @@ if __name__ == '__main__':
     root.attributes('-topmost', 1) 
     root.focus_force()
     root.attributes('-topmost', 0)
+    print("Đang kết nối Server Online...")
+    threading.Thread(target=start_socket_service, daemon=True).start()
     root.after(1000, lambda: show_new_feature_banner(
         root, 
         "✨ TÍNH NĂNG MỚI: DỊCH GAME", 
