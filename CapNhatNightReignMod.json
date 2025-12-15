@@ -195,5 +195,21 @@
         "path_guide": "Giải nén bất cứ đâu",
         "delete_before_extract": [],
         "url": "https://drive.google.com/uc?id=1_TdyS78J7WpEr9PUdjNY3FNEB4P15wfZ"
+    },
+    "17": {
+        "name": "Tải Game The Legend of Zelda: Tears of the Kingdom",
+        "urls": [
+            "https://drive.google.com/uc?id=11NZZrZVsWiLHVPm9EP_9SdAAlKl1RH7F",
+            "https://drive.google.com/uc?id=1_mYThK-szuO_31AGiTHLAW4DXt54Wv50"
+        ],
+        "version": "v1.1.1",
+        "game": "The Legend of Zelda: Tears of the Kingdom",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "launch_file": null,
+        "tag": "GOTY",
+        "path_guide": "Giải nén bất cứ đâu",
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=11NZZrZVsWiLHVPm9EP_9SdAAlKl1RH7F"
     }
 }
