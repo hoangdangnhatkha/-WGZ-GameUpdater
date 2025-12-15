@@ -222,6 +222,104 @@ def center_window_on_screen(window, width, height):
         # Fallback: nếu lỗi, chỉ đặt kích thước
         window.geometry(f'{width}x{height}')
 
+
+
+def show_smart_download_confirm(title, mod_name, stats_data, is_space_ok):
+    """
+    (V9 - FINAL) Hiển thị cửa sổ xác nhận dùng icon từ get_ctx_icon.
+    """
+    dlg = tk.Toplevel(root)
+    dlg.title(title)
+    dlg.transient(root)
+    dlg.grab_set()
+    dlg.resizable(False, False)
+    
+    dlg.after(10, lambda: apply_theme_to_titlebar(dlg))
+
+    main_frame = ttk.Frame(dlg, padding=20)
+    main_frame.pack(fill=tk.BOTH, expand=True)
+
+    # Header: Dấu hỏi to + Tên Game
+    header_frame = ttk.Frame(main_frame)
+    header_frame.pack(fill=tk.X, pady=(0, 15))
+    
+    # Icon Dấu hỏi to (Size 48)
+    icon_q = get_ctx_icon("question", "#4a90e2", size=48)
+    lbl_icon_q = tk.Label(header_frame, image=icon_q, bg=style.lookup("TFrame", "background"))
+    lbl_icon_q.pack()
+    
+    ttk.Label(main_frame, text=f"Thông tin dung lượng '{mod_name}':", font=("Segoe UI", 10, "bold"), anchor="center").pack(pady=(0, 10))
+
+    # --- KHUNG GRID ---
+    grid_frame = ttk.Frame(main_frame)
+    grid_frame.pack(fill=tk.X, padx=10)
+    
+    # Chuẩn bị icon (Size 24 cho dễ nhìn)
+    ic_down = get_ctx_icon("download", "white", size=24)
+    ic_fold = get_ctx_icon("folder", "#FFD700", size=24) # Vàng
+    ic_save = get_ctx_icon("save", "#DDA0DD", size=24) # Tím nhạt
+    ic_disk = get_ctx_icon("disk", "#A9A9A9", size=24) # Xám
+    
+    lbl_font = ("Segoe UI", 10)
+    bg_col = style.lookup("TFrame", "background")
+
+    # Hàng 1: Download
+    tk.Label(grid_frame, image=ic_down, bg=bg_col).grid(row=0, column=0, padx=(0, 10), pady=2)
+    ttk.Label(grid_frame, text=f"Dung lượng tải về: {stats_data['down']}", font=lbl_font).grid(row=0, column=1, sticky="w")
+
+    # Hàng 2: Extract
+    tk.Label(grid_frame, image=ic_fold, bg=bg_col).grid(row=1, column=0, padx=(0, 10), pady=2)
+    ttk.Label(grid_frame, text=f"Dung lượng giải nén: ~{stats_data['extract']}", font=lbl_font).grid(row=1, column=1, sticky="w")
+
+    # Kẻ ngang
+    ttk.Separator(grid_frame, orient='horizontal').grid(row=2, column=0, columnspan=2, sticky="ew", pady=10)
+
+    # Hàng 3: Tổng cần
+    tk.Label(grid_frame, image=ic_save, bg=bg_col).grid(row=3, column=0, padx=(0, 10), pady=2)
+    ttk.Label(grid_frame, text=f"TỔNG CẦN THIẾT: ~{stats_data['total']}", font=("Segoe UI", 10, "bold")).grid(row=3, column=1, sticky="w")
+
+    # Hàng 4: Ổ đĩa
+    tk.Label(grid_frame, image=ic_disk, bg=bg_col).grid(row=4, column=0, padx=(0, 10), pady=2)
+    ttk.Label(grid_frame, text=f"Ổ đĩa trống: {stats_data['free']}", font=lbl_font).grid(row=4, column=1, sticky="w")
+
+    # Kẻ ngang
+    ttk.Separator(grid_frame, orient='horizontal').grid(row=5, column=0, columnspan=2, sticky="ew", pady=10)
+
+    # Hàng 5: Trạng thái
+    status_icon_name = "check" if is_space_ok else "warning"
+    status_color = "#4cff00" if is_space_ok else "#ffcc00"
+    
+    ic_status = get_ctx_icon(status_icon_name, status_color, size=24)
+    
+    tk.Label(grid_frame, image=ic_status, bg=bg_col).grid(row=6, column=0, padx=(0, 10), pady=2)
+    
+    status_text = "Dung lượng ổ đĩa: Đủ (An toàn)." if is_space_ok else "CẢNH BÁO: Không đủ dung lượng!"
+    tk.Label(grid_frame, text=status_text, font=("Segoe UI", 10, "bold"), fg=status_color, bg=bg_col).grid(row=6, column=1, sticky="w")
+
+    # Câu hỏi
+    ttk.Label(main_frame, text="Bạn có muốn tiếp tục không?", font=("Segoe UI", 10)).pack(pady=(20, 10))
+
+    # Nút bấm
+    btn_frame = ttk.Frame(dlg, padding=10)
+    btn_frame.pack(side=tk.BOTTOM, fill=tk.X)
+
+    result = [False]
+    def on_yes():
+        result[0] = True
+        dlg.destroy()
+    def on_no():
+        dlg.destroy()
+
+    btn_yes = ttk.Button(btn_frame, text="Có (Yes)", style="Accent.TButton", command=on_yes)
+    btn_yes.pack(side=tk.RIGHT, padx=5)
+    btn_no = ttk.Button(btn_frame, text="Không (No)", command=on_no)
+    btn_no.pack(side=tk.RIGHT, padx=5)
+
+    dlg.update_idletasks()
+    center_window_on_screen(dlg, dlg.winfo_reqwidth() + 20, dlg.winfo_reqheight() + 20)
+    root.wait_window(dlg)
+    return result[0]
+
 def _show_custom_dialog(title, message, dialog_type="info", parent=None):
     """
     Hàm lõi để hiển thị popup tùy chỉnh.
@@ -846,18 +944,27 @@ def manual_check_thread():
 # --- HẾT THÊM MỚI ---
 
 def extract_gdrive_id_from_url(url):
-    """Trích xuất File ID từ link Google Drive (uc?id=...)"""
-    if not isinstance(url, str):
-        return None
-    # Tìm chuỗi ký tự sau 'id='
-    match = re.search(r'id=([a-zA-Z0-9_-]+)', url)
-    if match:
-        return match.group(1)
+    """
+    (NÂNG CẤP) Trích xuất File ID từ mọi loại link Google Drive.
+    Hỗ trợ:
+    - .../uc?id=XXX
+    - .../file/d/XXX/view
+    - .../open?id=XXX
+    """
+    if not isinstance(url, str): return None
+    
+    # 1. Tìm theo pattern: id=XXX (cho link uc?, open?)
+    match = re.search(r'[?&]id=([a-zA-Z0-9_-]+)', url)
+    if match: return match.group(1)
 
-    # Nếu không tìm thấy, có thể người dùng đã nhập ID trực tiếp (như trong Tab 2)
-    # Chúng ta kiểm tra xem nó có "trông giống" một ID không
+    # 2. Tìm theo pattern: /d/XXX (cho link view, preview)
+    match = re.search(r'/d/([a-zA-Z0-9_-]+)', url)
+    if match: return match.group(1)
+
+    # 3. Nếu người dùng nhập thẳng ID (không phải link)
+    # Điều kiện: Không chứa tên miền, không chứa gạch chéo, độ dài > 20
     if "drive.google.com" not in url and "/" not in url and len(url) > 20:
-        return url
+        return url.strip()
 
     return None
 # --- Hàm tải config từ GitHub ---
@@ -2322,13 +2429,43 @@ def download_single_part(url, target_path, part_index, total_parts):
                 return True
         else:
             raise e_gdown
+def get_remote_file_size(url):
+    """
+    Lấy kích thước file từ xa (Google Drive API hoặc HTTP Header) mà không cần tải về.
+    Trả về: Kích thước (bytes) hoặc 0 nếu không lấy được.
+    """
+    global drive_service
+    
+    # 1. Thử lấy bằng Google Drive API (Nhanh & Chính xác nhất)
+    file_id = extract_gdrive_id_from_url(url)
+    if file_id and drive_service:
+        try:
+            # Chỉ lấy trường 'size' để tiết kiệm băng thông
+            meta = drive_service.files().get(fileId=file_id, fields="size").execute()
+            return int(meta.get('size', 0))
+        except:
+            pass # Nếu lỗi API (vd: file công khai nhưng chưa login), chuyển sang cách HTTP
+
+    # 2. Thử lấy bằng HTTP Header (Requests)
+    try:
+        # stream=True để không tải nội dung, chỉ lấy header
+        response = requests.head(url, allow_redirects=True, timeout=5)
+        
+        # Kiểm tra Content-Length
+        size = response.headers.get('content-length')
+        if size:
+            return int(size)
+    except:
+        pass
+        
+    return 0
 
 def download_and_extract_logic():
     """
-    (FULL CODE) Hỗ trợ tải Multi-Part, Backup đầy đủ, Giải nén và Tìm Launcher.
+    (FIX V7 - PRE-CHECK SIZE)
+    Kiểm tra dung lượng file và dung lượng ổ cứng trước khi tải.
     """
-    global local_config
-    global g_current_game_name
+    global local_config, g_current_game_name
 
     progress_queue.put(("status", "DISABLE_BUTTONS"))
 
@@ -2342,34 +2479,97 @@ def download_and_extract_logic():
     mod_display_name = mod_data.get("name", selected_key)
     option_label.configure(text="Đang xử lý: " + mod_display_name, style="White.TLabel")
 
-    # --- LẤY DANH SÁCH URL (Hỗ trợ cả key "url" và "urls") ---
+    # Lấy danh sách URL
     url_list = mod_data.get("urls", [])
     if not url_list:
         single_url = mod_data.get("url")
-        if single_url:
-            url_list = [single_url]
+        if single_url: url_list = [single_url]
 
     if not url_list:
-        progress_queue.put(("download_complete", {"success": False, "title": "Lỗi Config", "message": "Không tìm thấy link tải trong config."}))
+        progress_queue.put(("download_complete", {"success": False, "title": "Lỗi Config", "message": "Không tìm thấy link tải."}))
         progress_queue.put(("status", "ENABLE_BUTTONS"))
         return
 
     version = mod_data.get("version", "")
-    file_type = mod_data.get("type", "zip") # zip, rar, exe
+    file_type = mod_data.get("type", "zip")
     password = mod_data.get("password", None)
     delete_list = mod_data.get("delete_before_extract", [])
     destination_folder = path_entry.get()
 
-    # 1. Tạo folder đích nếu chưa có
+    # 1. Tạo folder đích
     if not os.path.exists(destination_folder):
-        try: 
-            os.makedirs(destination_folder, exist_ok=True)
+        try: os.makedirs(destination_folder, exist_ok=True)
         except Exception as e:
             progress_queue.put(("download_complete", {"success": False, "title": "Lỗi", "message": f"Lỗi tạo folder: {e}"}))
             progress_queue.put(("status", "ENABLE_BUTTONS"))
             return
 
-    # 2. Lưu config đường dẫn
+    # --- [MỚI] BƯỚC KIỂM TRA DUNG LƯỢNG (PRE-CHECK) ---
+    progress_queue.put(("status", "Đang tính toán dung lượng..."))
+    
+    total_download_size = 0
+    unknown_size_count = 0
+    
+    # Tính tổng dung lượng cần tải
+    for url in url_list:
+        size = get_remote_file_size(url)
+        if size > 0:
+            total_download_size += size
+        else:
+            unknown_size_count += 1
+            
+    # Kiểm tra dung lượng trống ổ đĩa
+    try:
+        total_disk, used_disk, free_disk = shutil.disk_usage(destination_folder)
+    except Exception as e:
+        print(f"Lỗi check ổ đĩa: {e}")
+        free_disk = 999999999999 # Bỏ qua nếu lỗi
+
+    # --- TÍNH TOÁN DUNG LƯỢNG GIẢI NÉN (ƯỚC TÍNH) ---
+    # Giả sử tỉ lệ nén trung bình là 1:2 (1GB tải về nở ra thành 2GB)
+    # Tổng cần thiết = File Tải (1) + File Giải Nén (2) = 3 lần
+    # Đây là mức "An toàn" để đảm bảo không bị đầy ổ giữa chừng.
+    estimated_extract_size = (total_download_size * 1.2)
+    total_required_space = total_download_size + estimated_extract_size
+
+    stats_data = {
+        "down": format_bytes(total_download_size),
+        "extract": format_bytes(estimated_extract_size),
+        "total": format_bytes(total_required_space),
+        "free": format_bytes(free_disk)
+    }
+    
+    if unknown_size_count > 0:
+        stats_data["down"] += f" (+{unknown_size_count} file chưa rõ)"
+
+    # Kiểm tra đủ chỗ không
+    is_space_ok = True
+    if total_download_size > 0 and free_disk < total_required_space:
+        is_space_ok = False
+
+    # --- SỬA LỖI UI THREAD (GỌI POPUP MỚI) ---
+    user_response = [None]
+    
+    def show_confirm_popup():
+        title = "Xác nhận tải" if is_space_ok else "Cảnh báo dung lượng"
+        # Gọi hàm Show Dialog mới
+        user_response[0] = show_smart_download_confirm(title, mod_display_name, stats_data, is_space_ok)
+
+    # Chuyển lệnh lên luồng chính
+    root.after(0, show_confirm_popup)
+    
+    # Vòng lặp chờ phản hồi
+    while user_response[0] is None:
+        time.sleep(0.1)
+        if not root.winfo_exists(): return 
+
+    # Xử lý phản hồi (Logic cũ giữ nguyên)
+    if not user_response[0]:
+        progress_queue.put(("cancel_and_return_home", None))
+        return
+    # ----------------------------------------------------
+
+    # 2. Lưu config đường dẫn (Tiếp tục code cũ)
     if 'last_used_folder' not in local_config: 
         local_config['last_used_folder'] = ""
     local_config['last_used_folder'] = destination_folder
@@ -3831,6 +4031,28 @@ def process_queue():
             threading.Thread(target=auto_fix_legacy_paths, daemon=True).start()
             # 5. Bắt đầu tải Tab 2 (tài khoản)
             threading.Thread(target=try_auto_login_drive_thread, daemon=True).start()
+        elif message_type == "cancel_and_return_home":
+            print("Người dùng hủy tải. Quay về trang chủ...")
+            
+            # 1. Reset trạng thái các nút
+            start_button.config(state=tk.NORMAL)
+            browse_button.config(state=tk.NORMAL)
+            
+            # 2. Dọn dẹp giao diện Page 3 (để lần sau vào nó sạch sẽ)
+            status_label.configure(text="Sẵn sàng.", style="White.TLabel")
+            progress_bar['value'] = 0
+            speed_label.config(text="")
+            eta_label.config(text="")
+            
+            if 'overall_progress_bar' in globals():
+                overall_progress_bar['value'] = 0
+            if 'overall_status_label' in globals():
+                overall_status_label.config(text="")
+            if 'option_label' in globals():
+                option_label.config(text="...")
+
+            # 3. CHUYỂN VỀ PAGE 1 (LƯỚI GAME)
+            show_page(page_1_game_grid)
         elif message_type == "overall_progress":
             data = message_value
             percent = data.get("percent", 0)
@@ -4871,7 +5093,7 @@ if __name__ == '__main__':
     # Bắt buộc Tkinter phải vẽ splash screen ngay lập tức
     
     app_width = 1250
-    app_height = 950
+    app_height = 1000
 
     # Lấy kích thước màn hình
     screen_width = root.winfo_screenwidth()
@@ -6140,6 +6362,12 @@ if __name__ == '__main__':
         global local_config, g_all_mods_flat
         
         # 1. Lấy thông tin cấu hình
+        if 'custom_games' in local_config and game_name in local_config['custom_games']:
+            custom_showwarning("Bảo Vệ", 
+                f"'{game_name}' là game được thêm từ ngoài vào.\n"
+                "Tool sẽ KHÔNG xóa file của game này để đảm bảo an toàn.\n\n"
+                "Nếu bạn muốn bỏ nó khỏi Tool, hãy dùng nút 'Xóa khỏi List'.")
+            return
         configured_path = local_config.get("game_paths", {}).get(game_name, "")
         launcher_name = local_config.get("game_launchers", {}).get(game_name, "")
         
@@ -6651,66 +6879,191 @@ if __name__ == '__main__':
             except Exception as e:
                 custom_showerror("Lỗi", f"Lỗi khi xóa ảnh: {e}")
 
-    def get_ctx_icon(name, color):
-        """Tạo icon vector đơn giản cho Menu (Đã thêm Bánh răng)."""
-        key = f"ctx_icon_{name}_{color}" # Thêm color vào key để cache đúng màu
-        if key in root.cached_images: return root.cached_images[key]
+    # --- CẤU HÌNH STICKER / TAG ---
+    GAME_TAGS_CONFIG = {
+        # Tên Game chính xác : Loại Tag (HOT, GOTY, NEW, UPD, BEST)
+        "The Spell Brigade": "HOT",
+        "Elden Ring": "GOTY",
+        "Risk of Rain 2": "UPD",
+        "Clair Obscur: Expedition 33": "GOTY",
+        "Black Myth: Wukong": "BEST"
+    }
+
+    # Định nghĩa màu sắc cho từng loại Tag
+    TAG_COLORS = {
+        "HOT":  ("#ff4d4d", "white"),   # Đỏ / Trắng
+        "GOTY": ("#ffd700", "black"),   # Vàng Gold / Đen
+        "NEW":  ("#4cff00", "black"),   # Xanh Neon / Đen
+        "UPD":  ("#4a90e2", "white"),   # Xanh Dương / Trắng
+        "BEST": ("#9b59b6", "white"),   # Tím / Trắng
+    }
+
+    def get_tag_badge_icon(tag_text, height=14):
+        """
+        Vẽ icon nhãn dán (Badge) bằng vector.
+        """
+        # --- [SỬA LỖI] THÊM IMPORT VÀO ĐÂY ---
+        from PIL import Image, ImageTk, ImageDraw, ImageFont
+        # -------------------------------------
+
+        bg_color, txt_color = TAG_COLORS.get(tag_text, ("#555555", "white"))
         
-        # Tạo ảnh trong suốt 20x20
-        img = Image.new("RGBA", (20, 20), (0,0,0,0))
+        # Tạo key cache để không phải vẽ lại nhiều lần
+        cache_key = f"tag_badge_{tag_text}_{height}"
+        if cache_key in root.cached_images:
+            return root.cached_images[cache_key]
+
+        # Tính toán kích thước dựa trên độ dài chữ
+        width = len(tag_text) * 7 + 8 
+        
+        # Tạo ảnh trong suốt
+        img = Image.new("RGBA", (width, height), (0,0,0,0))
         draw = ImageDraw.Draw(img)
         
-        # Vẽ các hình tượng trưng đơn giản
-        if name == "edit": # Bút chì
-            draw.line((14, 4, 4, 14), fill=color, width=2)
-            draw.polygon([(4, 14), (3, 17), (6, 15)], fill=color)
-        elif name == "image": # Khung ảnh
-            draw.rectangle((3, 4, 17, 16), outline=color, width=2)
-            draw.polygon([(3, 16), (8, 11), (13, 16)], fill=color)
-        elif name == "folder": # Thư mục
-            draw.polygon([(2,4), (8,4), (10,6), (18,6), (18,16), (2,16)], outline=color, width=2)
-        elif name == "screen": # Màn hình
-            draw.rectangle((2, 4, 18, 14), outline=color, width=2)
-            draw.line((10, 14, 10, 17), fill=color, width=2)
-            draw.line((6, 17, 14, 17), fill=color, width=2)
-        elif name == "delete": # Dấu X
-            draw.line((5, 5, 15, 15), fill=color, width=3)
-            draw.line((5, 15, 15, 5), fill=color, width=3)
-        elif name == "restore": # Mũi tên quay lại
-            draw.arc((5, 5, 15, 15), 20, 280, fill=color, width=2)
-            draw.polygon([(5,5), (5,9), (1,5)], fill=color)
+        # Vẽ hình chữ nhật bo góc (Badge)
+        draw.rounded_rectangle((0, 0, width, height), radius=3, fill=bg_color)
         
-        elif name == "trash":
-            # Thân thùng rác
-            draw.rectangle((6, 7, 14, 17), outline=color, width=2)
-            # Nắp
-            draw.line((4, 5, 16, 5), fill=color, width=2)
-            # Tay cầm
-            draw.line((8, 3, 12, 3), fill=color, width=2)
-            # Thanh giữa (tùy chọn)
-            draw.line((10, 10, 10, 14), fill=color, width=1)
-        # --- [MỚI] VẼ BÁNH RĂNG (GEAR) ---
-        elif name == "gear":
-            import math
-            cx, cy = 10, 10 # Tâm ảnh
-            
-            # 1. Vẽ 8 răng cưa tỏa ra từ tâm
-            for i in range(8):
-                angle = math.radians(i * 45) # 360 / 8 = 45 độ
-                
-                # Tính điểm bắt đầu (sát tâm) và kết thúc (ngoài rìa)
-                # R_in = 4, R_out = 9
-                x1 = cx + 4 * math.cos(angle)
-                y1 = cy + 4 * math.sin(angle)
-                x2 = cx + 9 * math.cos(angle)
-                y2 = cy + 9 * math.sin(angle)
-                
-                draw.line((x1, y1, x2, y2), fill=color, width=3)
+        # Vẽ chữ
+        try:
+            # Cố gắng load font nhỏ
+            font = ImageFont.truetype("arial.ttf", 9) # Font size 9
+        except:
+            # Nếu lỗi font hệ thống thì dùng font mặc định
+            font = ImageFont.load_default()
 
-            # 2. Vẽ vòng tròn thân ở giữa (đè lên chân các răng để làm mịn)
-            # Bbox: (left, top, right, bottom) -> Vẽ vòng tròn bán kính ~5
-            draw.ellipse((5, 5, 15, 15), outline=color, width=2)
-        # ---------------------------------
+        # Căn giữa chữ
+        try:
+            bbox = draw.textbbox((0, 0), tag_text, font=font)
+            w_text = bbox[2] - bbox[0]
+            h_text = bbox[3] - bbox[1]
+        except:
+            w_text = len(tag_text) * 5
+            h_text = 8
+            
+        x_text = (width - w_text) / 2
+        y_text = (height - h_text) / 2 - 1 
+
+        draw.text((x_text, y_text), tag_text, fill=txt_color, font=font)
+        
+        tk_img = ImageTk.PhotoImage(img)
+        root.cached_images[cache_key] = tk_img
+        return tk_img
+
+    def get_ctx_icon(name, color, size=20):
+        """
+        (V2) Tạo icon vector bằng PIL.ImageDraw.
+        Hỗ trợ: edit, image, folder, delete, restore, trash, gear, download, save, disk, check, warning, question.
+        """
+        # Tạo key cache bao gồm cả tên, màu và kích thước
+        key = f"ctx_icon_{name}_{color}_{size}"
+        
+        if key in root.cached_images: 
+            return root.cached_images[key]
+        
+        # Tạo ảnh trong suốt
+        img = Image.new("RGBA", (size, size), (0,0,0,0))
+        draw = ImageDraw.Draw(img)
+        
+        # Tính toán tọa độ tỉ lệ theo size
+        c = size // 2 # Tâm
+        s = size      # Cạnh
+        
+        # --- NHÓM 1: CÁC ICON CŨ (MENU) ---
+        if name == "edit": # Bút chì
+            p = int(s*0.2)
+            draw.line((s-p, p, p, s-p), fill=color, width=2)
+            draw.polygon([(p, s-p), (p-1, s-1), (p+3, s-2)], fill=color)
+            
+        elif name == "image": # Khung ảnh
+            p = int(s*0.15)
+            draw.rectangle((p, p, s-p, s-p), outline=color, width=2)
+            draw.polygon([(p, s-p), (c, c), (s-p, s-p)], fill=color)
+            
+        elif name == "folder": # Thư mục
+            p = int(s*0.1)
+            draw.polygon([(p, s*0.3), (s*0.4, s*0.3), (s*0.5, s*0.4), (s-p, s*0.4), (s-p, s-p), (p, s-p)], outline=color, width=2)
+            draw.line((p, s*0.45, s-p, s*0.45), fill=color, width=1)
+            
+        elif name == "screen": # Màn hình
+            p = int(s*0.15)
+            draw.rectangle((p, p, s-p, s*0.7), outline=color, width=2)
+            draw.line((c, s*0.7, c, s-p), fill=color, width=2)
+            draw.line((c-4, s-p, c+4, s-p), fill=color, width=2)
+
+        elif name == "delete": # Dấu X mảnh
+            p = int(s*0.25)
+            draw.line((p, p, s-p, s-p), fill=color, width=2)
+            draw.line((p, s-p, s-p, p), fill=color, width=2)
+            
+        elif name == "restore": # Mũi tên quay lại
+            draw.arc((s*0.2, s*0.2, s*0.8, s*0.8), 20, 280, fill=color, width=2)
+            draw.polygon([(s*0.2, s*0.3), (s*0.2, s*0.5), (s*0.05, s*0.3)], fill=color)
+        
+        elif name == "trash": # Thùng rác
+            draw.rectangle((s*0.3, s*0.35, s*0.7, s*0.85), outline=color, width=2)
+            draw.line((s*0.2, s*0.25, s*0.8, s*0.25), fill=color, width=2)
+            draw.line((s*0.4, s*0.15, s*0.6, s*0.15), fill=color, width=2)
+
+        elif name == "gear": # Bánh răng
+            draw.ellipse((s*0.25, s*0.25, s*0.75, s*0.75), outline=color, width=2)
+            import math
+            for i in range(8):
+                angle = math.radians(i * 45)
+                x1 = c + (s*0.2) * math.cos(angle)
+                y1 = c + (s*0.2) * math.sin(angle)
+                x2 = c + (s*0.45) * math.cos(angle)
+                y2 = c + (s*0.45) * math.sin(angle)
+                draw.line((x1, y1, x2, y2), fill=color, width=2)
+
+        # --- NHÓM 2: CÁC ICON MỚI (CHO DOWNLOAD CONFIRM) ---
+        elif name == "download": # Mũi tên xuống + gạch ngang
+            p = int(s*0.2)
+            # Thân
+            draw.line((c, p, c, s-p-3), fill=color, width=2)
+            # Đầu mũi tên
+            draw.line((c, s-p-3, c-4, s-p-7), fill=color, width=2)
+            draw.line((c, s-p-3, c+4, s-p-7), fill=color, width=2)
+            # Gạch đáy
+            draw.line((p, s-p, s-p, s-p), fill=color, width=2)
+
+        elif name == "save": # Đĩa mềm (Tượng trưng Tổng dung lượng)
+            p = int(s*0.15)
+            draw.rectangle((p, p, s-p, s-p), outline=color, width=2)
+            # Thanh trượt
+            draw.rectangle((p+4, p, s-p-4, p+5), fill=color)
+            # Nhãn
+            draw.rectangle((p+3, s-p-5, s-p-3, s-p), outline=color)
+
+        elif name == "disk": # Ổ đĩa (Vòng tròn Pie Chart)
+            p = int(s*0.15)
+            draw.ellipse((p, p, s-p, s-p), outline=color, width=2)
+            draw.ellipse((c-2, c-2, c+2, c+2), fill=color)
+
+        elif name == "check": # Dấu tích V (Đậm)
+            points = [(s*0.2, s*0.5), (s*0.45, s*0.75), (s*0.85, s*0.25)]
+            draw.line(points, fill=color, width=3, joint="curve")
+
+        elif name == "warning": # Tam giác chấm than
+            points = [(c, s*0.1), (s*0.1, s*0.9), (s*0.9, s*0.9)]
+            draw.polygon(points, outline=color, width=2)
+            draw.line((c, s*0.35, c, s*0.65), fill=color, width=2)
+            draw.point((c, s*0.75), fill=color)
+
+        elif name == "question": # Dấu hỏi
+            # Dùng font mặc định để vẽ dấu hỏi cho đẹp
+            try:
+                # Load font mặc định kích thước lớn
+                from PIL import ImageFont
+                # Cố gắng load font Segoe UI hoặc Arial, nếu không thì default
+                try: font = ImageFont.truetype("seguiemj.ttf", int(size*0.8))
+                except: font = ImageFont.load_default()
+                
+                # Căn giữa text
+                draw.text((c, c), "?", font=font, fill=color, anchor="mm")
+            except:
+                # Fallback nếu lỗi font: Vẽ thủ công đơn giản
+                draw.ellipse((s*0.2, s*0.1, s*0.8, s*0.6), outline=color, width=2)
+                draw.line((c, s*0.6, c, s*0.8), fill=color, width=2)
 
         tk_img = ImageTk.PhotoImage(img)
         root.cached_images[key] = tk_img
@@ -7244,17 +7597,14 @@ if __name__ == '__main__':
             # 1. Thử lấy từ Cache Local
             try:
                 override_path = local_config.get('theme_overrides', {}).get(game_name)
-                if is_custom: override_path = custom_games_data[game_name].get("image_local_path")
+                if is_custom: override_path = custom_games_data.get(game_name, {}).get("image_local_path")
                 
                 if override_path and os.path.exists(override_path):
-                    # Tạo key cache riêng cho size 16:9
                     cache_key = f"wide_{override_path}"
-                    
                     if cache_key in root.cached_images: 
                         icon_img = root.cached_images[cache_key]
                     else:
                         with Image.open(override_path) as img:
-                            # Resize theo tỉ lệ 16:9
                             img_resized = img.resize(TARGET_SIZE, Image.Resampling.LANCZOS)
                             icon_img = ImageTk.PhotoImage(img_resized)
                             root.cached_images[cache_key] = icon_img
@@ -7264,43 +7614,95 @@ if __name__ == '__main__':
             if not icon_img and not is_custom:
                 image_url = g_game_themes.get(game_name)
                 if image_url: 
-                    # Load từ URL với size 16:9
                     icon_img = load_image_from_url(image_url, size=TARGET_SIZE)
 
-            # 3. Fallback (Nếu không có ảnh, vẫn phải resize ảnh default để thẳng hàng)
+            # 3. Fallback
             if not icon_img: 
-                # Resize ảnh default thành 16:9 để không bị lệch layout
                 if "default_wide" not in root.cached_images:
                     try:
-                        # Lấy ảnh gốc default (giả sử đã load ở đâu đó hoặc load lại)
-                        def_pil = Image.open(resource_path("logo.png")) # Hoặc ảnh default của bạn
+                        def_pil = Image.open(resource_path("logo.png"))
                         def_resized = def_pil.resize(TARGET_SIZE, Image.Resampling.LANCZOS)
                         root.cached_images["default_wide"] = ImageTk.PhotoImage(def_resized)
                     except: pass
-                
                 icon_img = root.cached_images.get("default_wide", root.default_game_icon_small)
 
             # --- VẼ UI ITEM ---
-            item_frame = tk.Frame(parent_frame, bg="#191919", cursor="hand2", padx=5, pady=2) # Giảm padding chút cho gọn
+            item_frame = tk.Frame(parent_frame, bg="#191919", cursor="hand2", padx=5, pady=2)
             item_frame.pack(fill=tk.X)
 
-            l_icon = tk.Label(item_frame, image=icon_img, bg="#191919", bd=0)
-            l_icon.image = icon_img 
-            l_icon.pack(side=tk.LEFT)
+            # Container cho Icon (để dễ place sticker)
+            icon_container = tk.Label(item_frame, image=icon_img, bg="#191919", bd=0)
+            icon_container.image = icon_img 
+            icon_container.pack(side=tk.LEFT)
+
+            # --- [MỚI] LOGIC DÁN STICKER ---
+            # Kiểm tra xem game này có Tag trong cấu hình không
+            tag_type = None
+        
+            # 1. Ưu tiên tìm Tag trong Custom Game
+            if is_custom:
+                # (Bạn cần thêm key 'tag' vào custom_games nếu muốn hỗ trợ tag cho game ngoài)
+                pass 
+            
+            # 2. Tìm Tag trong các Options tải
+            mod_list = download_options.get(game_name, [])
+            for _key, mod_data in mod_list:
+                if mod_data.get("tag"):
+                    tag_type = mod_data.get("tag")
+                    break # Lấy tag của mod đầu tiên tìm thấy
+            
+            # -----------------------------------
+            
+            if tag_type:
+                badge_img = get_tag_badge_icon(tag_type)
+                if badge_img:
+                    # Tạo Label chứa badge
+                    badge_lbl = tk.Label(item_frame, image=badge_img, bg="#191919", bd=0)
+                    badge_lbl.image = badge_img
+                    
+                    # Dán đè lên góc TRÁI TRÊN của icon
+                    # in_=icon_container: Đặt vị trí tương đối so với icon
+                    # x=-2, y=-2: Đẩy lùi ra ngoài một chút cho đẹp (hiệu ứng nổi)
+                    badge_lbl.place(in_=icon_container, x=-2, y=-2)
+            # -------------------------------
 
             display_name = local_config.get('display_name_overrides', {}).get(game_name, game_name)
             fg_col = "#a3cf06" if is_custom else "#bfbfbf"
             
-            l_name = tk.Label(item_frame, text=display_name, bg="#191919", fg=fg_col, font=("Segoe UI", 10), anchor="w")
+            # Highlight nếu đang chọn
+            bg_item = "#3d4450" if g_current_game_name == game_name else "#191919"
+            if g_current_game_name == game_name:
+                global g_selected_game_label
+                g_selected_game_label = item_frame # Cập nhật biến toàn cục
+
+            item_frame.config(bg=bg_item)
+            icon_container.config(bg=bg_item)
+
+            l_name = tk.Label(item_frame, text=display_name, bg=bg_item, fg=fg_col, font=("Segoe UI", 10), anchor="w")
             l_name.pack(side=tk.LEFT, padx=(10,0), fill=tk.X, expand=True)
 
-            # Bind Events
+            # Bind Events (Gắn sự kiện click cho cả sticker nếu lỡ bấm vào)
             cmd = lambda e, g=game_name, w=item_frame: on_select_game(g, w)
+            
             item_frame.bind("<Button-1>", cmd)
             l_name.bind("<Button-1>", cmd)
-            l_icon.bind("<Button-1>", cmd)
-            item_frame.bind("<Enter>", lambda e, w=item_frame: w.config(bg="#2c2c2c") if w != g_selected_game_label else None)
-            item_frame.bind("<Leave>", lambda e, w=item_frame: w.config(bg="#191919") if w != g_selected_game_label else None)
+            icon_container.bind("<Button-1>", cmd)
+            
+            # Hover Effect
+            def on_enter(e):
+                if item_frame != g_selected_game_label:
+                    item_frame.config(bg="#2c2c2c")
+                    icon_container.config(bg="#2c2c2c")
+                    l_name.config(bg="#2c2c2c")
+            
+            def on_leave(e):
+                if item_frame != g_selected_game_label:
+                    item_frame.config(bg="#191919")
+                    icon_container.config(bg="#191919")
+                    l_name.config(bg="#191919")
+
+            item_frame.bind("<Enter>", on_enter)
+            item_frame.bind("<Leave>", on_leave)
             
             return item_frame
 
@@ -7872,7 +8274,51 @@ if __name__ == '__main__':
     
     # Frame chứa nội dung thực sự
     edit_form_frame = ttk.Frame(form_canvas)
+    # --- [MỚI] HÀM XỬ LÝ CUỘN CHUỘT CHO FORM ---
+    def on_form_mouse_wheel(event):
+        """Xử lý cuộn chuột riêng cho Form Editor."""
+        if not form_canvas.winfo_exists(): return
+        
+        # Kiểm tra xem Form có cần cuộn không (nếu nội dung ngắn hơn khung thì không cuộn)
+        if edit_form_frame.winfo_reqheight() <= form_canvas.winfo_height():
+            return
 
+        scroll_amount = 0
+        if sys.platform == "win32":
+            scroll_amount = int(-1 * (event.delta / 120))
+        elif sys.platform == "darwin": # macOS
+            scroll_amount = event.delta
+        else: # Linux
+            if event.num == 4: scroll_amount = -1
+            elif event.num == 5: scroll_amount = 1
+        
+        form_canvas.yview_scroll(scroll_amount, "units")
+
+    # --- [MỚI] HÀM GẮN SỰ KIỆN KHI CHUỘT VÀO VÙNG FORM ---
+    def bind_form_scroll(event):
+        """Khi chuột vào vùng Form: Gắn sự kiện lăn chuột cho TOÀN BỘ ứng dụng hướng về Form."""
+        # Gắn cho Windows/MacOS
+        form_canvas.bind_all("<MouseWheel>", on_form_mouse_wheel)
+        # Gắn cho Linux
+        form_canvas.bind_all("<Button-4>", on_form_mouse_wheel)
+        form_canvas.bind_all("<Button-5>", on_form_mouse_wheel)
+
+    def unbind_form_scroll(event):
+        """Khi chuột rời vùng Form: Gỡ sự kiện (để trả lại cho các vùng khác)."""
+        form_canvas.unbind_all("<MouseWheel>")
+        form_canvas.unbind_all("<Button-4>")
+        form_canvas.unbind_all("<Button-5>")
+
+    # --- [QUAN TRỌNG] KÍCH HOẠT VÙNG CẢM ỨNG ---
+    # Khi chuột đi vào khung Form -> Bật cuộn
+    edit_form_frame.bind("<Enter>", bind_form_scroll)
+    
+    # Khi chuột rời khỏi khung Form -> Tắt cuộn
+    # (Lưu ý: Dùng form_canvas làm mốc rời đi để bao quát hơn)
+    form_canvas.bind("<Leave>", unbind_form_scroll)
+    
+    # Cũng bind cho chính canvas để chắc chắn bắt được
+    form_canvas.bind("<Enter>", bind_form_scroll)
     form_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     form_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
     
@@ -7883,6 +8329,12 @@ if __name__ == '__main__':
     # Hàm 1: Khi nội dung thay đổi chiều cao -> Cập nhật thanh cuộn dọc
     def on_frame_configure(event):
         form_canvas.configure(scrollregion=form_canvas.bbox("all"))
+        
+        # [MỚI] Mẹo nhỏ: Thay đổi tốc độ cuộn cho mượt hơn
+        # Mặc định Tkinter cuộn khá chậm
+        form_canvas.configure(yscrollincrement='5') 
+
+    edit_form_frame.bind("<Configure>", on_frame_configure)
 
     # Hàm 2: Khi Canvas thay đổi chiều rộng -> Ép nội dung co giãn theo
     def on_canvas_configure(event):
@@ -8050,7 +8502,7 @@ if __name__ == '__main__':
         f_type = form_widgets["Type:"].get()
         launch_file = form_widgets["Launch File:"].get().strip()
         pwd = form_widgets["Password:"].get().strip()
-        
+        tag = form_widgets["Game Tag:"].get().strip().upper() # Luôn chuyển thành chữ HOA
         guide = form_widgets["Path Guide:"].get("1.0", tk.END).strip()
         del_list_raw = form_widgets["Delete List:"].get("1.0", tk.END).strip()
         del_list = [line.strip() for line in del_list_raw.splitlines() if line.strip()]
@@ -8075,6 +8527,7 @@ if __name__ == '__main__':
             "type": f_type,
             "password": pwd if pwd else None,
             "launch_file": launch_file if launch_file else None,
+            "tag": tag if tag in TAG_COLORS else None,
             "path_guide": guide if guide else None,
             "delete_before_extract": del_list
         }
@@ -8227,11 +8680,57 @@ if __name__ == '__main__':
     url_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
     
     # Widget Text nhập nhiều dòng
+    def on_url_focus_out(event):
+        """
+        Khi người dùng click ra ngoài ô URL:
+        Tự động quét từng dòng, nếu là link Drive thì chuyển thành ID.
+        """
+        try:
+            # 1. Lấy nội dung hiện tại
+            # "1.0" nghĩa là dòng 1, ký tự 0. "end-1c" là lấy hết trừ ký tự xuống dòng cuối
+            content = form_widgets["URL:"].get("1.0", "end-1c").strip()
+            if not content: return
+
+            lines = content.splitlines()
+            new_lines = []
+            has_change = False
+
+            for line in lines:
+                original = line.strip()
+                if not original: continue
+
+                # Thử trích xuất ID
+                extracted_id = extract_gdrive_id_from_url(original)
+                
+                if extracted_id:
+                    # Nếu tìm thấy ID, thay thế luôn
+                    new_lines.append(extracted_id)
+                    if extracted_id != original: # Đánh dấu là có thay đổi
+                        has_change = True
+                else:
+                    # Nếu không phải link Drive (ví dụ link Mediafire), giữ nguyên
+                    new_lines.append(original)
+
+            # 2. Cập nhật lại giao diện (Chỉ khi có thay đổi để tránh nháy)
+            if has_change:
+                final_text = "\n".join(new_lines)
+                form_widgets["URL:"].delete("1.0", tk.END)
+                form_widgets["URL:"].insert("1.0", final_text)
+                print("Auto-Extract: Đã chuyển đổi Link thành ID.")
+                
+        except Exception as e:
+            print(f"Lỗi auto-extract: {e}")
     url_text_widget = tk.Text(text_frame, height=4, wrap="none", 
                               relief=tk.FLAT, bg="#2b2b2b", fg="white", 
                               insertbackground="white", padx=5, pady=5,
                               yscrollcommand=url_scrollbar.set)
     url_text_widget.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    
+    # --- [MỚI] GẮN SỰ KIỆN FOCUS OUT ---
+    # Khi chuột click sang ô khác -> Gọi hàm lọc
+    url_text_widget.bind("<FocusOut>", on_url_focus_out)
+    # -----------------------------------
+
     url_scrollbar.config(command=url_text_widget.yview)
     
     # Lưu vào dict widget để dùng sau
@@ -8680,7 +9179,18 @@ if __name__ == '__main__':
 
     f_pass, w_pass = create_modern_input(row4, "Mật khẩu giải nén (nếu có):", "Password:")
     f_pass.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
+    # --- [MỚI] HÀNG 5: TAG/STICKER ---
+    row5 = ttk.Frame(install_config_frame)
+    row5.pack(fill=tk.X)
+    
+    # Tạo danh sách các Tag có sẵn cho Combobox
+    tag_options = sorted(list(TAG_COLORS.keys()))
+    tag_options.insert(0, "") # Thêm giá trị trống (mặc định: không tag)
 
+    f_tag, w_tag = create_modern_input(row5, "Gắn Tag (HOT/GOTY/UPD...):", "Game Tag:", "Combobox", options=tag_options)
+    f_tag.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    w_tag.config(width=15)
+    CreateToolTip(w_tag, "Gắn nhãn (sticker) lên ảnh game ở Sidebar.\nĐể trống nếu không muốn gắn Tag.")
     # Path Guide
     create_modern_input(install_config_frame, "Hướng dẫn (Hiện ở Tab 1):", "Path Guide:", "Text", height=2)
 
@@ -8779,7 +9289,7 @@ if __name__ == '__main__':
             
             form_widgets["Password:"].delete(0, tk.END)
             form_widgets["Password:"].insert(0, data.get("password") or "")
-
+            form_widgets["Game Tag:"].set(data.get("tag") or "")
             guide_widget = form_widgets["Path Guide:"]
             guide_widget.delete("1.0", tk.END)
             if data.get("path_guide"): guide_widget.insert("1.0", data.get("path_guide"))
@@ -9027,7 +9537,7 @@ if __name__ == '__main__':
         
         # 1. Cập nhật Tab 3 (Trạng thái đã kết nối)
         if 'drive_auth_button' in globals():
-            drive_auth_button.config(text="Đã kết nối Drive", style="Green.TButton")
+            drive_auth_button.config(text="Đã kết nối Drive", style="Green.TButton",state=tk.DISABLED)
             
         # 2. Cập nhật Title Bar
         if g_titlebar_google_frame:
