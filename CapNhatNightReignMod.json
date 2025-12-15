@@ -139,14 +139,18 @@
     },
     "13": {
         "name": "Tải Game MIMESIS",
-        "url": "https://drive.google.com/uc?id=1m5ruaOnZwE-Q2ejp-twUgrvyJUuMkxg6",
+        "urls": [
+            "https://drive.google.com/uc?id=1m5ruaOnZwE-Q2ejp-twUgrvyJUuMkxg6"
+        ],
         "version": "v0.2.5",
         "game": "MIMESIS",
         "type": "rar",
         "password": "linkneverdie.com",
         "launch_file": "MIMESIS.v0.2.5_LinkNeverDie.Com/_MIMESIS - LND Game Launcher.exe",
+        "tag": "HOT",
         "path_guide": "Giải nén bất cứ.",
-        "delete_before_extract": []
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=1m5ruaOnZwE-Q2ejp-twUgrvyJUuMkxg6"
     },
     "14": {
         "name": "BET v0.11.5.1",
@@ -172,6 +176,7 @@
         "type": "rar",
         "password": "linkneverdie.com",
         "launch_file": "Clair.Obscur.Expedition.33.v1.5.0_LinkNeverDie.Com/__Start game + create shortcut.exe",
+        "tag": "GOTY",
         "path_guide": "Tải về bất cứ đâu",
         "delete_before_extract": [],
         "url": "https://drive.google.com/uc?id=1AllS3NU313k_vZbPIJ1Exg98QUGZ5Uxg"
