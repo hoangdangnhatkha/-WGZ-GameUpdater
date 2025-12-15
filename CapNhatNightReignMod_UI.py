@@ -1194,6 +1194,91 @@ def find_riot_path():
     print("Đã thử cả 5 phương pháp nhưng không tìm thấy Riot Client.")
     return None
 
+def auto_fix_legacy_paths():
+    """
+    (AUTO-FIX V2 - MẠNH MẼ HƠN)
+    1. Sửa đường dẫn cũ (tên file trọc lóc -> đường dẫn tương đối).
+    2. TỰ ĐỘNG TÌM VÀ THÊM nếu launcher bị thiếu trong config.
+    """
+    global local_config, g_all_mods_flat
+    is_changed = False
+    
+    if 'game_paths' not in local_config: return
+    if 'game_launchers' not in local_config: local_config['game_launchers'] = {}
+
+    print("--- AUTO-FIX V2: Đang quét và sửa lỗi đường dẫn... ---")
+
+    # Tạo bản đồ: Tên Game -> Tên File EXE chuẩn (Lấy từ dữ liệu Server/Fallback)
+    # Để biết mình cần tìm file gì
+    game_exe_map = {}
+    
+    # Lấy từ g_all_mods_flat (dữ liệu tải từ GitHub)
+    if 'g_all_mods_flat' in globals() and g_all_mods_flat:
+        for mod_data in g_all_mods_flat.values():
+            g_name = mod_data.get("game")
+            l_file = mod_data.get("launch_file")
+            if g_name and l_file:
+                # Chỉ lấy tên file (bỏ folder) để dùng cho việc quét
+                game_exe_map[g_name] = os.path.basename(l_file)
+
+    # Duyệt qua các game đã cài
+    for game_name, root_path in local_config['game_paths'].items():
+        if not root_path or not os.path.exists(root_path): continue
+
+        current_launcher = local_config['game_launchers'].get(game_name)
+        target_filename = game_exe_map.get(game_name) # Tên file chuẩn cần tìm (vd: _The Spell...exe)
+
+        # --- TRƯỜNG HỢP 1: Bị thiếu Launcher trong Config (Trường hợp của bạn) ---
+        if not current_launcher and target_filename:
+            print(f"Phát hiện thiếu Launcher cho '{game_name}'. Đang quét tìm '{target_filename}'...")
+            
+            found_rel = None
+            # Quét đệ quy trong thư mục game
+            for root_dir, dirs, files in os.walk(root_path):
+                if target_filename in files:
+                    full_path = os.path.join(root_dir, target_filename)
+                    try:
+                        # Tính đường dẫn tương đối (VD: The.Spell.../_The Spell...exe)
+                        found_rel = os.path.relpath(full_path, root_path)
+                        break
+                    except: pass
+            
+            if found_rel:
+                print(f"-> Đã tìm thấy và khôi phục: {found_rel}")
+                local_config['game_launchers'][game_name] = found_rel
+                is_changed = True
+            else:
+                print(f"-> Không tìm thấy file '{target_filename}' trong '{root_path}'")
+
+        # --- TRƯỜNG HỢP 2: Có Launcher nhưng lưu sai (Kiểu cũ) ---
+        elif current_launcher:
+            # Nếu launcher không chứa dấu gạch (tức là lưu mỗi tên file)
+            if '\\' not in current_launcher and '/' not in current_launcher:
+                direct_path = os.path.join(root_path, current_launcher)
+                
+                # Nếu file không nằm ngay ở root -> Quét tìm lại
+                if not os.path.exists(direct_path):
+                    print(f"Fix đường dẫn sai cho '{game_name}' ({current_launcher})...")
+                    found_rel = None
+                    for root_dir, dirs, files in os.walk(root_path):
+                        if current_launcher in files:
+                            full_path = os.path.join(root_dir, current_launcher)
+                            try:
+                                found_rel = os.path.relpath(full_path, root_path)
+                                break
+                            except: pass
+                    
+                    if found_rel:
+                        print(f"-> Đã sửa thành: {found_rel}")
+                        local_config['game_launchers'][game_name] = found_rel
+                        is_changed = True
+
+    if is_changed:
+        save_local_config(local_config)
+        print("--- AUTO-FIX: Đã cập nhật settings.json thành công. ---")
+    else:
+        print("--- AUTO-FIX: Config không có lỗi gì mới. ---")
+
 def auto_find_paths_thread():
     """
     (CHẠY NGẦM) Tự động tìm Steam và Riot.
@@ -1216,7 +1301,6 @@ def auto_find_paths_thread():
         progress_queue.put(("riot_path_found", riot_path))
 
 local_config = load_local_config()
-
 
 # DÁN CODE NÀY ĐÈ LÊN HÀM 'launch_riot_login_thread' CŨ CỦA BẠN
 # (Từ dòng 746 đến 918)
@@ -2067,8 +2151,8 @@ class QueueIO:
 
 def download_via_api_logic(file_id, dest_path):
     """
-    Phiên bản Racing: Tải Direct Stream bằng AuthorizedSession (requests).
-    Tốc độ Max Speed (ngang trình duyệt/IDM) - Bypass Quota.
+    (PHIÊN BẢN PRO: RESUME DOWNLOAD)
+    Hỗ trợ tải nối tiếp (Resume) khi mạng rớt.
     """
     global drive_service
     
@@ -2083,225 +2167,239 @@ def download_via_api_logic(file_id, dest_path):
     if not drive_service:
         raise Exception("Cần đăng nhập Google Drive để tải file này.")
 
-    print(f"API: Đang khởi tạo luồng tải trực tiếp (Direct Stream) cho ID {file_id}...")
+    print(f"API: Đang khởi tạo luồng tải (Smart Resume) cho ID {file_id}...")
 
     try:
-        # 2. Lấy Credentials mới nhất từ file token
+        # 2. Lấy thông tin kích thước file gốc từ Server
+        try:
+            file_metadata = drive_service.files().get(fileId=file_id, fields="size, name").execute()
+            total_size = int(file_metadata.get('size', 0))
+        except Exception as e:
+            raise Exception(f"Không thể lấy thông tin file (có thể do quyền truy cập): {e}")
+
+        # 3. Kiểm tra file hiện tại trên ổ cứng
+        existing_size = 0
+        if os.path.exists(dest_path):
+            existing_size = os.path.getsize(dest_path)
+
+        # 4. Quyết định chế độ tải
+        headers = {}
+        mode = 'wb' # Mặc định: Ghi mới (Write Binary)
+        
+        if existing_size == total_size and total_size > 0:
+            print(f"API: File đã tải hoàn tất ({format_bytes(total_size)}). Bỏ qua.")
+            return True # Đã xong
+            
+        elif existing_size > 0 and existing_size < total_size:
+            print(f"API: Phát hiện file tải dở ({format_bytes(existing_size)} / {format_bytes(total_size)}). Đang tải nối tiếp (Resume)...")
+            headers = {'Range': f'bytes={existing_size}-'} # Chỉ tải từ byte tiếp theo
+            mode = 'ab' # Ghi nối tiếp (Append Binary)
+        
+        elif existing_size > total_size:
+            print("API: File lỗi (lớn hơn file gốc). Tải lại từ đầu.")
+            existing_size = 0 # Reset về 0 để tính % cho đúng
+
+        # 5. Thiết lập kết nối
         token_path = resource_path('token.json')
-        if not os.path.exists(token_path):
-             raise Exception("Không tìm thấy token xác thực.")
-             
         creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-        
-        # 3. Tạo phiên làm việc đã xác thực (Authorized Session)
-        # Đây là "Thẻ bài" giúp requests đi qua cửa VIP của Google
         authed_session = AuthorizedSession(creds)
-        
-        # URL tải xuống trực tiếp của Drive API v3
         download_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
-        
-        # 4. BẮT ĐẦU TẢI (Stream = True để không nạp RAM)
-        # Mở kết nối duy nhất và duy trì nó
-        with authed_session.get(download_url, stream=True) as response:
-            response.raise_for_status() # Kiểm tra lỗi (403/404...)
+
+        # 6. BẮT ĐẦU TẢI (Stream)
+        with authed_session.get(download_url, headers=headers, stream=True) as response:
+            # Lưu ý: Nếu Resume thành công, Server trả về 206. Nếu không hỗ trợ, trả về 200.
+            if response.status_code not in [200, 206]:
+                raise Exception(f"Lỗi tải (Code {response.status_code}): {response.text}")
             
-            # Lấy tổng kích thước file
-            total_size = int(response.headers.get('content-length', 0))
-            
-            # Mở file đích với bộ đệm lớn (1MB) để ổ cứng ghi mượt hơn
-            with open(dest_path, 'wb', buffering=1024*1024) as f:
+            # Nếu Server từ chối Resume (trả về 200 thay vì 206), ta phải tải lại từ đầu
+            if mode == 'ab' and response.status_code == 200:
+                print("Server không hỗ trợ Resume. Chuyển sang tải lại từ đầu...")
+                mode = 'wb'
+                existing_size = 0 
+
+            with open(dest_path, mode, buffering=1024*1024) as f:
                 start_time = time.time()
-                downloaded = 0
-                
-                # Chunk size cho stream: 128KB là chuẩn vàng của requests để đạt tốc độ cao
-                # (Không cần chunk quá lớn vì stream liên tục)
+                downloaded_this_session = 0
                 stream_chunk_size = 128 * 1024 
-                
                 last_update_time = time.time()
                 
                 for chunk in response.iter_content(chunk_size=stream_chunk_size):
                     if chunk:
                         f.write(chunk)
-                        downloaded += len(chunk)
+                        downloaded_this_session += len(chunk)
                         
-                        # Cập nhật UI (Giới hạn update mỗi 0.5s để không lag App)
+                        # Tính tổng đã tải (Cũ + Mới)
+                        current_total = existing_size + downloaded_this_session
+                        
+                        # Cập nhật UI mỗi 0.5s
                         current_time = time.time()
                         if current_time - last_update_time > 0.5:
                             elapsed = current_time - start_time
                             if elapsed > 0:
-                                percent = int(downloaded / total_size * 100) if total_size > 0 else 0
-                                speed_bps = downloaded / elapsed
+                                percent = int(current_total / total_size * 100) if total_size > 0 else 0
+                                speed_bps = downloaded_this_session / elapsed
                                 speed_str = format_bytes(speed_bps) + "/s"
                                 
+                                # Tính thời gian còn lại
+                                remaining_bytes = total_size - current_total
+                                eta_seconds = (remaining_bytes / speed_bps) if speed_bps > 0 else 0
+                                eta_str = format_time(eta_seconds)
+
                                 progress_queue.put(("progress", {
                                     "percent": percent, 
-                                    "speed": f"Direct Speed: {speed_str}", 
-                                    "eta": "" 
+                                    "speed": f"{speed_str}", 
+                                    "eta": eta_str 
                                 }))
                             last_update_time = current_time
 
-        print(f"API: Tải thành công (Direct Stream) -> {dest_path}")
+        print(f"API: Tải thành công -> {dest_path}")
         return True
 
     except Exception as e:
         error_msg = str(e)
-        if "403" in error_msg:
-             raise Exception("Lỗi 403: File bị Google chặn (Quota) hoặc không có quyền truy cập.")
-        elif "404" in error_msg:
-             raise Exception("Lỗi 404: File không tồn tại.")
-        
+        if "416" in error_msg: # Range Not Satisfiable (File có thể đã xong hoặc bị đổi)
+             print("Lỗi Range (416). File có thể đã thay đổi. Đang thử tải lại...")
+             if os.path.exists(dest_path): os.remove(dest_path)
+             return download_via_api_logic(file_id, dest_path) # Đệ quy thử lại từ đầu
+             
         raise Exception(f"Lỗi tải Direct API: {e}")
 
-# --- Logic chính (Download/Extract) ---
+def download_single_part(url, target_path, part_index, total_parts):
+    """
+    Hàm hỗ trợ tải 1 file đơn lẻ (Có xử lý gdown + API + Quota).
+    """
+    global drive_service, notebook, third_tab_frame # Để chuyển tab nếu cần
+
+    # Cập nhật UI báo đang tải Part mấy
+    status_msg = f"Đang tải Part {part_index}/{total_parts}..."
+    progress_queue.put(("status", status_msg))
+    
+    # 1. Thử tải bằng Gdown
+    try:
+        print(f"[{part_index}/{total_parts}] Downloading: {target_path}")
+        out = gdown.download(url, target_path, quiet=False, fuzzy=True)
+        
+        # Kiểm tra kết quả gdown
+        if not out:
+            if os.path.exists(target_path) and os.path.getsize(target_path) > 1024 * 1024:
+                print(f"Part {part_index} tải xong (gdown trả None nhưng file ok).")
+                return True
+            else:
+                raise Exception("gdown download failed")
+        return True
+
+    except Exception as e_gdown:
+        print(f"Gdown lỗi Part {part_index}: {e_gdown}")
+        
+        # Check file lần nữa
+        if os.path.exists(target_path) and os.path.getsize(target_path) > 1024 * 1024:
+            return True
+
+        # Xử lý lỗi Quota / Permission
+        error_str = str(e_gdown).lower()
+        if "too many users" in error_str or "denied" in error_str or "permission" in error_str or "failed" in error_str:
+            
+            # --- Logic check đăng nhập (như cũ) ---
+            if not drive_service:
+                msg = (
+                    f"⚠️ Lỗi tải Part {part_index}: QUÁ GIỚI HẠN (Quota).\n\n"
+                    "Vui lòng đăng nhập Google Drive (Tab 3) để tải tiếp."
+                )
+                if custom_askyesno("Yêu cầu Đăng nhập", msg):
+                    def switch_to_tab3(): notebook.select(third_tab_frame)
+                    root.after(0, switch_to_tab3)
+                    raise Exception("Đã dừng để đăng nhập.")
+                else:
+                    raise Exception("Link quá tải. Cần đăng nhập.")
+            
+            else:
+                # Tải bằng API
+                progress_queue.put(("status", f"Part {part_index}: Dùng API (Bypass Quota)..."))
+                file_id = extract_gdrive_id_from_url(url)
+                if not file_id: raise Exception(f"Không lấy được ID: {url}")
+                
+                download_via_api_logic(file_id, target_path)
+                return True
+        else:
+            raise e_gdown
+
 def download_and_extract_logic():
-    # (Code hàm này không đổi so với phiên bản trước)
+    """
+    (FULL CODE) Hỗ trợ tải Multi-Part, Backup đầy đủ, Giải nén và Tìm Launcher.
+    """
     global local_config
     global g_current_game_name
 
     progress_queue.put(("status", "DISABLE_BUTTONS"))
 
     selected_key = selected_option.get()
-    mod_display_name = g_all_mods_flat[selected_key].get("name", selected_key)
-    option_label.configure(text="Đang " + mod_display_name, style="White.TLabel")
+    if selected_key not in g_all_mods_flat:
+        progress_queue.put(("status", "Lỗi: Không tìm thấy thông tin mod."))
+        progress_queue.put(("status", "ENABLE_BUTTONS"))
+        return
 
-    selected_option_data = g_all_mods_flat[selected_key]
-    file_url = selected_option_data["url"]
-    print(f"Downloading from: {file_url}") # Debug print
-    version = selected_option_data["version"]
-    file_type = selected_option_data.get("type", "zip")
-    password = selected_option_data.get("password", None)
-    print(f"--- DEBUG: Đã chọn mod: {mod_display_name}")
-    print(f"--- DEBUG: Mật khẩu được lấy từ JSON: '{password}' (Loại: {type(password)})")
-    delete_list = selected_option_data.get("delete_before_extract", [])
+    mod_data = g_all_mods_flat[selected_key]
+    mod_display_name = mod_data.get("name", selected_key)
+    option_label.configure(text="Đang xử lý: " + mod_display_name, style="White.TLabel")
 
+    # --- LẤY DANH SÁCH URL (Hỗ trợ cả key "url" và "urls") ---
+    url_list = mod_data.get("urls", [])
+    if not url_list:
+        single_url = mod_data.get("url")
+        if single_url:
+            url_list = [single_url]
+
+    if not url_list:
+        progress_queue.put(("download_complete", {"success": False, "title": "Lỗi Config", "message": "Không tìm thấy link tải trong config."}))
+        progress_queue.put(("status", "ENABLE_BUTTONS"))
+        return
+
+    version = mod_data.get("version", "")
+    file_type = mod_data.get("type", "zip") # zip, rar, exe
+    password = mod_data.get("password", None)
+    delete_list = mod_data.get("delete_before_extract", [])
     destination_folder = path_entry.get()
 
-    if 'last_used_folder' not in local_config:
-        local_config['last_used_folder'] = "" # Đảm bảo key tồn tại
+    # 1. Tạo folder đích nếu chưa có
+    if not os.path.exists(destination_folder):
+        try: 
+            os.makedirs(destination_folder, exist_ok=True)
+        except Exception as e:
+            progress_queue.put(("download_complete", {"success": False, "title": "Lỗi", "message": f"Lỗi tạo folder: {e}"}))
+            progress_queue.put(("status", "ENABLE_BUTTONS"))
+            return
+
+    # 2. Lưu config đường dẫn
+    if 'last_used_folder' not in local_config: 
+        local_config['last_used_folder'] = ""
     local_config['last_used_folder'] = destination_folder
     save_local_config(local_config)
 
     sys.stderr = QueueIO(progress_queue)
-
-    temp_archive_path = None # Khởi tạo
+    
+    downloaded_files_paths = [] # Lưu danh sách file đã tải để xử lý sau
 
     try:
-        target_path_to_use = None
-            
-        if file_type == "exe":
-            # Đảm bảo target_exe_path đã được tính toán (dựa trên code cũ của bạn)
-            sanitized_key = re.sub(r'[\\/*?:"<>|]', "", selected_key)
-            sanitized_version = re.sub(r'[\\/*?:"<>|]', "", version)
-            file_name = f"{sanitized_key}_{sanitized_version}.exe"
-            target_exe_path = os.path.join(destination_folder, file_name)
-            target_path_to_use = target_exe_path
-        else:
-            # Nếu là zip/rar -> Tạo đường dẫn vào thư mục TEMP
-            temp_archive_path = os.path.join(os.environ['TEMP'], f"my_temp_download.{file_type}")
-            target_path_to_use = temp_archive_path
-
-        # Kiểm tra lần cuối
-        if not target_path_to_use:
-            raise Exception("Lỗi nội bộ: Không xác định được đường dẫn lưu file.")
-
-        # 2. Kiểm tra nếu file exe đã có thì mở luôn
-        if file_type == "exe" and os.path.exists(target_exe_path):
-            progress_queue.put(("status", "File đã tồn tại. Đang mở..."))
-            os.startfile(target_exe_path)
-            sys.stderr = original_stderr
-            progress_queue.put(("status", "ENABLE_BUTTONS"))
-            return 
-
-        # --- BẮT ĐẦU TẢI ---
-        try:
-            # CÁCH 1: Thử dùng gdown (Nhanh)
-            print(f"Đang thử tải bằng gdown vào: {target_path_to_use}")
-            out = gdown.download(file_url, target_path_to_use, quiet=False, fuzzy=True)
-            
-            # --- [FIX] KIỂM TRA KỸ HƠN KHI GDOWN TRẢ VỀ NONE ---
-            if not out: 
-                # Nếu gdown trả về None (tưởng là lỗi) nhưng file thực tế đã nằm đó và > 1MB
-                if os.path.exists(target_path_to_use) and os.path.getsize(target_path_to_use) > 1024 * 1024:
-                    print("Cảnh báo: gdown trả về None nhưng file đã tải xong. Bỏ qua lỗi.")
-                else:
-                    raise Exception("gdown download failed (None returned)")
-
-        except Exception as e_gdown:
-            print(f"gdown báo lỗi: {e_gdown}")
-            
-            # --- [FIX QUAN TRỌNG] KIỂM TRA FILE LẦN CUỐI TRƯỚC KHI FALLBACK ---
-            # Nếu file đã tồn tại và dung lượng > 1MB, nghĩa là gdown đã tải xong rồi mới error.
-            # Lúc này ta coi như thành công, KHÔNG chuyển sang Cách 2.
-            if os.path.exists(target_path_to_use) and os.path.getsize(target_path_to_use) > 1024 * 1024:
-                print("--> Phát hiện file đã tải thành công dù gdown báo lỗi. Bỏ qua tải lại bằng API.")
-                # Không làm gì cả, để code chạy tiếp xuống phần giải nén
-            else:
-                # Nếu file chưa có hoặc lỗi thật sự -> Mới chuyển sang API
-                error_str = str(e_gdown).lower()
+        # --- 3. XỬ LÝ BACKUP HOẶC XÓA FILE CŨ ---
+        # (Chỉ làm 1 lần trước khi tải part đầu tiên)
+        if g_backup_enabled.get():
+            if delete_list:
+                progress_queue.put(("status", "Đang sao lưu file cũ..."))
                 
-                # Nếu gặp lỗi Quota/Permission -> Chuyển sang API
-                if "too many users" in error_str or "denied" in error_str or "permission" in error_str or "failed" in error_str:
-                    
-                    progress_queue.put(("status", "Link quá tải. Chuyển sang tải bằng API Google..."))
-                    
-                    file_id = extract_gdrive_id_from_url(file_url)
-                    if not file_id:
-                        raise Exception(f"Không lấy được ID từ link: {file_url}")
-                        
-                    # CÁCH 2: Tải bằng API
-                    try:
-                        download_via_api_logic(file_id, target_path_to_use)
-                    except Exception as e_api:
-                        # CÁCH 3: Mở trình duyệt
-                        msg_err = ""
-                        if "Cần đăng nhập" in str(e_api):
-                            msg_err = "File quá tải. Vui lòng Đăng nhập Drive ở Tab 3 rồi thử lại."
-                        else:
-                            msg_err = f"Lỗi tải file API: {e_api}"
-                        
-                        progress_queue.put(("download_complete", {"success": False, "title": "Lỗi Tải", "message": msg_err + "\n\nApp sẽ mở trình duyệt để bạn tải thủ công."}))
-                        webbrowser.open(file_url)
-                        raise Exception("Đã chuyển hướng sang trình duyệt.")
-                else:
-                    raise e_gdown
-
-        # --- KẾT THÚC TẢI ---
-
-        if file_type == "exe":
-            progress_queue.put(("status", "Đã tải xong! Đang mở file..."))
-            os.startfile(target_exe_path)
-            sys.stderr = original_stderr
-            progress_queue.put(("status", "ENABLE_BUTTONS"))
-            return
-
-        elif file_type == "zip" or file_type == "rar":
-            temp_archive_path = os.path.join(os.environ['TEMP'], f"my_temp_download.{file_type}")
-
-            # --- THAY THẾ: Logic Xóa bằng Logic Sao lưu ---
-            if g_backup_enabled.get():
-
-                if delete_list:
-                    progress_queue.put(("status", "Đang sao lưu file cũ..."))
-
-                    # 1. Tạo thư mục backup
-                    backup_root_dir = os.path.join(destination_folder, "_BACKUPS")
-                    timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
-                    # Lấy tên mod (đã có ở 'selected_key') và làm sạch nó
-                    mod_name_for_backup = g_all_mods_flat[selected_key].get("name", "Unknown Mod")
-                    safe_key_name = re.sub(r'[\\/*?:"<>|]', "", mod_name_for_backup)
-                    backup_folder_name = f"{safe_key_name} - {timestamp}"
-                    specific_backup_dir = os.path.join(backup_root_dir, backup_folder_name)
+                backup_root_dir = os.path.join(destination_folder, "_BACKUPS")
+                timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+                
+                # Làm sạch tên mod để tạo tên folder
+                safe_key_name = re.sub(r'[\\/*?:"<>|]', "", mod_display_name)
+                backup_folder_name = f"{safe_key_name} - {timestamp}"
+                specific_backup_dir = os.path.join(backup_root_dir, backup_folder_name)
 
                 try:
                     os.makedirs(specific_backup_dir, exist_ok=True)
                 except Exception as e:
-                    print(f"Lỗi khi tạo thư mục backup: {e}")
-                    progress_queue.put(("status", f"Lỗi tạo backup dir: {e}"))
-                    # Nếu không tạo được backup, dừng lại để bảo vệ file
-                    raise Exception(f"Không thể tạo thư mục backup. Đã hủy cài đặt. {e}")
+                    raise Exception(f"Không thể tạo thư mục backup: {e}")
 
-                # 2. Di chuyển file/folder vào thư mục backup
-                moved_items = [] # Theo dõi các file đã di chuyển để khôi phục nếu lỗi
+                moved_items = []
                 try:
                     for item_name in delete_list:
                         source_path = os.path.join(destination_folder, item_name)
@@ -2309,302 +2407,315 @@ def download_and_extract_logic():
 
                         if os.path.exists(source_path):
                             print(f"Đang sao lưu: {item_name} -> {specific_backup_dir}")
-                            # Di chuyển (Move) file/folder
                             shutil.move(source_path, dest_path)
-                            # Lưu lại (đích, nguồn) để khôi phục nếu cần
                             moved_items.append((dest_path, source_path))
-
                 except Exception as e:
-                    # Nếu có lỗi khi đang di chuyển (ví dụ file bị khóa),
-                    # hãy cố gắng khôi phục lại những file đã di chuyển
-                    print(f"Lỗi khi đang sao lưu {item_name}: {e}")
-                    progress_queue.put(("status", f"Lỗi sao lưu: {e}. Đang khôi phục..."))
+                    # Rollback nếu lỗi
+                    print(f"Lỗi backup, đang khôi phục: {e}")
+                    for (moved, orig) in moved_items:
+                        try: shutil.move(moved, orig)
+                        except: pass
+                    raise Exception(f"Lỗi sao lưu file {item_name}: {e}")
+        else:
+            # Nếu không backup thì xóa thẳng
+            if delete_list:
+                progress_queue.put(("status", "Đang dọn dẹp file cũ..."))
+                for item_name in delete_list:
+                    item_path = os.path.join(destination_folder, item_name)
+                    try:
+                        if os.path.exists(item_path):
+                            if os.path.isfile(item_path) or os.path.islink(item_path): 
+                                os.remove(item_path)
+                            elif os.path.isdir(item_path): 
+                                shutil.rmtree(item_path)
+                    except Exception as e:
+                        print(f"Lỗi khi xóa {item_path}: {e}")
 
-                    # --- Logic Khôi phục (Rollback) ---
-                    for (moved_file_path, original_location) in moved_items:
-                        try:
-                            shutil.move(moved_file_path, original_location)
-                        except Exception as restore_e:
-                            progress_queue.put(("status", f"LỖI KHÔI PHỤC: {restore_e}"))
-                    # --- Hết Rollback ---
-
-                    # Dừng cài đặt
-                    raise Exception(f"Không thể sao lưu file {item_name}. Đã hủy cài đặt. {e}")
-
-                progress_queue.put(("status", f"Sao lưu thành công vào: {backup_folder_name}"))
-
-            else: 
-                # 2. Nếu TẮT backup, quay lại logic XÓA (như ban đầu)
-                if delete_list:
-                    progress_queue.put(("status", "Đang dọn dẹp file cũ (Backup đã tắt)..."))
-                    for item_name in delete_list:
-                        item_path = os.path.join(destination_folder, item_name)
-                        try:
-                            if os.path.exists(item_path):
-                                if os.path.isfile(item_path) or os.path.islink(item_path): os.remove(item_path)
-                                elif os.path.isdir(item_path): shutil.rmtree(item_path)
-                        except Exception as e:
-                            print(f"Lỗi khi xóa {item_path}: {e}")
-                            progress_queue.put(("status", f"Lỗi khi dọn dẹp: {e}"))
-                            # (Không dừng lại nếu xóa lỗi, chỉ cảnh báo)
-
-            progress_queue.put(("status", "Đã tải xong! Đang giải nén..."))
-
-            
-
-            archive_object = None
-            if file_type == "zip":
-                temp_dir = os.path.join(destination_folder, "temp_extraction_92837")
-                if os.path.isdir(temp_dir): shutil.rmtree(temp_dir)
-                os.makedirs(temp_dir, exist_ok=True)
-                pwd_bytes = bytes(password, 'utf-8') if password else None
-                
-                # --- THAY ĐỔI: BÁO TRẠNG THÁI VÀ DÙNG extractall() ---
-                progress_queue.put(("status", "Đang giải nén ZIP... (Vui lòng chờ)"))
-                # (Quan trọng) Yêu cầu UI cập nhật ngay lập tức
-                try:
-                    root.update_idletasks() 
-                except:
-                    pass # Bỏ qua nếu có lỗi
-
-                # Dùng 'with' và 'extractall()' để có tốc độ tối đa
-                with zipfile.ZipFile(temp_archive_path) as zf:
-                    print(f"Extracting ALL ZIP to '{temp_dir}'...")
-                    zf.extractall(temp_dir, pwd=pwd_bytes)
-                
-                shutil.copytree(temp_dir, destination_folder, dirs_exist_ok=True)
-                shutil.rmtree(temp_dir)
-                
-            elif file_type == "rar":
-                print("--- Đang xử lý file RAR (Chế độ Direct Write - Fix Code 9) ---")
-                import re 
-                import stat
-
-                progress_queue.put(("status", "Đang chuẩn bị thư mục đích..."))
-                
-                # 1. Tìm UnRAR
-                unrar_path = getattr(rarfile, 'UNRAR_TOOL', 'UnRAR.exe')
-                if not os.path.exists(unrar_path) and os.path.exists("UnRAR.exe"):
-                    unrar_path = "UnRAR.exe"
-
-                # 2. XỬ LÝ QUYỀN HẠN TRƯỚC (Rất quan trọng để tránh Code 9)
-                # Quét thư mục đích và gỡ bỏ thuộc tính "Read-only" của các file cũ
-                # để UnRAR có thể ghi đè lên chúng mà không bị chặn.
-                def remove_readonly_recursive(directory):
-                    if not os.path.exists(directory): return
-                    for root_dir, dirs, files in os.walk(directory):
-                        for fname in files:
-                            full_path = os.path.join(root_dir, fname)
-                            try:
-                                # Lấy thuộc tính hiện tại
-                                file_atts = os.stat(full_path).st_mode
-                                if not (file_atts & stat.S_IWRITE):
-                                    # Nếu là Read-only, chuyển thành Writeable
-                                    os.chmod(full_path, stat.S_IWRITE)
-                            except: pass # Bỏ qua nếu file đang bị khóa bởi System
-
-                # Chạy hàm xử lý quyền (nhanh)
-                remove_readonly_recursive(destination_folder)
-
-                # 3. XỬ LÝ ĐƯỜNG DẪN DÀI (Long Path Fix)
-                # Thêm prefix \\?\ để Windows chấp nhận đường dẫn dài hơn 260 ký tự
-                abs_dest_path = os.path.abspath(destination_folder)
-                if not abs_dest_path.startswith("\\\\?\\"):
-                    extended_path = "\\\\?\\" + abs_dest_path
-                else:
-                    extended_path = abs_dest_path
-
-                # Tạo thư mục nếu chưa có
-                if not os.path.exists(destination_folder):
-                    os.makedirs(destination_folder, exist_ok=True)
-
-                progress_queue.put(("status", "Đang giải nén trực tiếp..."))
-
-                # 4. Cấu trúc lệnh giải nén TRỰC TIẾP
-                cmd = [
-                    unrar_path,
-                    "x",                # Extract with full path
-                    "-y",               # Yes to all (Overwrite automatically)
-                    "-o+",              # Force Overwrite
-                    "-kb",              # Keep broken files (giữ file nếu lỗi mạng, giúp debug)
-                ]
-
-                if password:
-                    cmd.append(f"-p{password}")
-                else:
-                    cmd.append("-p-")
-
-                cmd.append(temp_archive_path) # File nguồn
-                cmd.append(extended_path)     # Thư mục đích (Đã fix Long Path)
-
-                # 5. Chạy UnRAR
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                
-                process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    stdin=subprocess.DEVNULL,
-                    text=True,
-                    startupinfo=startupinfo,
-                    errors="replace"
-                )
-
-                # Theo dõi tiến trình
-                percent_pattern = re.compile(r"(\d{1,3})%")
-                current_percent = 0
-                
-                while True:
-                    output = process.stdout.readline()
-                    if output == '' and process.poll() is not None:
-                        break
-                    if output:
-                        # Debug: In lỗi ra nếu có dòng nào chứa 'Error'
-                        if "Error" in output or "Cannot" in output:
-                            print(f"UnRAR Log: {output.strip()}")
-
-                        match = percent_pattern.findall(output)
-                        if match:
-                            new_percent = int(match[-1])
-                            if new_percent > current_percent:
-                                current_percent = new_percent
-                                progress_queue.put(("progress", {
-                                    "percent": current_percent, 
-                                    "speed": f"Đang giải nén: {current_percent}%", 
-                                    "eta": ""
-                                }))
-
-                rc = process.poll()
-                
-                # Mã lỗi 0 = Thành công, 1 = Cảnh báo (vẫn OK)
-                if rc != 0 and rc != 1:
-                    err_msg = f"Lỗi giải nén RAR (Exit Code {rc})."
-                    if rc == 9:
-                        err_msg += "\nLỗi tạo file (Code 9). Kiểm tra: 1. Game đang mở? 2. Antivirus chặn file .dll?"
-                    elif rc == 3:
-                        err_msg += "\nLỗi CRC (File tải về bị hỏng/không khớp)."
-                    elif rc == 11:
-                        err_msg += "\nSai mật khẩu hoặc file hỏng."
-                    
-                    raise Exception(err_msg)
-
-                progress_queue.put(("progress", {"percent": 100, "speed": "Hoàn tất", "eta": ""}))
-
-
-            
-
-            if temp_archive_path and os.path.exists(temp_archive_path):
-                 try: os.remove(temp_archive_path)
-                 except OSError as e: print(f"Cảnh báo: Không thể xóa file tạm {temp_archive_path} sau khi thành công: {e}")
-
-                 
-        print("Giải nén hoàn tất. Đang quét tìm file launcher để lưu đường dẫn chính xác...")
-
-        # 1. Xác định tên file launcher cần tìm
-        target_launcher_name = None
+        # --- 4. VÒNG LẶP TẢI CÁC PART (SMART RESUME) ---
+        total_parts = len(url_list)
         
-        # Ưu tiên 1: Lấy từ config người dùng (nếu có)
-        if 'game_launchers' in local_config:
-            target_launcher_name = local_config['game_launchers'].get(g_current_game_name)
+        progress_queue.put(("overall_progress", {
+            "percent": 0, 
+            "text": f"Tiến độ chung: 0/{total_parts} Part"
+        }))
 
-        # Ưu tiên 2: Lấy từ JSON server
-        if not target_launcher_name and 'download_options' in globals():
+        # Tạo tên file an toàn
+        safe_name = re.sub(r'[\\/*?:"<>|]', "", mod_display_name).strip().replace(" ", "_")
+        if len(safe_name) > 50: safe_name = safe_name[:50]
+
+        for idx, url in enumerate(url_list):
+            part_num = idx + 1
+            
+            # Đặt tên file
+            if file_type == "exe":
+                fname = f"{safe_name}.exe" if total_parts == 1 else f"{safe_name}.part{part_num}.exe"
+            elif file_type == "rar":
+                fname = f"{safe_name}.rar" if total_parts == 1 else f"{safe_name}.part{part_num}.rar"
+            else: # zip
+                fname = f"{safe_name}.zip" if total_parts == 1 else f"{safe_name}.part{part_num}.zip"
+
+            target_path = os.path.join(destination_folder, fname)
+            downloaded_files_paths.append(target_path)
+
+            # --- [QUAN TRỌNG] XÓA ĐOẠN CHECK FILE CŨ ---
+            # Chúng ta KHÔNG dùng `if os.path.exists... continue` nữa.
+            # Thay vào đó, ta gọi thẳng hàm tải. Hàm tải sẽ tự lo việc Resume.
+            
+            # Cập nhật thông báo
+            progress_queue.put(("status", f"Đang xử lý Part {part_num}/{total_parts}..."))
+
+            # Gọi hàm tải
+            try:
+                # Nếu là link Google Drive, ưu tiên dùng API Resume của chúng ta
+                file_id = extract_gdrive_id_from_url(url)
+                if file_id and drive_service:
+                    # Dùng hàm API mới có tính năng Resume xịn
+                    download_via_api_logic(file_id, target_path)
+                else:
+                    # Link thường hoặc chưa login -> Dùng gdown (gdown cũng tự hỗ trợ resume ở mức cơ bản)
+                    # Hoặc gọi hàm helper cũ
+                    download_single_part(url, target_path, part_num, total_parts)
+            except Exception as e:
+                raise Exception(f"Lỗi tải Part {part_num}: {e}")
+            
+            # Cập nhật thanh tổng
+            percent_done = int((part_num / total_parts) * 100)
+            progress_queue.put(("overall_progress", {
+                "percent": percent_done,
+                "text": f"Tiến độ chung: {part_num}/{total_parts} Part ({percent_done}%)"
+            }))
+            
+            progress_queue.put(("progress", {"percent": 0, "speed": "", "eta": ""}))
+
+        # --- 5. XỬ LÝ SAU KHI TẢI XONG (GIẢI NÉN HOẶC CHẠY) ---
+        
+        # A. Nếu là EXE
+        if file_type == "exe":
+            main_exe = downloaded_files_paths[0]
+            progress_queue.put(("status", "Đã tải xong. Đang mở file cài đặt..."))
+            os.startfile(main_exe)
+            sys.stderr = original_stderr
+            progress_queue.put(("status", "ENABLE_BUTTONS"))
+            return
+
+        # B. Nếu là RAR (Hỗ trợ Multi-part tự động)
+        elif file_type == "rar":
+            progress_queue.put(("status", "Đang giải nén (UnRAR)..."))
+            
+            import stat
+            unrar_path = getattr(rarfile, 'UNRAR_TOOL', 'UnRAR.exe')
+            if not os.path.exists(unrar_path) and os.path.exists("UnRAR.exe"): 
+                unrar_path = "UnRAR.exe"
+
+            # Chỉ cần giải nén file đầu tiên (Part 1), UnRAR tự tìm các part sau
+            first_part_path = downloaded_files_paths[0]
+            
+            # Xử lý quyền Read-Only (tránh lỗi Access Denied)
+            def remove_readonly_recursive(directory):
+                if not os.path.exists(directory): return
+                for root_dir, dirs, files in os.walk(directory):
+                    for fname in files:
+                        full_path = os.path.join(root_dir, fname)
+                        try:
+                            file_atts = os.stat(full_path).st_mode
+                            if not (file_atts & stat.S_IWRITE):
+                                os.chmod(full_path, stat.S_IWRITE)
+                        except: pass
+            
+            remove_readonly_recursive(destination_folder)
+
+            # Fix đường dẫn dài (Long Path) cho Windows
+            abs_dest = os.path.abspath(destination_folder)
+            if not abs_dest.startswith("\\\\?\\"):
+                ext_dest = "\\\\?\\" + abs_dest 
+            else:
+                ext_dest = abs_dest
+            
+            # Lệnh UnRAR: x=extract, -y=yes to all, -o+=overwrite, -kb=keep broken
+            cmd = [
+                unrar_path, 
+                "x", 
+                "-y", 
+                "-o+", 
+                "-kb"
+            ]
+            
+            if password:
+                cmd.append(f"-p{password}")
+            else:
+                cmd.append("-p-")
+            
+            cmd.append(first_part_path)
+            cmd.append(ext_dest)
+            
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            
+            process = subprocess.Popen(
+                cmd, 
+                stdout=subprocess.PIPE, 
+                stderr=subprocess.STDOUT, 
+                stdin=subprocess.DEVNULL, 
+                text=True, 
+                startupinfo=startupinfo, 
+                errors="replace"
+            )
+
+            # Đọc log tiến trình từ UnRAR
+            pat = re.compile(r"(\d{1,3})%")
+            curr = 0
+            while True:
+                line = proc_output = process.stdout.readline()
+                if not line and process.poll() is not None: break
+                if line:
+                    m = pat.findall(line)
+                    if m:
+                        new_p = int(m[-1])
+                        if new_p > curr:
+                            curr = new_p
+                            progress_queue.put(("progress", {
+                                "percent": curr, 
+                                "speed": f"UnRAR: {curr}%", 
+                                "eta": ""
+                            }))
+
+            if process.poll() not in [0, 1]: 
+                raise Exception(f"Lỗi giải nén RAR (Exit Code {process.poll()})")
+
+        # C. Nếu là ZIP
+        elif file_type == "zip":
+            pwd_bytes = bytes(password, 'utf-8') if password else None
+            try: root.update_idletasks()
+            except: pass
+            
+            # Với Zip nhiều phần rời rạc, ta lặp qua từng file và giải nén đè lên nhau
+            for i, z_path in enumerate(downloaded_files_paths):
+                progress_queue.put(("status", f"Đang giải nén Part {i+1}/{total_parts}..."))
+                try:
+                    with zipfile.ZipFile(z_path) as zf:
+                        zf.extractall(destination_folder, pwd=pwd_bytes)
+                except Exception as e:
+                    raise Exception(f"Lỗi giải nén file {os.path.basename(z_path)}: {e}")
+
+        # --- 6. DỌN DẸP FILE NÉN ---
+        progress_queue.put(("status", "Đang dọn dẹp file tạm..."))
+        for f_path in downloaded_files_paths:
+            if os.path.exists(f_path):
+                try: 
+                    os.remove(f_path)
+                    print(f"Đã xóa file tạm: {f_path}")
+                except: 
+                    print(f"Không xóa được: {f_path}")
+
+        # --- 7. TÌM FILE CHẠY & HOÀN TẤT (ĐÃ SỬA LOGIC PATH) ---
+        print("Cài đặt hoàn tất. Đang cập nhật đường dẫn...")
+        
+        target_launcher_string = None # Chuỗi user nhập hoặc config server (VD: "SubFolder/Game.exe")
+        
+        # Ưu tiên 1: Config user (nếu đã từng lưu)
+        if 'game_launchers' in local_config:
+            target_launcher_string = local_config['game_launchers'].get(g_current_game_name)
+        
+        # Ưu tiên 2: Config server (Option tải về)
+        if not target_launcher_string and 'download_options' in globals():
             mod_list = download_options.get(g_current_game_name, [])
             for _key, mod_data in mod_list:
                 if mod_data.get("launch_file"):
-                    target_launcher_name = mod_data.get("launch_file")
+                    target_launcher_string = mod_data.get("launch_file")
                     break
         
-        # 2. Quét tìm file đó trong thư mục vừa giải nén
-        final_saved_path = destination_folder # Mặc định là folder gốc (fallback)
+        final_saved_path = destination_folder # Folder gốc (D:/New folder)
         found_launcher = False
+        final_relative_launcher_path = "" # Cái sẽ lưu vào json (SubFolder/Game.exe)
 
-        if target_launcher_name:
-            print(f"Đang tìm file: {target_launcher_name}...")
-            # Dùng os.walk để tìm sâu trong tất cả thư mục con
-            for root_dir, dirs, files in os.walk(destination_folder):
-                if target_launcher_name in files:
-                    found_at_path = os.path.join(root_dir, target_launcher_name)
-                    
-                    # --> ĐÂY LÀ CỐT LÕI: Cập nhật đường dẫn thành thư mục con chứa file
-                    final_saved_path = root_dir 
-                    found_launcher = True
-                    
-                    print(f"--> TÌM THẤY Launcher tại: {found_at_path}")
-                    print(f"--> Đường dẫn game thực tế: {final_saved_path}")
-                    
-                    # Cập nhật biến toàn cục để nút "Chạy Game" sáng lên ngay
-                    global g_current_launch_path
-                    g_current_launch_path = found_at_path
-                    break
+        if target_launcher_string:
+            # --- TRƯỜNG HỢP A: User nhập đường dẫn tương đối (Có Folder con) ---
+            # Ví dụ: "The.Spell.Brigade.../_The Spell...exe"
+            potential_direct_path = os.path.join(destination_folder, target_launcher_string)
+            
+            if os.path.exists(potential_direct_path) and os.path.isfile(potential_direct_path):
+                # Tìm thấy chính xác theo đường dẫn user nhập!
+                print(f"Tìm thấy chính xác theo cấu hình: {potential_direct_path}")
+                found_launcher = True
+                final_relative_launcher_path = target_launcher_string # Giữ nguyên cấu trúc folder
+                
+                global g_current_launch_path
+                g_current_launch_path = potential_direct_path
+
+            # --- TRƯỜNG HỢP B: Không thấy (hoặc user chỉ nhập tên file), phải đi quét ---
+            else:
+                print("Không thấy đường dẫn chính xác, đang quét deep scan...")
+                target_filename_only = os.path.basename(target_launcher_string) # Chỉ lấy tên file.exe
+                
+                # Quét đệ quy
+                for root_dir, dirs, files in os.walk(destination_folder):
+                    if target_filename_only in files:
+                        found_at_path = os.path.join(root_dir, target_filename_only)
+                        
+                        found_launcher = True
+                        g_current_launch_path = found_at_path
+                        
+                        # TÍNH TOÁN ĐƯỜNG DẪN TƯƠNG ĐỐI (QUAN TRỌNG)
+                        # Để lần sau biết nó nằm trong folder nào
+                        try:
+                            final_relative_launcher_path = os.path.relpath(found_at_path, destination_folder)
+                        except:
+                            final_relative_launcher_path = target_filename_only
+                            
+                        print(f"Deep scan tìm thấy tại: {final_relative_launcher_path}")
+                        break
         
-        if not found_launcher:
-            print("--> Không tìm thấy file launcher cụ thể, giữ nguyên đường dẫn gốc.")
-
-        # 3. Lưu đường dẫn CHÍNH XÁC vào Config
+        # Cập nhật config đường dẫn
         if g_current_game_name:
-            if 'game_paths' not in local_config:
-                local_config['game_paths'] = {}
-
-            # Lưu path thực tế (thư mục con) thay vì destination_folder
+            if 'game_paths' not in local_config: local_config['game_paths'] = {}
+            if 'game_launchers' not in local_config: local_config['game_launchers'] = {}
+            
+            # Lưu Path gốc (D:/New folder)
             local_config['game_paths'][g_current_game_name] = final_saved_path
             
-            # Cập nhật last_used luôn để lần sau mở đúng chỗ này
+            # Lưu Launcher Relative (SubFolder/Game.exe) -> Đây là cái giúp Uninstall hoạt động đúng
+            if found_launcher and final_relative_launcher_path:
+                local_config['game_launchers'][g_current_game_name] = final_relative_launcher_path
+            
             local_config['last_used_folder'] = final_saved_path
-
             save_local_config(local_config)
-            print(f"Đã lưu đường dẫn game chính xác: {final_saved_path}")
 
-        # --- KẾT THÚC CODE MỚI ---
-
+        # Thông báo thành công
         option_label.configure(text="Đã Hoàn Thành " + mod_display_name, foreground="green") 
         progress_queue.put(("status", "Cài đặt thành công!"))
         
         msg = f"Đã cài đặt '{mod_display_name}' thành công!"
-        if found_launcher:
-            msg += f"\n\nĐã tự động nhận diện thư mục game:\n{final_saved_path}"
-
+        if found_launcher: 
+            msg += f"\n\nĐã nhận diện file chạy:\n{final_relative_launcher_path}"
+        
         progress_queue.put(("download_complete", {"success": True, "title": "Thành công", "message": msg}))
 
-        new_version = g_all_mods_flat[selected_key]['version']
+        # Cập nhật phiên bản đã cài
+        new_ver = g_all_mods_flat[selected_key].get('version', 'v1.0')
         if 'installed_versions' not in local_config: local_config['installed_versions'] = {}
-        local_config['installed_versions'][selected_key] = new_version
+        local_config['installed_versions'][selected_key] = new_ver
         save_local_config(local_config)
-
-        # refresh_mod_list_ui()
+        
+        # Refresh giao diện
         progress_queue.put(("installation_complete_refresh_grid", None))
 
-    except (zipfile.BadZipFile, rarfile.BadRarFile) as e:
-        print(f"--- DEBUG: BẮT LỖI: File hỏng (BadZipFile/BadRarFile) ---") 
-        print(f"Lỗi file hỏng: {e}")
-        msg = f"Lỗi: File tải về bị hỏng ({e})."
-        progress_queue.put(("status", msg))
-        progress_queue.put(("download_complete", {"success": False, "title": "Lỗi File", "message": msg}))
-        
-    except (RuntimeError, rarfile.RarWrongPassword) as e:
-        print(f"--- DEBUG: BẮT LỖI: Sai mật khẩu (RuntimeError/WrongPassword) ---") 
-        print(f"Lỗi sai mật khẩu: {e}")
-        msg = "Lỗi: Sai mật khẩu!"
-        progress_queue.put(("status", msg))
-        progress_queue.put(("download_complete", {"success": False, "title": "Lỗi Mật khẩu", "message": msg}))
-        
-    except rarfile.PasswordRequired as e:
-        print(f"--- DEBUG: BẮT LỖI: Thiếu mật khẩu (PasswordRequired) ---") 
-        print(f"Lỗi thiếu mật khẩu: {e}")
-        msg = "Lỗi: File này yêu cầu mật khẩu."
-        progress_queue.put(("status", msg))
-        progress_queue.put(("download_complete", {"success": False, "title": "Lỗi Mật khẩu", "message": msg}))
-        
     except Exception as e:
-        print(f"--- DEBUG: BẮT LỖI: Lỗi chung (Exception) ---") 
-        msg = f"Lỗi không xác định: {e}"
-        progress_queue.put(("status", msg))
+        # Bắt lỗi chung
+        msg = f"Lỗi: {e}"
+        print(f"Exception during process: {e}")
         progress_queue.put(("download_complete", {"success": False, "title": "Lỗi", "message": msg}))
-        print(f"Lỗi trong try (Exception chung): {e}")
-
+        progress_queue.put(("status", "Lỗi Cài Đặt"))
+    
     finally:
+        # Khôi phục stderr
         sys.stderr = original_stderr
+        
+        # Dọn dẹp file nén nếu còn sót lại do lỗi
+        for f_path in downloaded_files_paths:
+            if os.path.exists(f_path):
+                try: os.remove(f_path)
+                except: pass
+                
         progress_queue.put(("status", "ENABLE_BUTTONS"))
 
 def add_folder_to_defender_exclusion(folder_path):
@@ -3695,7 +3806,7 @@ def process_queue():
     global g_accounts_data_loaded, g_images_preloaded
     try:
         message_type, message_value = progress_queue.get_nowait()
-
+        
         if message_type == "config_loaded":
             combined_data = message_value # Đây là {"mods": ..., "themes": ...}
             
@@ -3717,10 +3828,19 @@ def process_queue():
             threading.Thread(target=preload_all_images_thread, 
                              args=(g_game_themes, g_all_mods_flat), # Truyền themes và mods
                              daemon=True).start()
-            
+            threading.Thread(target=auto_fix_legacy_paths, daemon=True).start()
             # 5. Bắt đầu tải Tab 2 (tài khoản)
             threading.Thread(target=try_auto_login_drive_thread, daemon=True).start()
-
+        elif message_type == "overall_progress":
+            data = message_value
+            percent = data.get("percent", 0)
+            text = data.get("text", "")
+            
+            if 'overall_progress_bar' in globals():
+                overall_progress_bar['value'] = percent
+            
+            if 'overall_status_label' in globals():
+                overall_status_label.config(text=text)
         elif message_type == "status":
             if message_value == "DISABLE_BUTTONS":
                 start_button.config(state=tk.DISABLED)
@@ -4180,19 +4300,16 @@ def process_queue():
         elif message_type == "download_complete":
             data = message_value
             
-            # --- [FIX LỖI KẸT CỬA SỔ] ---
-            # Trước khi hiện thông báo, ép App phải nổi lên trên cùng
+            # (Code fix lỗi kẹt cửa sổ giữ nguyên...)
             try:
                 if root.state() == 'iconic':
-                    root.deiconify() # Nếu đang thu nhỏ (minimized) thì bung ra
-                
-                root.lift() # Nâng cửa sổ lên tầng hiển thị cao hơn
-                root.attributes('-topmost', 1) # Ép luôn nổi trên cùng (Topmost)
-                root.attributes('-topmost', 0) # Tắt Topmost ngay lập tức (để người dùng còn dùng app khác)
-                root.focus_force() # Ép lấy tiêu điểm chuột
+                    root.deiconify() 
+                root.lift() 
+                root.attributes('-topmost', 1) 
+                root.attributes('-topmost', 0) 
+                root.focus_force() 
             except Exception as e:
                 print(f"Lỗi khi đánh thức cửa sổ: {e}")
-            # ---------------------------
 
             if data["success"]:
                 # Hiển thị pop-up thành công
@@ -4200,6 +4317,22 @@ def process_queue():
             else:
                 # Hiển thị pop-up lỗi
                 custom_showerror(data["title"], data["message"])
+                
+                # --- [THÊM MỚI] SAU KHI BÁO LỖI -> QUAY VỀ TRANG 1 ---
+                print("Gặp lỗi tải, quay về màn hình chính...")
+                
+                # 1. Chuyển về trang lưới game
+                show_page(page_1_game_grid)
+                
+                # 2. Reset các trạng thái trên trang progress (để lần sau vào sạch sẽ)
+                status_label.configure(text="Sẵn sàng.", style="White.TLabel")
+                progress_bar['value'] = 0
+                speed_label.config(text="")
+                eta_label.config(text="")
+                
+                # 3. (Tùy chọn) Bật lại các nút nếu chúng đang tắt
+                start_button.config(state=tk.NORMAL)
+                browse_button.config(state=tk.NORMAL)
         elif message_type == "game_image_loaded":
             image_tk = message_value
             if image_tk:
@@ -5997,6 +6130,189 @@ if __name__ == '__main__':
     selected_option = tk.StringVar()
     radio_buttons = []
 
+    def action_uninstall_game_logic(game_name):
+        """
+        (FIX V5 - UNINSTALLER THÔNG MINH)
+        - Hỗ trợ xóa sub-folder (cài đặt chuẩn).
+        - Hỗ trợ xóa root folder (cài đặt trực tiếp) nếu user xác nhận.
+        - Hỗ trợ chỉ xóa config nếu không tìm thấy file.
+        """
+        global local_config, g_all_mods_flat
+        
+        # 1. Lấy thông tin cấu hình
+        configured_path = local_config.get("game_paths", {}).get(game_name, "")
+        launcher_name = local_config.get("game_launchers", {}).get(game_name, "")
+        
+        # Nếu chưa set đường dẫn thì chỉ dọn config
+        if not configured_path:
+            if custom_askyesno("Xóa khỏi danh sách", f"Game '{game_name}' chưa được thiết lập đường dẫn.\nBạn có muốn xóa nó khỏi danh sách 'Đã Cài Đặt' không?"):
+                cleanup_config_only(game_name)
+            return
+
+        target_folder_to_delete = None
+        is_root_install = False # Cờ đánh dấu nếu game cài trực tiếp vào folder gốc
+
+        # --- BƯỚC 1: QUÉT TÌM FILE CHẠY ĐỂ XÁC ĐỊNH FOLDER ---
+        # Ưu tiên quét file thực tế trên ổ cứng thay vì đoán mò qua tên file
+        if os.path.exists(configured_path):
+            target_filename = os.path.basename(launcher_name) if launcher_name else ""
+            found_exe_path = None
+            
+            # Nếu có launcher name, quét tìm nó
+            if target_filename:
+                for root_dir, dirs, files in os.walk(configured_path):
+                    if target_filename in files:
+                        found_exe_path = os.path.join(root_dir, target_filename)
+                        break
+            
+            # Nếu tìm thấy file exe
+            if found_exe_path:
+                try:
+                    abs_config = os.path.abspath(configured_path)
+                    abs_exe = os.path.abspath(found_exe_path)
+                    
+                    # Tính đường dẫn tương đối từ Config Path đến File Exe
+                    # VD: Config="D:/Game", Exe="D:/Game/Bin/game.exe" -> Rel="Bin/game.exe"
+                    rel_path = os.path.relpath(abs_exe, abs_config)
+                    
+                    if rel_path == os.path.basename(abs_exe):
+                        # Trường hợp: File nằm ngay tại root (VD: D:/New folder/game.exe)
+                        target_folder_to_delete = abs_config
+                        is_root_install = True
+                    else:
+                        # Trường hợp: File nằm trong subfolder (VD: D:/New folder/GameData/game.exe)
+                        # Lấy folder cấp 1 ngay dưới Config Path
+                        top_subfolder = rel_path.split(os.sep)[0]
+                        target_folder_to_delete = os.path.join(abs_config, top_subfolder)
+                        is_root_install = False
+                        
+                except Exception as e:
+                    print(f"Lỗi tính toán đường dẫn: {e}")
+
+        # Nếu Bước 1 thất bại (không tìm thấy exe), thử dùng logic đoán tên folder (Bước 2 cũ)
+        if not target_folder_to_delete and launcher_name:
+            try:
+                norm_launcher = os.path.normpath(launcher_name)
+                parts = norm_launcher.split(os.sep)
+                if len(parts) > 1:
+                    potential_path = os.path.join(configured_path, parts[0])
+                    if os.path.exists(potential_path) and os.path.isdir(potential_path):
+                        target_folder_to_delete = potential_path
+                        is_root_install = False
+            except: pass
+
+        # --- BƯỚC 2: THỰC HIỆN XÓA ---
+        if target_folder_to_delete and os.path.isdir(target_folder_to_delete):
+            folder_name = os.path.basename(target_folder_to_delete)
+            
+            # Cảnh báo khác nhau tùy trường hợp
+            if is_root_install:
+                # CẢNH BÁO MẠNH nếu xóa folder gốc (như D:/New folder)
+                msg = (
+                    f"⚠️ CẢNH BÁO QUAN TRỌNG ⚠️\n\n"
+                    f"Tool phát hiện game được cài trực tiếp vào:\n{target_folder_to_delete}\n\n"
+                    f"Bạn có chắc chắn muốn XÓA TOÀN BỘ thư mục này không?\n"
+                    f"(Hãy kiểm tra kỹ xem trong đó có dữ liệu quan trọng khác không!)"
+                )
+                title = "Xác nhận Xóa (Root Folder)"
+                icon_type = "warning"
+            else:
+                # Cảnh báo thường nếu xóa sub-folder
+                msg = (
+                    f"XÁC NHẬN GỠ CÀI ĐẶT '{game_name}'\n\n"
+                    f"Sẽ xóa thư mục game:\n{folder_name}\n" 
+                    f"(Tại: {os.path.dirname(target_folder_to_delete)})"
+                )
+                title = "Gỡ Cài Đặt"
+                icon_type = "yesno" # Dùng logic dialog cũ
+
+            # Sử dụng hộp thoại xác nhận
+            should_delete = False
+            if is_root_install:
+                # Với root install, dùng askyesno kỹ hơn
+                should_delete = custom_askyesno(title, msg)
+            else:
+                should_delete = custom_askyesno(title, msg)
+
+            if should_delete:
+                try:
+                    import shutil
+                    # Kiểm tra lần cuối: Không bao giờ xóa ổ đĩa gốc (C:\, D:\)
+                    if len(target_folder_to_delete) <= 3:
+                        custom_showerror("Nguy hiểm", "Không được phép xóa ổ đĩa gốc!")
+                        return
+
+                    shutil.rmtree(target_folder_to_delete)
+                    cleanup_config_only(game_name) # Xóa khỏi config sau khi xóa file
+                    custom_showinfo("Thành công", f"Đã xóa xong thư mục '{folder_name}'.")
+                except Exception as e:
+                    custom_showerror("Lỗi", f"Không thể xóa folder:\n{e}\n(Có thể file đang mở hoặc thiếu quyền).")
+
+        # --- BƯỚC 3: TRƯỜNG HỢP KHÔNG TÌM THẤY GÌ (HOẶC FILE ĐÃ MẤT) ---
+        else:
+            # Hộp thoại tùy chọn mới: Cho phép xóa config
+            dialog = tk.Toplevel(root)
+            dialog.title("Không tìm thấy file")
+            center_window_on_screen(dialog, 400, 220)
+            dialog.transient(root)
+            dialog.grab_set()
+            
+            ttk.Label(dialog, text="⚠️ Không tìm thấy thư mục game cụ thể.", font=("Segoe UI", 10, "bold"), foreground="#ffcc00").pack(pady=(15, 5))
+            
+            msg_text = (
+                f"Tool không xác định được thư mục cần xóa tại:\n{configured_path}\n\n"
+                "Bạn muốn làm gì?"
+            )
+            ttk.Label(dialog, text=msg_text, justify=tk.CENTER).pack(pady=5)
+
+            btn_frame = ttk.Frame(dialog)
+            btn_frame.pack(fill=tk.X, pady=15, padx=20)
+
+            def on_open_folder():
+                try: os.startfile(configured_path)
+                except: pass
+                dialog.destroy()
+
+            def on_clean_list():
+                if custom_askyesno("Xác nhận", f"Xóa '{game_name}' khỏi danh sách App (Config)?"):
+                    cleanup_config_only(game_name)
+                    dialog.destroy()
+                    custom_showinfo("Xong", "Đã xóa game khỏi danh sách.")
+
+            # Nút 1: Mở thư mục (Để xóa tay)
+            ttk.Button(btn_frame, text="📂 Mở Thư Mục (Xóa tay)", command=on_open_folder).pack(fill=tk.X, pady=2)
+            
+            # Nút 2: Chỉ xóa khỏi danh sách (Fix cho trường hợp file đã xóa rồi)
+            ttk.Button(btn_frame, text="🗑️ Chỉ xóa khỏi Danh Sách App", command=on_clean_list, style="Accent.TButton").pack(fill=tk.X, pady=2)
+            
+            # Nút 3: Hủy
+            ttk.Button(btn_frame, text="Hủy bỏ", command=dialog.destroy).pack(fill=tk.X, pady=(10, 0))
+
+    def cleanup_config_only(game_name):
+        """Hàm phụ: Chỉ dọn dẹp config trong settings.json"""
+        global local_config, g_all_mods_flat
+        
+        # 1. Xóa đường dẫn
+        if 'game_paths' in local_config and game_name in local_config['game_paths']:
+            del local_config['game_paths'][game_name]
+        
+        # 2. Xóa launcher
+        if 'game_launchers' in local_config and game_name in local_config['game_launchers']:
+            del local_config['game_launchers'][game_name]
+        
+        # 3. Xóa version đã cài
+        if 'installed_versions' in local_config and 'g_all_mods_flat' in globals():
+            keys_to_remove = []
+            for mod_key, mod_data in g_all_mods_flat.items():
+                if mod_data.get("game") == game_name:
+                    keys_to_remove.append(mod_key)
+            for k in keys_to_remove:
+                if k in local_config['installed_versions']:
+                    del local_config['installed_versions'][k]
+
+        save_local_config(local_config)
+        action_clear_game_search() # Refresh giao diện
+
     def action_clear_game_exe(game_key):
         """
         Xóa đường dẫn file khởi chạy (.exe) và CẬP NHẬT LẠI DANH SÁCH.
@@ -6363,7 +6679,16 @@ if __name__ == '__main__':
         elif name == "restore": # Mũi tên quay lại
             draw.arc((5, 5, 15, 15), 20, 280, fill=color, width=2)
             draw.polygon([(5,5), (5,9), (1,5)], fill=color)
-            
+        
+        elif name == "trash":
+            # Thân thùng rác
+            draw.rectangle((6, 7, 14, 17), outline=color, width=2)
+            # Nắp
+            draw.line((4, 5, 16, 5), fill=color, width=2)
+            # Tay cầm
+            draw.line((8, 3, 12, 3), fill=color, width=2)
+            # Thanh giữa (tùy chọn)
+            draw.line((10, 10, 10, 14), fill=color, width=1)
         # --- [MỚI] VẼ BÁNH RĂNG (GEAR) ---
         elif name == "gear":
             import math
@@ -6801,6 +7126,23 @@ if __name__ == '__main__':
             
             gear_btn.pack(side=tk.RIGHT, padx=5)
             gear_btn = play_bar_frame.winfo_children()[-1]
+
+            if full_path_to_launch or (current_path_folder and os.path.exists(current_path_folder)):
+                
+                uninstall_btn = ttk.Button(
+                    play_bar_frame,
+                    image=get_ctx_icon("trash", "#ff4d4d"), # Icon thùng rác màu đỏ
+                    text="",
+                    width=3,
+                    style="TButton" # Style thường
+                )
+                
+                uninstall_btn.configure(command=lambda: action_uninstall_game_logic(game_name))
+                
+                # Pack sang phải (nó sẽ nằm bên TRÁI của nút Gear vì Gear pack trước)
+                uninstall_btn.pack(side=tk.RIGHT, padx=(0, 5))
+                
+                CreateToolTip(uninstall_btn, "Gỡ cài đặt game (Xóa thư mục game)")
 
             # Content (Path & Mod List)
             content_frame = tk.Frame(g_steam_detail_frame, bg="#181818", padx=30, pady=20)
@@ -7399,26 +7741,61 @@ if __name__ == '__main__':
 
     option_label = ttk.Label(page_3_progress, text = "GG", anchor=tk.W, style="White.TLabel")
 
-    progress_bar = ttk.Progressbar(page_3_progress, orient="horizontal", length=100, mode="indeterminate")
+    for widget in page_3_progress.winfo_children():
+        widget.destroy()
 
-    status_frame = ttk.Frame(page_3_progress)
+    # 2. Spacer trên cùng (Đẩy nội dung xuống giữa)
+    ttk.Frame(page_3_progress).pack(side=tk.TOP, expand=True)
 
-    status_label = ttk.Label(status_frame, text="Hãy chọn đường dẫn và bấm bắt đầu.", anchor=tk.W, style="White.TLabel")
-    status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
-    eta_label = ttk.Label(status_frame, text="", style="secondary.TLabel", anchor=tk.E, width=8)
-    eta_label.pack(side=tk.RIGHT, padx=(10,0))
-    speed_label = ttk.Label(status_frame, text="", style="secondary.TLabel", anchor=tk.E, width=12)
+    # 3. Ảnh GIF (Animation) - Đặt ở giữa màn hình
+    g_gif_label = ttk.Label(page_3_progress, anchor=tk.CENTER)
+    g_gif_label.pack(side=tk.TOP, pady=(0, 20))
+
+    # 4. Tên Option đang tải (Ví dụ: Đang xử lý: Elden Ring...)
+    option_label = ttk.Label(page_3_progress, text="Chuẩn bị...", anchor=tk.CENTER, style="White.TLabel", font=("Segoe UI", 11, "bold"))
+    option_label.pack(side=tk.TOP, pady=(0, 15))
+
+    # --- KHUNG CHỨA THANH TIẾN TRÌNH & THÔNG SỐ (GOM NHÓM) ---
+    # Tạo một container để gom các thanh bar và text lại gần nhau
+    progress_container = ttk.Frame(page_3_progress)
+    progress_container.pack(side=tk.TOP, fill=tk.X, padx=100) # padx=100 để thanh bar không quá dài ra mép
+
+    # A. Thanh File hiện tại
+    progress_file_frame = ttk.Frame(progress_container)
+    progress_file_frame.pack(side=tk.TOP, fill=tk.X, pady=(0, 5))
+    
+    lbl_file_progress = ttk.Label(progress_file_frame, text="Tiến độ File hiện tại:", style="secondary.TLabel")
+    lbl_file_progress.pack(anchor=tk.W)
+    
+    progress_bar = ttk.Progressbar(progress_file_frame, orient="horizontal", length=100, mode="indeterminate")
+    progress_bar.pack(fill=tk.X, pady=(2, 0))
+
+    # B. Thanh Tiến độ chung (Parts)
+    global overall_progress_bar, overall_status_label
+    progress_overall_frame = ttk.Frame(progress_container)
+    progress_overall_frame.pack(side=tk.TOP, fill=tk.X, pady=(5, 5))
+
+    overall_status_label = ttk.Label(progress_overall_frame, text="Tiến độ chung: 0/0 Part", style="White.TLabel")
+    overall_status_label.pack(anchor=tk.W)
+
+    overall_progress_bar = ttk.Progressbar(progress_overall_frame, orient="horizontal", length=100, mode="determinate")
+    overall_progress_bar.pack(fill=tk.X, pady=(2, 0))
+
+    # C. Dòng trạng thái (%, Tốc độ, ETA) - Đặt ngay dưới thanh bar
+    status_frame = ttk.Frame(progress_container)
+    status_frame.pack(side=tk.TOP, fill=tk.X, pady=(5, 0))
+
+    status_label = ttk.Label(status_frame, text="Sẵn sàng.", anchor=tk.W, style="White.TLabel")
+    status_label.pack(side=tk.LEFT)
+    
+    eta_label = ttk.Label(status_frame, text="", style="secondary.TLabel", anchor=tk.E, width=12)
+    eta_label.pack(side=tk.RIGHT)
+    
+    speed_label = ttk.Label(status_frame, text="", style="secondary.TLabel", anchor=tk.E, width=15)
     speed_label.pack(side=tk.RIGHT)
 
-    # --- THÊM MỚI: CĂN GIỮA CHO TRANG 3 ---
-    # Thêm các frame rỗng để đẩy nội dung vào giữa
+    # 5. Spacer dưới cùng (Cân bằng bố cục)
     ttk.Frame(page_3_progress).pack(side=tk.TOP, expand=True)
-    option_label.pack(side=tk.TOP, pady=(5, 5))
-    g_gif_label.pack(side=tk.TOP, pady=(5, 5))
-    progress_bar.pack(side=tk.TOP, fill=tk.X, pady=(10, 5)) # <-- ĐÃ XÓA fill=tk.X
-    status_frame.pack(side=tk.TOP, fill=tk.X, pady=(10, 5))  # <-- ĐÃ XÓA fill=tk.X
-    ttk.Frame(page_3_progress).pack(side=tk.TOP, expand=True)
-
     # --- Hết Nội dung Tab 1 ---
 
     # --- SỬA: Tạo UI cho Tab 2 ("Upload Config") ---
@@ -7524,8 +7901,9 @@ if __name__ == '__main__':
     form_title_label = ttk.Label(header_form_frame, text="✨ Thêm / Sửa Option", font=("Segoe UI", 12, "bold"), foreground="#4cc2ff")
     form_title_label.pack(side=tk.LEFT)
     
-    # Nút Clear Form
-    ttk.Button(header_form_frame, text="Làm mới (Tạo mới)", command=lambda: clear_form()).pack(side=tk.RIGHT)
+    # [SỬA] Gán vào biến btn_clear_header
+    btn_clear_header = ttk.Button(header_form_frame, text="Làm mới (Tạo mới)", command=lambda: clear_form())
+    btn_clear_header.pack(side=tk.RIGHT)
 
     form_widgets = {}
     def action_move_option(direction):
@@ -7620,20 +7998,59 @@ if __name__ == '__main__':
                                 command=action_delete_game_theme)
         delete_button.pack(pady=10, padx=5)
 
+    def toggle_edit_form_state(enable=True):
+        """Khóa hoặc Mở khóa toàn bộ form nhập liệu."""
+        state = "normal" if enable else "disabled"
+        
+        # 1. Xử lý các widget nhập liệu (Entry, Combobox, Text)
+        for widget in form_widgets.values():
+            try:
+                # Với Text widget, state='disabled' sẽ làm xám màu và chặn nhập liệu
+                widget.config(state=state)
+            except: pass
+
+        # 2. Xử lý các nút bấm hành động
+        try:
+            add_update_button.config(state=state)
+            delete_option_btn.config(state=state)
+            # Nút "Thêm Game" nhỏ bên cạnh combobox
+            btn_add_game_theme.config(state=state) 
+            # Nút "Chọn từ Drive"
+            btn_drive_picker.config(state=state) # (Lưu ý: Cần gán biến cho nút này ở Bước 2)
+            # Nút "Làm mới/Tạo mới" ở header
+            btn_clear_header.config(state=state) # (Lưu ý: Cần gán biến cho nút này ở Bước 2)
+        except Exception as e:
+            # Bỏ qua lỗi nếu nút chưa được khởi tạo (lần chạy đầu)
+            pass
+
     def action_add_update_option():
-        """Lấy dữ liệu từ Form Hiện Đại và Lưu vào Config."""
+        """Lấy dữ liệu từ Form và Lưu vào Config (Hỗ trợ Multi-URL)."""
         global current_config_data, g_currently_selected_id
 
         # 1. Lấy dữ liệu từ Form Widgets
         name = form_widgets["Option Name:"].get().strip()
-        url_raw = form_widgets["URL:"].get().strip()
+        
+        # --- [CẬP NHẬT] Lấy URL từ Text Widget ---
+        raw_urls_text = form_widgets["URL:"].get("1.0", tk.END).strip()
+        # Tách dòng và làm sạch
+        url_list = [line.strip() for line in raw_urls_text.splitlines() if line.strip()]
+        
+        # Logic xử lý ID Google Drive (nếu người dùng chỉ nhập ID)
+        final_url_list = []
+        for u in url_list:
+            if "drive.google.com" not in u and "/" not in u and len(u) > 15:
+                # Giả sử là ID
+                final_url_list.append(f"https://drive.google.com/uc?id={u}")
+            else:
+                final_url_list.append(u)
+        # -----------------------------------------
+
         game = form_widgets["Game:"].get().strip()
         ver = form_widgets["Version:"].get().strip()
         f_type = form_widgets["Type:"].get()
         launch_file = form_widgets["Launch File:"].get().strip()
         pwd = form_widgets["Password:"].get().strip()
         
-        # Lấy Text (multiline)
         guide = form_widgets["Path Guide:"].get("1.0", tk.END).strip()
         del_list_raw = form_widgets["Delete List:"].get("1.0", tk.END).strip()
         del_list = [line.strip() for line in del_list_raw.splitlines() if line.strip()]
@@ -7645,17 +8062,14 @@ if __name__ == '__main__':
         if not game:
             custom_showwarning("Thiếu Game", "Vui lòng chọn hoặc nhập tên Game.")
             return
+        if not final_url_list:
+            custom_showwarning("Thiếu Link", "Vui lòng nhập ít nhất 1 đường dẫn tải.")
+            return
 
-        # Xử lý URL Drive
-        final_url = url_raw
-        if url_raw and "drive.google.com" not in url_raw and "/" not in url_raw:
-             # Giả sử người dùng nhập ID
-             final_url = f"https://drive.google.com/uc?id={url_raw}"
-
-        # Tạo dict data
+        # Tạo dict data mới
         new_data = {
             "name": name,
-            "url": final_url,
+            "urls": final_url_list, # Lưu Key mới là 'urls' (list)
             "version": ver,
             "game": game,
             "type": f_type,
@@ -7664,16 +8078,18 @@ if __name__ == '__main__':
             "path_guide": guide if guide else None,
             "delete_before_extract": del_list
         }
+        
+        # Tương thích ngược: Lưu thêm key 'url' là link đầu tiên (để các bản tool cũ không bị crash)
+        if final_url_list:
+            new_data["url"] = final_url_list[0]
 
         # 2. Lưu vào dict chính
         target_key = None
         if g_currently_selected_id:
-            # Update
             target_key = g_currently_selected_id
             current_config_data[target_key] = new_data
             upload_status_label.config(text=f"Đã cập nhật: {name}", foreground="green")
         else:
-            # Add New (Tìm ID lớn nhất + 1)
             max_id = 0
             for k in current_config_data:
                 if k.isdigit(): max_id = max(max_id, int(k))
@@ -7683,7 +8099,6 @@ if __name__ == '__main__':
 
         # 3. Refresh
         populate_treeview()
-        # Select lại item vừa làm
         options_treeview.selection_set(target_key)
         options_treeview.see(target_key)
     
@@ -7718,7 +8133,7 @@ if __name__ == '__main__':
             populate_treeview()
             clear_form()
             upload_status_label.config(text="Đã tải Config mới nhất từ GitHub.", foreground="#4cc2ff")
-            
+            toggle_edit_form_state(True)
             # Refresh cả game list cho combobox
             update_game_combobox_list()
 
@@ -7797,17 +8212,36 @@ if __name__ == '__main__':
     basic_info_frame = ttk.LabelFrame(edit_form_frame, text="📁 Thông tin File & Nguồn", padding=10)
     basic_info_frame.pack(fill=tk.X, padx=10, pady=5)
 
-    # Hàng 1: URL + Nút chọn Drive + Nút Paste
+    # Hàng 1: URLS (Thay thế Entry bằng Text để nhập nhiều dòng)
     url_container = ttk.Frame(basic_info_frame)
     url_container.pack(fill=tk.X, pady=5)
-    ttk.Label(url_container, text="URL / File ID:", style="secondary.TLabel").pack(anchor=tk.W)
     
-    url_row = ttk.Frame(url_container)
-    url_row.pack(fill=tk.X)
+    # Label hướng dẫn
+    ttk.Label(url_container, text="URLs (Mỗi dòng 1 link - Ưu tiên link Drive/Gdown):", style="secondary.TLabel").pack(anchor=tk.W)
     
-    url_entry = ttk.Entry(url_row)
-    url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-    form_widgets["URL:"] = url_entry
+    # Khung chứa Text + Scrollbar
+    text_frame = ttk.Frame(url_container)
+    text_frame.pack(fill=tk.X, pady=2)
+    
+    url_scrollbar = ttk.Scrollbar(text_frame, orient="vertical")
+    url_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    
+    # Widget Text nhập nhiều dòng
+    url_text_widget = tk.Text(text_frame, height=4, wrap="none", 
+                              relief=tk.FLAT, bg="#2b2b2b", fg="white", 
+                              insertbackground="white", padx=5, pady=5,
+                              yscrollcommand=url_scrollbar.set)
+    url_text_widget.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    url_scrollbar.config(command=url_text_widget.yview)
+    
+    # Lưu vào dict widget để dùng sau
+    form_widgets["URL:"] = url_text_widget
+
+    # Các nút công cụ (Paste / Chọn từ Drive)
+    btn_row = ttk.Frame(url_container)
+    btn_row.pack(fill=tk.X, pady=2)
+    
+    
 
     # --- GIỮ NGUYÊN HÀM NÀY ---
     def configure_gemini():
@@ -7914,16 +8348,16 @@ if __name__ == '__main__':
         global g_game_themes, g_master_game_list
         
         try:
-            # 1. Điền URL/ID
+            # 1. Điền URL/ID (Đã sửa cho Widget Text)
             url_entry = form_widgets.get("URL:")
             if url_entry:
-                url_entry.delete(0, tk.END)
-                url_entry.insert(0, file_id)
+                url_entry.delete("1.0", tk.END) # Sửa 0 thành "1.0"
+                url_entry.insert("1.0", file_id) # Sửa 0 thành "1.0"
 
             if not ai_data:
                 custom_showwarning("Gemini Error", "Gemini không trả về kết quả hợp lệ.")
                 return
-
+            
             detected_game_name = ai_data.get("game_name")
 
             # --- LOGIC MỚI: TỰ ĐỘNG THÊM GAME NẾU THIẾU ---
@@ -8081,7 +8515,7 @@ if __name__ == '__main__':
             print(f"Lỗi chung: {e}")
 
     def action_smart_paste():
-        """Hàm kích hoạt nút Paste."""
+        """Hàm kích hoạt nút Paste (Đã sửa cho Widget Text)."""
         try:
             content = root.clipboard_get().strip()
         except:
@@ -8089,10 +8523,11 @@ if __name__ == '__main__':
             return
 
         print("Đang bắt đầu xử lý Smart Paste...")
-        # Hiển thị thông báo chờ tạm thời trên UI
+        
+        # --- [SỬA LỖI] Dùng index "1.0" thay vì 0 ---
         if "URL:" in form_widgets:
-            form_widgets["URL:"].delete(0, tk.END)
-            form_widgets["URL:"].insert(0, "Đang xử lý AI...")
+            form_widgets["URL:"].delete("1.0", tk.END)
+            form_widgets["URL:"].insert("1.0", "Đang xử lý AI...")
 
         # Chạy luồng ngầm
         threading.Thread(target=process_smart_paste_background, args=(content,), daemon=True).start()
@@ -8123,15 +8558,6 @@ if __name__ == '__main__':
         lb.pack(fill=tk.BOTH, expand=True)
         scrollbar.config(command=lb.yview)
 
-        # Lấy data từ Tab 3 (biến global files trong drive_refresh_thread)
-        # Chúng ta cần truy cập biến `drive_icon_content_frame` để lấy data (hơi hacky nhưng nhanh)
-        # Cách tốt hơn: Lưu data vào biến global khi refresh
-        
-        # Ta sẽ dùng biến `drive_service` để lấy lại list nhanh nếu cache ko có
-        # Nhưng để đơn giản, ta giả sử user đã load Tab 3.
-        # Nếu chưa, ta sẽ gọi refresh_drive_file_list_thread và bắt sự kiện.
-        # Ở đây ta sẽ dùng logic đơn giản:
-        
         file_map = {} # Map index -> file info
 
         def load_list():
@@ -8160,33 +8586,37 @@ if __name__ == '__main__':
             if idx in file_map:
                 f = file_map[idx]
                 
-                # --- AUTO FILL LOGIC ---
-                # 1. Fill ID
-                url_entry.delete(0, tk.END)
-                url_entry.insert(0, f['id'])
+                # --- AUTO FILL LOGIC (ĐÃ SỬA LỖI) ---
+                
+                # 1. Fill ID vào ô Text Widget (Thông qua form_widgets)
+                if "URL:" in form_widgets:
+                    url_widget = form_widgets["URL:"]
+                    url_widget.delete("1.0", tk.END)
+                    url_widget.insert("1.0", f['id'])
                 
                 # 2. Fill Name (Auto Clean)
-                clean_name = os.path.splitext(f['name'])[0] # Bỏ đuôi
-                clean_name = clean_name.replace("_", " ").replace("-", " ")
-                form_widgets["Option Name:"].delete(0, tk.END)
-                form_widgets["Option Name:"].insert(0, clean_name)
+                if "Option Name:" in form_widgets:
+                    clean_name = os.path.splitext(f['name'])[0] # Bỏ đuôi
+                    clean_name = clean_name.replace("_", " ").replace("-", " ")
+                    form_widgets["Option Name:"].delete(0, tk.END)
+                    form_widgets["Option Name:"].insert(0, clean_name)
                 
                 # 3. Detect Type
-                ext = os.path.splitext(f['name'])[1].lower()
-                if ".zip" in ext: form_widgets["Type:"].set("zip")
-                elif ".rar" in ext: form_widgets["Type:"].set("rar")
-                elif ".exe" in ext: form_widgets["Type:"].set("exe")
+                if "Type:" in form_widgets:
+                    ext = os.path.splitext(f['name'])[1].lower()
+                    if ".zip" in ext: form_widgets["Type:"].set("zip")
+                    elif ".rar" in ext: form_widgets["Type:"].set("rar")
+                    elif ".exe" in ext: form_widgets["Type:"].set("exe")
                 
                 picker.destroy()
                 custom_showinfo("Auto-Fill", f"Đã điền thông tin từ file:\n{f['name']}")
 
         lb.bind("<Double-Button-1>", on_select)
         ttk.Button(picker, text="Chọn File Này", command=on_select, style="Accent.TButton").pack(pady=10)
-
-
-    ttk.Button(url_row, text="📋 Paste", width=8, command=action_smart_paste).pack(side=tk.RIGHT, padx=2)
-    ttk.Button(url_row, text="🔍 Chọn từ Drive", command=open_drive_picker_modal, style="Accent.TButton").pack(side=tk.RIGHT, padx=2)
-    
+    # (Giữ nguyên các nút chức năng cũ nhưng trỏ vào widget mới nếu cần)
+    # ttk.Button(btn_row, text="📋 Paste", width=8, command=action_smart_paste).pack(side=tk.RIGHT, padx=2)
+    btn_drive_picker = ttk.Button(btn_row, text="🔍 Chọn từ Drive", command=open_drive_picker_modal, style="Accent.TButton")
+    btn_drive_picker.pack(side=tk.RIGHT, padx=2)
     # Hàng 2: Tên Option & Version
     row2 = ttk.Frame(basic_info_frame)
     row2.pack(fill=tk.X)
@@ -8267,6 +8697,8 @@ if __name__ == '__main__':
     delete_option_btn = ttk.Button(action_btn_frame, text="🗑️ Xóa Option", command=action_delete_option, style="Danger.TButton")
     delete_option_btn.pack(side=tk.RIGHT, padx=5)
 
+    toggle_edit_form_state(False)
+
     # --- FOOTER: Status & Global Actions ---
     bottom_status_frame = ttk.Frame(second_tab_frame)
     bottom_status_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
@@ -8292,7 +8724,9 @@ if __name__ == '__main__':
             options_treeview.insert("", tk.END, iid=key, values=(key, data.get("name", "??"), data.get("game", "Khác")))
 
     def on_treeview_select(event):
-        """Điền dữ liệu vào Form Hiện Đại"""
+        """Điền dữ liệu vào Form Hiện Đại (Hỗ trợ Multi-URL)."""
+        if current_config_data: 
+             toggle_edit_form_state(True)
         selected_items = options_treeview.selection()
         if not selected_items:
             clear_form()
@@ -8312,17 +8746,26 @@ if __name__ == '__main__':
             form_widgets["Option Name:"].delete(0, tk.END)
             form_widgets["Option Name:"].insert(0, data.get("name") or "")
 
-            # URL Logic (Giữ nguyên)
-            url_entry = form_widgets["URL:"]
-            url_entry.delete(0, tk.END)
-            stored_url = data.get("url", "")
-            gdrive_prefix = "https://drive.google.com/uc?id="
-            if stored_url.startswith(gdrive_prefix):
-                file_id = stored_url[len(gdrive_prefix):]
-                url_entry.insert(0, file_id)
-            else:
-                url_entry.insert(0, stored_url)
+            # --- [CẬP NHẬT] URL Logic (Hỗ trợ List) ---
+            url_widget = form_widgets["URL:"]
+            url_widget.delete("1.0", tk.END) # Xóa nội dung cũ
+            
+            # 1. Kiểm tra list 'urls' trước
+            urls_list = data.get("urls", [])
+            
+            # 2. Nếu không có list, kiểm tra single 'url' (backward compatibility)
+            if not urls_list:
+                single_url = data.get("url")
+                if single_url:
+                    urls_list = [single_url]
+            
+            # 3. Hiển thị lên Text widget (Mỗi link 1 dòng)
+            if urls_list:
+                # Xử lý prefix ID cũ nếu cần (tùy chọn, ở đây ta hiển thị full link cho dễ quản lý)
+                display_text = "\n".join(urls_list)
+                url_widget.insert("1.0", display_text)
 
+            # ... (Các phần dưới giữ nguyên: Version, Game, Type...) ...
             form_widgets["Version:"].delete(0, tk.END)
             form_widgets["Version:"].insert(0, data.get("version") or "")
             
@@ -8331,14 +8774,12 @@ if __name__ == '__main__':
             
             form_widgets["Type:"].set(data.get("type", "zip"))
             
-            # Fill Install Config
             form_widgets["Launch File:"].delete(0, tk.END)
             form_widgets["Launch File:"].insert(0, data.get("launch_file") or "")
             
             form_widgets["Password:"].delete(0, tk.END)
             form_widgets["Password:"].insert(0, data.get("password") or "")
 
-            # Text Widgets
             guide_widget = form_widgets["Path Guide:"]
             guide_widget.delete("1.0", tk.END)
             if data.get("path_guide"): guide_widget.insert("1.0", data.get("path_guide"))
@@ -8351,22 +8792,32 @@ if __name__ == '__main__':
     options_treeview.bind('<<TreeviewSelect>>', on_treeview_select)
 
     def clear_form():
+        if "URL:" in form_widgets:
+             form_widgets["URL:"].config(state="normal")
+        if "Path Guide:" in form_widgets:
+             form_widgets["Path Guide:"].config(state="normal")
+        if "Delete List:" in form_widgets:
+             form_widgets["Delete List:"].config(state="normal")
         global g_currently_selected_id
         g_currently_selected_id = None
         form_title_label.config(text="✨ Thêm Option Mới")
         
         # Xóa nội dung tất cả widget
         form_widgets["Option Name:"].delete(0, tk.END)
-        form_widgets["URL:"].delete(0, tk.END)
+        
+        # [CẬP NHẬT] Xóa Text widget
+        form_widgets["URL:"].delete("1.0", tk.END)
+        
         form_widgets["Version:"].delete(0, tk.END)
-        form_widgets["Game:"].set("") # Hoặc set về default
+        form_widgets["Game:"].set("") 
         form_widgets["Type:"].set("zip")
         form_widgets["Launch File:"].delete(0, tk.END)
         form_widgets["Password:"].delete(0, tk.END)
         form_widgets["Path Guide:"].delete("1.0", tk.END)
         form_widgets["Delete List:"].delete("1.0", tk.END)
         
-        options_treeview.selection_remove(options_treeview.selection())
+        if options_treeview.selection():
+            options_treeview.selection_remove(options_treeview.selection())
 
     # --- THÊM MỚI: HÀM LOGIC SEARCH (DEBOUNCED) ---
     def do_game_search():
@@ -10799,6 +11250,8 @@ if __name__ == '__main__':
     footer_label = ttk.Label(fourth_tab_frame, text="WIBU's Gaming Zone © 2025", style="secondary.TLabel", font=("Segoe UI", 8))
     footer_label.pack(side=tk.BOTTOM, pady=5)
     # --- Hàm cho luồng tải config ban đầu ---
+
+    
 
     def load_config_thread():
         """(ĐÃ SỬA) Tải cả config mod VÀ config theme."""
