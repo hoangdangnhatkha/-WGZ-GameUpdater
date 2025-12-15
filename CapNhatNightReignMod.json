@@ -180,5 +180,20 @@
         "path_guide": "Tải về bất cứ đâu",
         "delete_before_extract": [],
         "url": "https://drive.google.com/uc?id=1AllS3NU313k_vZbPIJ1Exg98QUGZ5Uxg"
+    },
+    "16": {
+        "name": "Tải Game The Legend of Zelda: Breath of the Wild",
+        "urls": [
+            "https://drive.google.com/uc?id=1_TdyS78J7WpEr9PUdjNY3FNEB4P15wfZ"
+        ],
+        "version": "v1.5.0",
+        "game": "The Legend of Zelda: Breath of the Wild",
+        "type": "zip",
+        "password": "linkneverdie.com",
+        "launch_file": null,
+        "tag": "GOTY",
+        "path_guide": "Giải nén bất cứ đâu",
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=1_TdyS78J7WpEr9PUdjNY3FNEB4P15wfZ"
     }
 }
