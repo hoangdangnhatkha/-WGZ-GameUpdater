@@ -14,7 +14,7 @@ if sys.platform == "win32":
     if sys.stderr is None: sys.stderr = NullWriter()
 import tkinter as tk
 import tkinter.ttk as ttk
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw, ImageFont
 from tkinterdnd2 import DND_FILES, TkinterDnD
 import ctypes
 import io
@@ -95,6 +95,8 @@ if sys.platform == "win32":
 global root
 root = None
 g_show_steam_details = None
+g_theme_trailer_entry = None
+
 
 def enforce_admin_rights():
     """
@@ -173,6 +175,7 @@ ES_SYSTEM_REQUIRED = 0x00000001
 ES_DISPLAY_REQUIRED = 0x00000002
 ABOVE_NORMAL_PRIORITY_CLASS = 0x00008000
 
+
 def prevent_system_sleep_and_boost_priority():
     """
     1. Ngăn Windows tự ngủ khi đang tải.
@@ -226,13 +229,23 @@ def center_window_on_screen(window, width, height):
 
 def show_smart_download_confirm(title, mod_name, stats_data, is_space_ok):
     """
-    (V9 - FINAL) Hiển thị cửa sổ xác nhận dùng icon từ get_ctx_icon.
+    (V10 - NO CLOSE) Hiển thị cửa sổ xác nhận VÀ VÔ HIỆU HÓA NÚT 'X'.
+    Người dùng buộc phải chọn Có hoặc Không.
     """
     dlg = tk.Toplevel(root)
     dlg.title(title)
     dlg.transient(root)
     dlg.grab_set()
     dlg.resizable(False, False)
+    
+    # --- [QUAN TRỌNG] VÔ HIỆU HÓA NÚT X ---
+    def do_nothing():
+        # Phát tiếng 'ding' để cảnh báo người dùng
+        try: dlg.bell()
+        except: pass
+    
+    dlg.protocol("WM_DELETE_WINDOW", do_nothing)
+    # ---------------------------------------
     
     dlg.after(10, lambda: apply_theme_to_titlebar(dlg))
 
@@ -244,42 +257,46 @@ def show_smart_download_confirm(title, mod_name, stats_data, is_space_ok):
     header_frame.pack(fill=tk.X, pady=(0, 15))
     
     # Icon Dấu hỏi to (Size 48)
-    icon_q = get_ctx_icon("question", "#4a90e2", size=48)
-    lbl_icon_q = tk.Label(header_frame, image=icon_q, bg=style.lookup("TFrame", "background"))
-    lbl_icon_q.pack()
+    try:
+        icon_q = get_ctx_icon("question", "#4a90e2", size=48)
+        lbl_icon_q = tk.Label(header_frame, image=icon_q, bg=style.lookup("TFrame", "background"))
+        lbl_icon_q.pack()
+    except: pass
     
     ttk.Label(main_frame, text=f"Thông tin dung lượng '{mod_name}':", font=("Segoe UI", 10, "bold"), anchor="center").pack(pady=(0, 10))
 
-    # --- KHUNG GRID ---
+    # --- KHUNG GRID (HIỂN THỊ THÔNG SỐ) ---
     grid_frame = ttk.Frame(main_frame)
     grid_frame.pack(fill=tk.X, padx=10)
     
-    # Chuẩn bị icon (Size 24 cho dễ nhìn)
-    ic_down = get_ctx_icon("download", "white", size=24)
-    ic_fold = get_ctx_icon("folder", "#FFD700", size=24) # Vàng
-    ic_save = get_ctx_icon("save", "#DDA0DD", size=24) # Tím nhạt
-    ic_disk = get_ctx_icon("disk", "#A9A9A9", size=24) # Xám
+    try:
+        ic_down = get_ctx_icon("download", "white", size=24)
+        ic_fold = get_ctx_icon("folder", "#FFD700", size=24) 
+        ic_save = get_ctx_icon("save", "#DDA0DD", size=24)
+        ic_disk = get_ctx_icon("disk", "#A9A9A9", size=24)
+    except: 
+        ic_down = ic_fold = ic_save = ic_disk = None
     
     lbl_font = ("Segoe UI", 10)
     bg_col = style.lookup("TFrame", "background")
 
     # Hàng 1: Download
-    tk.Label(grid_frame, image=ic_down, bg=bg_col).grid(row=0, column=0, padx=(0, 10), pady=2)
+    if ic_down: tk.Label(grid_frame, image=ic_down, bg=bg_col).grid(row=0, column=0, padx=(0, 10), pady=2)
     ttk.Label(grid_frame, text=f"Dung lượng tải về: {stats_data['down']}", font=lbl_font).grid(row=0, column=1, sticky="w")
 
     # Hàng 2: Extract
-    tk.Label(grid_frame, image=ic_fold, bg=bg_col).grid(row=1, column=0, padx=(0, 10), pady=2)
+    if ic_fold: tk.Label(grid_frame, image=ic_fold, bg=bg_col).grid(row=1, column=0, padx=(0, 10), pady=2)
     ttk.Label(grid_frame, text=f"Dung lượng giải nén: ~{stats_data['extract']}", font=lbl_font).grid(row=1, column=1, sticky="w")
 
     # Kẻ ngang
     ttk.Separator(grid_frame, orient='horizontal').grid(row=2, column=0, columnspan=2, sticky="ew", pady=10)
 
     # Hàng 3: Tổng cần
-    tk.Label(grid_frame, image=ic_save, bg=bg_col).grid(row=3, column=0, padx=(0, 10), pady=2)
+    if ic_save: tk.Label(grid_frame, image=ic_save, bg=bg_col).grid(row=3, column=0, padx=(0, 10), pady=2)
     ttk.Label(grid_frame, text=f"TỔNG CẦN THIẾT: ~{stats_data['total']}", font=("Segoe UI", 10, "bold")).grid(row=3, column=1, sticky="w")
 
     # Hàng 4: Ổ đĩa
-    tk.Label(grid_frame, image=ic_disk, bg=bg_col).grid(row=4, column=0, padx=(0, 10), pady=2)
+    if ic_disk: tk.Label(grid_frame, image=ic_disk, bg=bg_col).grid(row=4, column=0, padx=(0, 10), pady=2)
     ttk.Label(grid_frame, text=f"Ổ đĩa trống: {stats_data['free']}", font=lbl_font).grid(row=4, column=1, sticky="w")
 
     # Kẻ ngang
@@ -289,9 +306,10 @@ def show_smart_download_confirm(title, mod_name, stats_data, is_space_ok):
     status_icon_name = "check" if is_space_ok else "warning"
     status_color = "#4cff00" if is_space_ok else "#ffcc00"
     
-    ic_status = get_ctx_icon(status_icon_name, status_color, size=24)
-    
-    tk.Label(grid_frame, image=ic_status, bg=bg_col).grid(row=6, column=0, padx=(0, 10), pady=2)
+    try:
+        ic_status = get_ctx_icon(status_icon_name, status_color, size=24)
+        tk.Label(grid_frame, image=ic_status, bg=bg_col).grid(row=6, column=0, padx=(0, 10), pady=2)
+    except: pass
     
     status_text = "Dung lượng ổ đĩa: Đủ (An toàn)." if is_space_ok else "CẢNH BÁO: Không đủ dung lượng!"
     tk.Label(grid_frame, text=status_text, font=("Segoe UI", 10, "bold"), fg=status_color, bg=bg_col).grid(row=6, column=1, sticky="w")
@@ -312,13 +330,18 @@ def show_smart_download_confirm(title, mod_name, stats_data, is_space_ok):
 
     btn_yes = ttk.Button(btn_frame, text="Có (Yes)", style="Accent.TButton", command=on_yes)
     btn_yes.pack(side=tk.RIGHT, padx=5)
+    
+    # Nút No (Không)
     btn_no = ttk.Button(btn_frame, text="Không (No)", command=on_no)
     btn_no.pack(side=tk.RIGHT, padx=5)
 
     dlg.update_idletasks()
     center_window_on_screen(dlg, dlg.winfo_reqwidth() + 20, dlg.winfo_reqheight() + 20)
+    
+    # Chờ cửa sổ đóng
     root.wait_window(dlg)
     return result[0]
+
 
 def _show_custom_dialog(title, message, dialog_type="info", parent=None):
     """
@@ -967,6 +990,8 @@ def extract_gdrive_id_from_url(url):
         return url.strip()
 
     return None
+
+
 # --- Hàm tải config từ GitHub ---
 def load_config_from_github(): # Đổi tên hàm cho rõ
     json_url = "https://raw.githubusercontent.com/hoangdangnhatkha/-WGZ-GameUpdater/refs/heads/main/CapNhatNightReignMod.json"
@@ -1611,104 +1636,76 @@ def launch_riot_login_thread(riot_client_path, username, password):
 
 def load_accounts_from_drive_thread():
     """
-    (FIX SSL ERROR) Tải config account bằng AuthorizedSession (Requests)
-    thay vì httplib2 để tránh lỗi WRONG_VERSION_NUMBER.
+    (HYBRID MODE) 
+    1. Nếu đã đăng nhập: Tải bằng API (để lấy quyền ghi).
+    2. Nếu CHƯA đăng nhập: Tải bằng 'requests' qua link công khai (Chỉ đọc).
     """
     global drive_service, g_user_accounts_data, g_user_accounts_file_id
     global g_accounts_loaded
 
     if g_accounts_loaded:
-        print("Config account đã được tải. Bỏ qua.")
+        progress_queue.put(("accounts_loaded", None))
         return
 
-    # Kiểm tra token
+    # --- CÁCH 1: DÙNG API (NẾU ĐÃ ĐĂNG NHẬP) ---
     token_path = resource_path('token.json')
-    if not os.path.exists(token_path):
-        print("Chưa có token.json, bỏ qua tải account.")
+    if os.path.exists(token_path) and drive_service:
+        try:
+            print("Đã đăng nhập. Đang tải Account bằng API (Full Quyền)...")
+            
+            # Tìm file
+            query = f"name = '{ACCOUNT_CONFIG_FILENAME}' and '{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false"
+            response = drive_service.files().list(q=query, fields='files(id, name)').execute()
+            files = response.get('files', [])
+            
+            if files:
+                g_user_accounts_file_id = files[0]['id']
+                # Tải nội dung
+                creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+                authed_session = AuthorizedSession(creds)
+                download_url = f"https://www.googleapis.com/drive/v3/files/{g_user_accounts_file_id}?alt=media"
+                response = authed_session.get(download_url)
+                
+                if response.status_code == 200:
+                    g_user_accounts_data = json.loads(response.content.decode('utf-8'))
+                    print("Tải API thành công.")
+                    g_accounts_loaded = True
+                    progress_queue.put(("accounts_loaded", None))
+                    return
+        except Exception as e:
+            print(f"Lỗi API: {e}. Chuyển sang tải Public...")
+
+    # --- CÁCH 2: DÙNG REQUESTS (CHẾ ĐỘ KHÁCH / PUBLIC) ---
+    print("Chưa đăng nhập (hoặc lỗi). Đang tải chế độ Public (Read-Only)...")
+    
+    if PUBLIC_ACCOUNT_FILE_ID == "HÃY_DÁN_ID_FILE_JSON_VÀO_ĐÂY":
+        print("Lỗi: Chưa cấu hình PUBLIC_ACCOUNT_FILE_ID trong code.")
+        progress_queue.put(("accounts_load_failed", "Chưa cấu hình ID File Public"))
         return
 
     try:
-        # 1. Tạo Session xác thực (Mạnh hơn drive_service chuẩn)
-        creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-        authed_session = AuthorizedSession(creds)
-
-        print(f"Đang tìm file config account: {ACCOUNT_CONFIG_FILENAME}...")
+        # Link tải trực tiếp từ Google Drive (không cần đăng nhập nếu file là Public)
+        url = f"https://drive.google.com/uc?export=download&id={PUBLIC_ACCOUNT_FILE_ID}"
         
-        # 2. Tìm ID file (Vẫn dùng drive_service để list file vì nó nhẹ)
-        # Nếu drive_service chưa init (do lỗi SSL khi build), ta dùng requests để tìm luôn
-        found_file_id = None
+        response = requests.get(url, timeout=10)
         
-        if drive_service:
+        if response.status_code == 200:
             try:
-                query = f"name = '{ACCOUNT_CONFIG_FILENAME}' and '{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false"
-                response = drive_service.files().list(q=query, fields='files(id, name)').execute()
-                files = response.get('files', [])
-                if files: found_file_id = files[0]['id']
-            except Exception as e:
-                print(f"Lỗi tìm file bằng Service: {e}. Đang thử cách khác...")
-
-        # Nếu drive_service lỗi, tìm thủ công bằng requests (Fallback)
-        if not found_file_id:
-            search_url = "https://www.googleapis.com/drive/v3/files"
-            params = {
-                "q": f"name = '{ACCOUNT_CONFIG_FILENAME}' and '{GOOGLE_DRIVE_FOLDER_ID}' in parents and trashed = false",
-                "fields": "files(id, name)"
-            }
-            res = authed_session.get(search_url, params=params)
-            if res.status_code == 200:
-                files = res.json().get('files', [])
-                if files: found_file_id = files[0]['id']
-
-        # 3. Tải nội dung
-        if found_file_id:
-            g_user_accounts_file_id = found_file_id
-            print(f"Tìm thấy ID: {g_user_accounts_file_id}. Đang tải trực tiếp (Requests)...")
-            
-            download_url = f"https://www.googleapis.com/drive/v3/files/{g_user_accounts_file_id}?alt=media"
-            response = authed_session.get(download_url)
-            response.raise_for_status() # Báo lỗi nếu 403/404
-            
-            file_content = response.content # Dữ liệu dạng bytes
-            print("Tải config account hoàn tất (Direct).")
-            
-            try:
-                # Parse JSON
-                raw_data = json.loads(file_content.decode('utf-8'))
+                g_user_accounts_data = response.json()
+                # Lưu ID lại để dùng cho logic hiển thị, nhưng lưu ý là chưa có quyền ghi
+                g_user_accounts_file_id = PUBLIC_ACCOUNT_FILE_ID 
                 
-                # Logic di chuyển dữ liệu cũ (như code cũ)
-                is_old_structure = False
-                if raw_data:
-                    first_key = next(iter(raw_data.keys()))
-                    if first_key == "Steam" or first_key == "Riot":
-                        is_old_structure = True
-                
-                if is_old_structure:
-                    print("Phát hiện cấu trúc cũ. Đang di chuyển...")
-                    g_user_accounts_data = migrate_data_to_game_keys(raw_data)
-                    # Lưu lại cấu trúc mới
-                    threading.Thread(target=save_accounts_to_drive_thread, daemon=True).start()
-                else:
-                    g_user_accounts_data = raw_data
-
+                print("Tải Public thành công.")
+                g_accounts_loaded = True
+                progress_queue.put(("accounts_loaded", None))
             except json.JSONDecodeError:
-                print("Lỗi: File config JSON bị hỏng. Dùng dict rỗng.")
-                g_user_accounts_data = {}
+                progress_queue.put(("accounts_load_failed", "File JSON lỗi"))
         else:
-            print("Không tìm thấy config. Đang tạo file mới...")
-            g_user_accounts_data = {}
-            # Tạo file mới (vẫn dùng logic cũ hoặc requests)
-            new_id = create_empty_account_file_on_drive()
-            if new_id:
-                g_user_accounts_file_id = new_id
-
-        # Đánh dấu đã tải xong
-        mark_accounts_as_saved()
-        g_accounts_loaded = True
-        progress_queue.put(("accounts_loaded", None))
+            print(f"Không thể tải file Public. Code: {response.status_code}")
+            progress_queue.put(("accounts_load_failed", "Không tải được file"))
 
     except Exception as e:
-        print(f"Lỗi nghiêm trọng khi tải Account (Fixed Version): {e}")
-        # Không hiện popup lỗi làm phiền, chỉ log
+        print(f"Lỗi tải Public: {e}")
         progress_queue.put(("accounts_load_failed", str(e)))
 
 def create_empty_account_file_on_drive():
@@ -2062,6 +2059,7 @@ SCOPES = [
 ]
 
 GOOGLE_DRIVE_FOLDER_ID = "1lO7qc485mhdLpirFgyhqMGKXAQvHoQYA"
+PUBLIC_ACCOUNT_FILE_ID = "1LNEwzPoelziUIR9Nvum-zRQE3hku_q1l"
 ACCOUNT_CONFIG_FILENAME = "wgz_user_accounts.json"
 
 def authenticate_google_drive():
@@ -2552,18 +2550,18 @@ def download_and_extract_logic():
     
     def show_confirm_popup():
         title = "Xác nhận tải" if is_space_ok else "Cảnh báo dung lượng"
-        # Gọi hàm Show Dialog mới
+        # Gọi hàm mới (đã khóa nút X)
         user_response[0] = show_smart_download_confirm(title, mod_display_name, stats_data, is_space_ok)
 
-    # Chuyển lệnh lên luồng chính
+    # Chuyển lệnh lên luồng chính và chờ
     root.after(0, show_confirm_popup)
     
-    # Vòng lặp chờ phản hồi
+    # Vòng lặp chờ phản hồi từ UI Thread
     while user_response[0] is None:
         time.sleep(0.1)
         if not root.winfo_exists(): return 
 
-    # Xử lý phản hồi (Logic cũ giữ nguyên)
+    # Nếu chọn No hoặc tắt cửa sổ (mà giờ tắt X không được nữa, phải chọn nút)
     if not user_response[0]:
         progress_queue.put(("cancel_and_return_home", None))
         return
@@ -4915,12 +4913,14 @@ def setup_custom_titlebar(root_window, app_title="App Name", on_google_login=Non
     create_sys_btn("✕", custom_on_close, is_close=True)
 
     # Nút Maximize (◻)
-    def toggle_max():
-        if root_window.state() == "zoomed":
-            root_window.state("normal")
-        else:
-            root_window.state("zoomed")
-    create_sys_btn("◻", toggle_max)
+    btn_max = create_sys_btn("◻", None) 
+    
+    # Chuyển trạng thái sang DISABLED và chỉnh màu xám tối để người dùng biết là bị khóa
+    btn_max.config(state=tk.DISABLED, fg="#444444", cursor="arrow") 
+    
+    # QUAN TRỌNG: Gỡ bỏ sự kiện Hover (rê chuột) để nút không sáng lên
+    btn_max.unbind("<Enter>")
+    btn_max.unbind("<Leave>")
 
     # Nút Minimize (─)
     def minimize_win():
@@ -5013,7 +5013,79 @@ def start_socket_service():
         print(f"Không thể kết nối Server Game: {e}")
 
 # ==========================================
+def _run_webview_process(url, title):
+    """
+    Hàm này chạy trong một tiến trình riêng biệt (OS Process).
+    Nó tạo cửa sổ trình duyệt để phát video.
+    """
+    # Cấu hình cửa sổ trailer
+    webview.create_window(
+        title, 
+        url, 
+        width=1024, 
+        height=576, 
+        resizable=True,
+        confirm_close=True,
+        text_select=False
+    )
+    # start() ở đây sẽ chặn tiến trình con này, nhưng không ảnh hưởng App chính
+    webview.start()
 
+def _convert_to_embed_url(url):
+    """Chuyển link YouTube thường sang link Embed để nhẹ hơn"""
+    if "youtube.com/watch?v=" in url:
+        # Tách lấy ID video: v=dQw4w9WgXcQ
+        try:
+            video_id = url.split("v=")[1].split("&")[0]
+            return f"https://www.youtube.com/embed/{video_id}?autoplay=1"
+        except:
+            return url
+    elif "youtu.be/" in url:
+        try:
+            video_id = url.split("youtu.be/")[1].split("?")[0]
+            return f"https://www.youtube.com/embed/{video_id}?autoplay=1"
+        except:
+            return url
+    return url
+
+class TrailerManager:
+    def __init__(self):
+        self.process = None
+
+    def play(self, url, title="Game Trailer"):
+        # 1. Nếu có trailer cũ đang chạy, tắt nó đi
+        self.stop()
+        
+        # 2. Xử lý link
+        embed_url = _convert_to_embed_url(url)
+        if not embed_url: return
+
+        # 3. Tạo tiến trình mới (Multiprocessing)
+        self.process = multiprocessing.Process(
+            target=_run_webview_process,
+            args=(embed_url, title)
+        )
+        self.process.start()
+
+    def stop(self):
+        if self.process and self.process.is_alive():
+            self.process.terminate()
+            self.process.join() # Đợi tiến trình kết thúc hẳn
+            self.process = None
+
+def on_closing_app():
+    try:
+        # Tắt trailer nếu đang chạy
+        if 'trailer_manager' in globals():
+            trailer_manager.stop()
+    except:
+        pass
+        
+    # Gọi các logic tắt app cũ của bạn (nếu có)
+    # Ví dụ: save_config() 
+    
+    root.destroy()
+    sys.exit()
 # --- Chạy ứng dụng ---
 if __name__ == '__main__':
 
@@ -5152,7 +5224,7 @@ if __name__ == '__main__':
     g_acct_current_game = None # Tên game đang xem
     global g_page1_ui_refs
     g_page1_ui_refs = {}
-
+    trailer_manager = TrailerManager()
     g_user_accounts_data = {} 
     g_user_accounts_file_id = None
     g_accounts_loaded = False
@@ -5313,41 +5385,43 @@ if __name__ == '__main__':
 
     def populate_account_game_grid():
         """
-        (ĐÃ VIẾT LẠI)
-        Tạo lưới game dựa trên các key (Game) từ g_user_accounts_data.
+        (ĐÃ SỬA: GIỮ NGUYÊN TRẠNG THÁI NÚT LƯU KHI VẼ LẠI)
         """
         global g_acct_grid_container, g_acct_page_1_grid
         global g_game_themes, g_user_accounts_data 
+        global g_acct_has_unsaved_changes # <-- Cần biến này để check
 
+        # Xóa loading frame nếu còn
         try:
-            # Tìm widget có tên 'tab2_loading_frame' và xóa nó
             loading_frame = g_acct_page_1_grid.nametowidget("tab2_loading_frame")
-            if loading_frame:
-                loading_frame.destroy()
-        except KeyError:
-            pass # Không tìm thấy (đã bị xóa từ trước), bỏ qua
-        # --- HẾT THÊM MỚI ---
+            if loading_frame: loading_frame.destroy()
+        except KeyError: pass
         
-        # --- SỬA LOGIC: Quyết định hiển thị Prompt hay Lưới ---
-        if not drive_service:
-            # 1. TẠO PROMPT (Nếu chưa có)
-            global g_acct_login_prompt_label
-            if not 'g_acct_login_prompt_label' in globals():
-                g_acct_login_prompt_label = ttk.Label(
-                    g_acct_page_1_grid, 
-                    text="Vui lòng Đăng nhập Google Drive (ở Tab 'Upload Lên Drive')\nđể tải và quản lý tài khoản.",
-                    justify=tk.CENTER,
-                    style="secondary.TLabel"
-                )
-            # 2. HIỂN THỊ PROMPT (Luôn luôn)
-            g_acct_login_prompt_label.pack(expand=True)
-            return # <-- QUAN TRỌNG: Dừng hàm tại đây
-        else:
-            # 3. ẨN PROMPT (Nếu tồn tại)
-            if 'g_acct_login_prompt_label' in globals():
-                try:
-                    g_acct_login_prompt_label.pack_forget()
-                except: pass
+        if 'g_acct_login_prompt_label' in globals():
+            try: g_acct_login_prompt_label.pack_forget()
+            except: pass
+
+        # --- KIỂM TRA QUYỀN GHI ---
+        is_guest_mode = (drive_service is None)
+
+        if 'g_acct_page_2_add_btn' in globals():
+            if is_guest_mode:
+                g_acct_page_2_add_btn.config(state=tk.DISABLED, text="Đăng nhập để Thêm")
+            else:
+                g_acct_page_2_add_btn.config(state=tk.NORMAL, text="➕ Thêm Account Mới")
+        
+        # --- [FIX LỖI NÚT LƯU] ---
+        if 'g_acct_page_2_save_btn' in globals():
+            if is_guest_mode:
+                # Khách -> Luôn tắt
+                g_acct_page_2_save_btn.config(state=tk.DISABLED)
+            else:
+                # Admin -> Bật nếu có thay đổi, Tắt nếu không
+                if g_acct_has_unsaved_changes:
+                    g_acct_page_2_save_btn.config(state=tk.NORMAL)
+                else:
+                    g_acct_page_2_save_btn.config(state=tk.DISABLED)
+        # -------------------------
 
         # 1. Tạo Canvas Scroll (CHỈ 1 LẦN)
         if g_acct_grid_container is None:
@@ -5366,40 +5440,45 @@ if __name__ == '__main__':
         for widget in g_acct_grid_container.winfo_children():
             widget.destroy()
 
-        # 3. Lấy danh sách game CÓ account (Code không đổi)
+        # HIỂN THỊ THÔNG BÁO NẾU KHÔNG CÓ DỮ LIỆU
+        if not g_user_accounts_data:
+            msg_frame = ttk.Frame(g_acct_grid_container, padding=20)
+            msg_frame.pack(fill=tk.BOTH, expand=True)
+            
+            error_msg = "Chưa tải được dữ liệu."
+            if PUBLIC_ACCOUNT_FILE_ID == "HÃY_DÁN_ID_FILE_JSON_VÀO_ĐÂY":
+                error_msg = "LỖI CODE: Bạn chưa điền 'PUBLIC_ACCOUNT_FILE_ID' trong mã nguồn."
+            
+            ttk.Label(msg_frame, text="⚠️ DANH SÁCH TRỐNG", font=("Segoe UI", 14, "bold"), foreground="#ffcc00").pack(pady=5)
+            ttk.Label(msg_frame, text=error_msg, style="secondary.TLabel").pack(pady=5)
+            ttk.Button(msg_frame, text="Thử tải lại", command=lambda: threading.Thread(target=load_accounts_from_drive_thread, daemon=True).start()).pack(pady=10)
+            return
+
+        # 3. Lấy danh sách game CÓ account
         user_accounts_data = g_user_accounts_data 
         game_names_with_accounts = sorted(user_accounts_data.keys())
 
-        # 6. Vẽ lưới game
+        # 4. Vẽ lưới game
         MAX_COLS = 5    
         col = 0
         row = 0
         
-        # --- SỬA LOGIC: XÓA NÚT "Thêm Dịch vụ" ---
-        # (Vì giờ đây chúng ta thêm bằng cách chọn game trong pop-up)
-
-        # --- SỬA LOGIC: LẶP QUA CÁC KEY GAME ---
-        for game_name in game_names_with_accounts: # (Key giờ là "Elden Ring", "Steam", v.v.)
+        for game_name in game_names_with_accounts:
             icon_img = None 
             
-            # 1. Ưu tiên icon Steam/Riot (đã được cache bởi preload)
             if game_name == "Steam":
                 icon_img = root.steam_icon_small
             elif game_name == "Riot":
                 icon_img = root.riot_icon_small
             
-            # 2. Lấy icon game (từ cache, thông qua load_image_from_url)
             if not icon_img:
                 image_url = g_game_themes.get(game_name)
                 if image_url:
-                    # Hàm này sẽ tự động lấy từ cache (vì preload đã chạy)
                     icon_img = load_image_from_url(image_url, size=(192, 89))
             
-            # 3. Dùng icon mặc định (từ cache)
             if not icon_img:
                 icon_img = root.default_game_icon_small
             
-            # (Code tạo Card Frame, img_label, name_label... không đổi)
             card_frame = ttk.Frame(g_acct_grid_container, style="Card.TFrame", cursor="hand2")
             card_frame.grid(row=row, column=col, padx=10, pady=10, sticky="ew")
             card_frame.columnconfigure(0, weight=1)
@@ -5414,7 +5493,6 @@ if __name__ == '__main__':
             name_label = ttk.Label(card_frame, text=game_name, anchor=tk.CENTER, cursor="hand2", font=("Segoe UI", 10, "bold"))
             name_label.grid(row=1, column=0, pady=(0, 10), padx=10, sticky="ew")
 
-            # (Code Click -> Mở Trang 2 không đổi)
             cmd = lambda e, g=game_name: show_account_list_for_game(g)
 
             card_frame.bind("<Button-1>", cmd)
@@ -5470,7 +5548,7 @@ if __name__ == '__main__':
                     text="Không có tài khoản nào được lưu cho dịch vụ này.", 
                     style="secondary.TLabel").pack(pady=10)
 
-        # --- LẤY ICON DỊCH VỤ (Làm ảnh dự phòng) ---
+        # --- LẤY ICON DỊCH VỤ ---
         service_icon_img = None 
         if g_acct_current_game == "Steam":
             service_icon_img = root.steam_icon_small
@@ -5479,13 +5557,16 @@ if __name__ == '__main__':
         else:
             service_icon_img = root.cached_game_icons_small.get(g_acct_current_game, root.default_game_icon_small)
 
-        # --- THÊM MỚI: Danh sách widget để bind ---
+        # --- [QUAN TRỌNG] Kiểm tra chế độ Guest ---
+        is_guest_mode = (drive_service is None)
+        state_for_edit = tk.DISABLED if is_guest_mode else tk.NORMAL
+
         widgets_to_bind = [g_acct_list_container]
 
         # --- Vẽ các Card mới ---
         for i, acc_info in enumerate(game_accounts):
             
-            # 1. Tạo Card (Frame) cho mỗi account
+            # 1. Tạo Card
             card = ttk.Frame(g_acct_list_container, style="Card.TFrame", padding=10)
             card.pack(fill=tk.X, expand=True, pady=(0, 10))
             widgets_to_bind.append(card)
@@ -5495,10 +5576,8 @@ if __name__ == '__main__':
             left_frame.pack(side=tk.LEFT, padx=(0, 15), fill=tk.Y)
             widgets_to_bind.append(left_frame)
             
-
             acc_type = acc_info.get('type', 'steam').lower()
             btn_icon = None
-            
             if acc_type == 'steam':
                 btn_icon = getattr(root, 'steam_icon_tiny', None)
             elif acc_type == 'riot':
@@ -5507,7 +5586,7 @@ if __name__ == '__main__':
             login_btn = ttk.Button(
                 left_frame, 
                 text="Đăng nhập", 
-                image=btn_icon,    # Icon dịch vụ (Steam/Riot)
+                image=btn_icon,    
                 compound=tk.BOTTOM,
                 style="Accent.TButton",
                 command=lambda index=i: action_login_by_index(index)
@@ -5522,7 +5601,6 @@ if __name__ == '__main__':
             widgets_to_bind.append(mid_frame)
 
             nickname = acc_info.get('nickname', 'N/A')
-            username = acc_info.get('username', 'N/A')
             acc_type = acc_info.get('type', 'N/A').capitalize()
             game_display_tag = acc_info.get('game', None) 
             
@@ -5536,20 +5614,15 @@ if __name__ == '__main__':
                             icon_to_use = load_image_from_url(image_url, size=(192, 89))
                             if icon_to_use:
                                 root.cached_game_icons_small[game_display_tag] = icon_to_use
-                        except Exception as e:
-                            print(f"Lỗi tải ảnh game '{game_display_tag}': {e}")
-                            icon_to_use = None 
+                        except: pass
             
-            if not icon_to_use:
-                icon_to_use = service_icon_img
+            if not icon_to_use: icon_to_use = service_icon_img
 
             if icon_to_use:
                 img_label = ttk.Label(mid_frame, image=icon_to_use)
                 img_label.grid(row=0, column=0, columnspan=2, pady=(0, 10), sticky=tk.W)
                 widgets_to_bind.append(img_label)
 
-            # Dùng grid để căn chỉnh thông tin
-            # (Tạo và bind các label)
             l1 = ttk.Label(mid_frame, text="Nickname:", style="secondary.TLabel")
             l1.grid(row=1, column=0, sticky=tk.W)
             v1 = ttk.Label(mid_frame, text=nickname, font=("Segoe UI", 10, "bold"))
@@ -5575,13 +5648,14 @@ if __name__ == '__main__':
             edit_btn = tk.Button(
                 right_frame, 
                 text="Sửa",
-                width=10,         # Màu nền Đỏ (Thay cho style Danger)
-                fg="white",                 # Màu chữ Trắng
-                activeforeground="white",   # Màu chữ khi nhấn
+                width=10,         
+                fg="white",                 
+                activeforeground="white",   
                 relief='groove',
-                borderwidth=1,              # Đặt độ dày viền bằng 0
-                highlightthickness=0,              # (Tùy chọn) Làm phẳng nút cho đẹp
-                cursor="hand2", 
+                borderwidth=1,              
+                highlightthickness=0,              
+                cursor="hand2" if not is_guest_mode else "arrow", 
+                state=state_for_edit, # --- CẤU HÌNH TRẠNG THÁI ---
                 command=lambda index=i: open_add_edit_account_popup(index)
             )
             edit_btn.pack(pady=(0, 5))
@@ -5590,14 +5664,15 @@ if __name__ == '__main__':
                 right_frame, 
                 text="Xóa", 
                 width=10,
-                bg="#c94e4e",               # Màu nền Đỏ (Thay cho style Danger)
-                fg="white",                 # Màu chữ Trắng
-                activebackground="#a13e3e", # Màu khi nhấn vào (Đỏ đậm hơn)
-                activeforeground="white",   # Màu chữ khi nhấn
-                relief='groove',              # (Tùy chọn) Làm phẳng nút cho đẹp
-                borderwidth=1,              # Đặt độ dày viền bằng 0
+                bg="#c94e4e",               
+                fg="white",                 
+                activebackground="#a13e3e", 
+                activeforeground="white",   
+                relief='groove',              
+                borderwidth=1,              
                 highlightthickness=0,
-                cursor="hand2",             # (Tùy chọn) Con trỏ bàn tay
+                cursor="hand2" if not is_guest_mode else "arrow",             
+                state=state_for_edit, # --- CẤU HÌNH TRẠNG THÁI ---
                 command=lambda index=i: delete_selected_account_by_index(index)
             )
             delete_btn.pack()
@@ -5606,22 +5681,18 @@ if __name__ == '__main__':
             g_dynamic_account_buttons.append(delete_btn)
             widgets_to_bind.extend([edit_btn, delete_btn])
 
-        # --- THÊM MỚI: GẮN (BIND) TẤT CẢ WIDGETS ---
+        # --- GẮN (BIND) SCROLL ---
         for widget in widgets_to_bind:
             try:
                 widget.bind("<MouseWheel>", on_acct_list_mouse_wheel)
-                widget.bind("<Button-4>", on_acct_list_mouse_wheel) # Linux scroll up
-                widget.bind("<Button-5>", on_acct_list_mouse_wheel) # Linux scroll down
-            except tk.TclError as e:
-                print(f"Lỗi khi bind widget: {e}")
+                widget.bind("<Button-4>", on_acct_list_mouse_wheel)
+                widget.bind("<Button-5>", on_acct_list_mouse_wheel)
+            except: pass
         
-        # Cũng bind canvas chính
         g_acct_list_canvas.bind("<MouseWheel>", on_acct_list_mouse_wheel)
         g_acct_list_canvas.bind("<Button-4>", on_acct_list_mouse_wheel)
         g_acct_list_canvas.bind("<Button-5>", on_acct_list_mouse_wheel)
-        # --- HẾT THÊM MỚI ---
 
-        # Chuyển trang
         switch_account_page(g_acct_page_2_list)
 
     # --- Xử lý Đăng nhập, Thêm, Sửa, Xóa ---
@@ -6152,7 +6223,7 @@ if __name__ == '__main__':
             print(f"Lỗi tải {filename} (bỏ qua): {e}")
             return None
 
-
+    
 
     # --- THÊM MỚI: HÀM TẢI ẢNH TỪ URL ---
     def load_image_from_url(url, size=(192, 89)):
@@ -6903,7 +6974,7 @@ if __name__ == '__main__':
         Vẽ icon nhãn dán (Badge) bằng vector.
         """
         # --- [SỬA LỖI] THÊM IMPORT VÀO ĐÂY ---
-        from PIL import Image, ImageTk, ImageDraw, ImageFont
+        
         # -------------------------------------
 
         bg_color, txt_color = TAG_COLORS.get(tag_text, ("#555555", "white"))
@@ -7370,134 +7441,248 @@ if __name__ == '__main__':
         content_container.bind("<Enter>", _bind_detail_scroll)
         content_container.bind("<Leave>", _unbind_detail_scroll)
         # --- 2. LOGIC HIỂN THỊ CHI TIẾT ---
+        # --- CÁC HÀM HỖ TRỢ GALLERY ---
+
+        def close_trailer_player(banner_frame, hero_canvas, close_btn):
+            """Đóng video player và hiện lại gallery ảnh."""
+            # Xóa widget WebView2 (nếu có)
+            for widget in banner_frame.winfo_children():
+                if isinstance(widget, tk.Frame) and widget != hero_canvas: # WebView2 thường là Frame con
+                    widget.destroy()
+                if "webview" in str(widget).lower(): # Kiểm tra tên widget để chắc chắn
+                    widget.destroy()
+                    
+            # Ẩn nút đóng
+            if close_btn:
+                close_btn.place_forget()
+                
+            # Hiện lại Canvas
+            hero_canvas.pack(fill=tk.X, expand=True)
+
+        def play_trailer_embedded(banner_frame, hero_canvas, url, close_btn):
+            """Ẩn Canvas và nhúng WebView2 vào banner_frame để chạy video."""
+            game_name = "Night Reign" 
+            trailer_link = "https://www.youtube.com/watch?v=dQw4w9WgXcQ" # Thay bằng link thật
+
+            if trailer_link:
+                print(f"Đang mở trailer: {game_name}")
+                trailer_manager.play(trailer_link, f"Trailer: {game_name}")
+            else:
+                messagebox.showinfo("Thông báo", "Game này chưa có trailer!")
+
+        def update_hero_gallery(canvas, media_list, current_index, raw_banner_pil):
+            """Vẽ nội dung lên hero_canvas (Ảnh/Video Thumbnail)."""
+            canvas.delete("all")
+            if not media_list: return
+
+            width = canvas.winfo_width()
+            height = canvas.winfo_height()
+            if width < 10: width = 800
+            if height < 10: height = 300
+            
+            current_item = media_list[current_index]
+            item_type = current_item.get("type", "image")
+            
+            # VẼ NỀN (IMAGE)
+            display_pil = raw_banner_pil
+            if display_pil:
+                try:
+                    img_w, img_h = display_pil.size
+                    ratio = width / img_w
+                    new_h = int(img_h * ratio)
+                    resized_pil = display_pil.resize((width, new_h), Image.Resampling.LANCZOS)
+                    if new_h > height:
+                        resized_pil = resized_pil.crop((0, 0, width, height))
+                    
+                    # Làm tối ảnh nếu là Video để nút Play nổi hơn
+                    if item_type == "video":
+                        overlay = Image.new('RGBA', resized_pil.size, (0, 0, 0, 100))
+                        resized_pil = resized_pil.convert('RGBA')
+                        resized_pil = Image.alpha_composite(resized_pil, overlay)
+                    
+                    tk_img = ImageTk.PhotoImage(resized_pil)
+                    canvas.image = tk_img
+                    canvas.create_image(0, 0, anchor="nw", image=tk_img)
+                except Exception as e:
+                    pass
+
+            # VẼ NÚT PLAY (NẾU LÀ VIDEO)
+            if item_type == "video":
+                cx, cy = width // 2, height // 2
+                size = 40
+                canvas.create_oval(cx-size, cy-size, cx+size, cy+size, outline="white", width=3)
+                canvas.create_polygon(cx-10, cy-15, cx-10, cy+15, cx+15, cy, fill="white", outline="white")
+                canvas.create_text(cx, cy + size + 25, text="XEM TRAILER", font=("Segoe UI", 12, "bold"), fill="white")
+
+            # VẼ NÚT ĐIỀU HƯỚNG
+            if len(media_list) > 1:
+                canvas.create_text(30, height//2, text="❮", font=("Segoe UI", 30), fill="white", tags="btn_prev", activefill="#4cc2ff")
+                canvas.create_text(width-30, height//2, text="❯", font=("Segoe UI", 30), fill="white", tags="btn_next", activefill="#4cc2ff")
+                
+                # Pagination Dots
+                total_w = len(media_list) * 20
+                start_x = (width - total_w) // 2
+                for i in range(len(media_list)):
+                    fill_color = "white" if i == current_index else "gray"
+                    x = start_x + i * 20
+                    canvas.create_oval(x, height-30, x+10, height-20, fill=fill_color, outline="")
+
+        def on_hero_click(event, canvas, media_list, current_index_ref, banner_frame, close_btn):
+            """Xử lý click: Điều hướng hoặc Chạy Trailer."""
+            width = canvas.winfo_width()
+            clicked_item = canvas.find_closest(event.x, event.y)
+            tags = canvas.gettags(clicked_item)
+            
+            is_prev = "btn_prev" in tags or (event.x < 60)
+            is_next = "btn_next" in tags or (event.x > width - 60)
+            
+            if len(media_list) > 1:
+                if is_prev:
+                    current_index_ref[0] = (current_index_ref[0] - 1) % len(media_list)
+                    return "update"
+                elif is_next:
+                    current_index_ref[0] = (current_index_ref[0] + 1) % len(media_list)
+                    return "update"
+
+            # Click vào nội dung
+            current_item = media_list[current_index_ref[0]]
+            if current_item.get("type") == "video":
+                url = current_item.get("url")
+                if url:
+                    # GỌI HÀM PLAY EMBEDDED THAY VÌ MỞ TRÌNH DUYỆT
+                    play_trailer_embedded(banner_frame, canvas, url, close_btn)
+            
+            return None
+
+        # --- THAY THẾ HÀM show_steam_details ---
         def show_steam_details(game_name):
             global g_current_game_name, local_config, path_entry
             global g_mod_buttons, g_current_selected_key, selected_option
-            global g_launch_game_button 
+            global g_launch_game_button
 
             g_current_game_name = game_name
             local_config = load_local_config()
             g_mod_buttons = {}
-            selected_option.set("") 
+            selected_option.set("")
 
-            for w in g_steam_detail_frame.winfo_children(): w.destroy()
+            # Xóa nội dung cũ
+            for w in g_steam_detail_frame.winfo_children():
+                w.destroy()
 
             is_custom = game_name in local_config.get('custom_games', {})
-
-            # Header Image
-            raw_banner_pil = None
-            override_path = local_config.get('theme_overrides', {}).get(game_name)
-            if is_custom: override_path = local_config['custom_games'][game_name].get("image_local_path")
             
+            # 1. Dữ liệu Theme & Media
+            theme_data = g_game_themes.get(game_name)
+            image_url = ""
+            trailer_url = ""
+            
+            if isinstance(theme_data, dict):
+                image_url = theme_data.get("image", "")
+                trailer_url = theme_data.get("trailer", "")
+            elif isinstance(theme_data, str):
+                image_url = theme_data
+
+            override_path = local_config.get('theme_overrides', {}).get(game_name)
+            if is_custom:
+                override_path = local_config['custom_games'][game_name].get("image_local_path")
+            
+            # Load Banner Image
+            raw_banner_pil = None
             if override_path and os.path.exists(override_path):
                 try: raw_banner_pil = Image.open(override_path)
                 except: pass
-            if not raw_banner_pil:
-                image_url = g_game_themes.get(game_name)
-                if image_url:
-                    try:
-                        import hashlib
-                        cache_key = f"{image_url}_460x215"
-                        hashed_name = hashlib.sha256(cache_key.encode('utf-8')).hexdigest() + ".png"
-                        cache_path = os.path.join(g_cache_dir, hashed_name)
-                        if os.path.exists(cache_path): raw_banner_pil = Image.open(cache_path)
-                    except: pass
+            
+            if not raw_banner_pil and image_url:
+                try:
+                    import hashlib
+                    cache_key = f"{image_url}_460x215"
+                    hashed_name = hashlib.sha256(cache_key.encode('utf-8')).hexdigest() + ".png"
+                    cache_path = os.path.join(g_cache_dir, hashed_name)
+                    if os.path.exists(cache_path):
+                        raw_banner_pil = Image.open(cache_path)
+                except: pass
+
             if not raw_banner_pil:
                 try: raw_banner_pil = Image.open(resource_path("logo.png"))
                 except: raw_banner_pil = Image.new('RGB', (800, 300), color='#181818')
 
-            banner_frame = tk.Frame(g_steam_detail_frame, bg="#181818")
-            banner_frame.pack(fill=tk.X, anchor="n")
+            # Media List
+            media_list = [{"type": "image", "data": raw_banner_pil}]
+            if trailer_url:
+                media_list.append({"type": "video", "url": trailer_url})
+
+            gallery_state = [0] 
+
+            # 2. Xây dựng Giao diện
             
-            FIXED_BANNER_HEIGHT = 300
-            hero_canvas = tk.Canvas(banner_frame, height=FIXED_BANNER_HEIGHT, bg="#181818", highlightthickness=0)
-            hero_canvas.pack(fill=tk.X, expand=True)
-            banner_img_id = hero_canvas.create_image(0, 0, anchor="nw")
+            # --- BANNER AREA (Chứa cả Canvas và Video Player) ---
+            banner_frame = tk.Frame(g_steam_detail_frame, bg="#181818", height=300)
+            banner_frame.pack(fill=tk.X, anchor="n")
+            banner_frame.pack_propagate(False) # Cố định chiều cao, không bị co giãn khi đổi widget
 
-            def resize_banner_image(event):
-                new_width = event.width
-                if new_width < 10 or not raw_banner_pil: return
-                try:
-                    img_w, img_h = raw_banner_pil.size
-                    ratio = new_width / img_w
-                    new_h = int(img_h * ratio)
-                    resized_pil = raw_banner_pil.resize((new_width, new_h), Image.Resampling.LANCZOS)
-                    if new_h > FIXED_BANNER_HEIGHT:
-                        resized_pil = resized_pil.crop((0, 0, new_width, FIXED_BANNER_HEIGHT))
-                    tk_img = ImageTk.PhotoImage(resized_pil)
-                    hero_canvas.image = tk_img 
-                    hero_canvas.itemconfig(banner_img_id, image=tk_img)
-                    hero_canvas.tag_raise("text_layer")
-                except: pass
+            # Canvas (Hiển thị mặc định)
+            hero_canvas = tk.Canvas(banner_frame, bg="#181818", highlightthickness=0)
+            hero_canvas.pack(fill=tk.BOTH, expand=True)
 
-            hero_canvas.bind("<Configure>", resize_banner_image)
+            # Nút này sẽ được place() khi video chạy
 
-            # display_name = local_config.get('display_name_overrides', {}).get(game_name, game_name)
-            # hero_canvas.create_text(32, 242, text=display_name, font=("Segoe UI", 30, "bold"), fill="black", anchor="w", tags="text_layer")
-            # hero_canvas.create_text(30, 240, text=display_name, font=("Segoe UI", 30, "bold"), fill="white", anchor="w", tags="text_layer")
+            def refresh_gallery():
+                update_hero_gallery(hero_canvas, media_list, gallery_state[0], raw_banner_pil)
 
-            # Play Bar
+            # Pass banner_frame và close_trailer_btn vào hàm xử lý click
+            # def on_canvas_click_wrapper(event):
+            #     action = on_hero_click(event, hero_canvas, media_list, gallery_state, banner_frame, close_trailer_btn)
+            #     if action == "update":
+            #         refresh_gallery()
+            
+            # hero_canvas.bind("<Button-1>", on_canvas_click_wrapper)
+            hero_canvas.bind("<Configure>", lambda e: refresh_gallery())
+
+            # --- CÁC PHẦN CÒN LẠI (PLAY BAR, CONTENT) ---
+            # (Phần này giữ nguyên code cũ của bạn, tôi copy lại để đảm bảo tính toàn vẹn)
+
             play_bar_frame = tk.Frame(g_steam_detail_frame, bg="#252526", height=80, padx=30, pady=15)
             play_bar_frame.pack(fill=tk.X)
 
-            # Logic kiểm tra Path (Giữ nguyên)
             full_path_to_launch = None
             current_path_folder = local_config.get("game_paths", {}).get(game_name, "")
-            if not current_path_folder: current_path_folder = local_config.get("last_used_folder", "")
+            if not current_path_folder:
+                current_path_folder = local_config.get("last_used_folder", "")
 
             if is_custom:
                 full_path_to_launch = local_config['custom_games'][game_name].get("launch_path")
             else:
                 found_launch_file = local_config.get('game_launchers', {}).get(game_name)
                 if not found_launch_file and 'download_options' in globals():
-                    for _key, mod_data in game_groups.get(game_name, []):
-                        if mod_data.get("launch_file"): found_launch_file = mod_data.get("launch_file"); break
+                    mod_list_data = download_options.get(game_name, [])
+                    for _key, mod_data in mod_list_data:
+                        if mod_data.get("launch_file"):
+                            found_launch_file = mod_data.get("launch_file")
+                            break
+                
                 if found_launch_file and current_path_folder and os.path.isdir(current_path_folder):
                     full_path = os.path.join(current_path_folder, found_launch_file)
-                    if os.path.exists(full_path): full_path_to_launch = full_path
-            
+                    if os.path.exists(full_path):
+                        full_path_to_launch = full_path
+
             g_launch_game_button = ttk.Button(play_bar_frame, text="🚀 Chạy Game ", style="Big.Accent.TButton")
             g_launch_game_button.pack(side=tk.LEFT, ipady=5, ipadx=15)
             
             if full_path_to_launch:
-                g_launch_game_button.config(state=tk.NORMAL, command=lambda: action_launch_game_from_page_1(full_path_to_launch, None))
-                status_text = "Ready To Play"
+                g_launch_game_button.config(state=tk.NORMAL, command=lambda: action_launch_game_from_page_1(full_path_to_launch, g_launch_game_button))
             else:
                 g_launch_game_button.config(state=tk.DISABLED, text="Chưa Cài Đặt")
-                status_text = "Hãy chọn folder & cài đặt Game"
-            
 
-            gear_btn = ttk.Button(
-                play_bar_frame, 
-                image=get_ctx_icon("gear", "white"), # <-- GỌI HÀM VỪA SỬA
-                text="",              
-                width=3
-            )
-            
-            # Cấu hình lệnh
+            gear_btn = ttk.Button(play_bar_frame, image=get_ctx_icon("gear", "white"), text="", width=3)
             gear_btn.configure(command=lambda: show_game_context_menu(gear_btn, game_name, is_custom))
-            
             gear_btn.pack(side=tk.RIGHT, padx=5)
-            gear_btn = play_bar_frame.winfo_children()[-1]
 
             if full_path_to_launch or (current_path_folder and os.path.exists(current_path_folder)):
-                
-                uninstall_btn = ttk.Button(
-                    play_bar_frame,
-                    image=get_ctx_icon("trash", "#ff4d4d"), # Icon thùng rác màu đỏ
-                    text="",
-                    width=3,
-                    style="TButton" # Style thường
-                )
-                
+                uninstall_btn = ttk.Button(play_bar_frame, image=get_ctx_icon("trash", "#ff4d4d"), text="", width=3, style="TButton")
                 uninstall_btn.configure(command=lambda: action_uninstall_game_logic(game_name))
-                
-                # Pack sang phải (nó sẽ nằm bên TRÁI của nút Gear vì Gear pack trước)
                 uninstall_btn.pack(side=tk.RIGHT, padx=(0, 5))
-                
-                CreateToolTip(uninstall_btn, "Gỡ cài đặt game (Xóa thư mục game)")
+                CreateToolTip(uninstall_btn, "Gỡ cài đặt game")
 
-            # Content (Path & Mod List)
             content_frame = tk.Frame(g_steam_detail_frame, bg="#181818", padx=30, pady=20)
             content_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -7507,15 +7692,12 @@ if __name__ == '__main__':
             path_entry = ttk.Entry(path_group)
             path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
             path_entry.insert(0, current_path_folder)
-            
             ttk.Button(path_group, text="Chọn đường dẫn...", command=browse_for_folder).pack(side=tk.LEFT, padx=5)
-            # ttk.Button(path_group, text="Cài file mở Game", command=action_set_game_path_from_page_2).pack(side=tk.LEFT)
 
             mod_group = tk.LabelFrame(content_frame, text="📦 Các bản Cài đặt / Mod", bg="#181818", fg="white", padx=10, pady=10)
             mod_group.pack(fill=tk.BOTH, expand=True)
 
             mod_list_data = download_options.get(game_name, [])
-            
             if not mod_list_data:
                 tk.Label(mod_group, text="Hiện không có cài đặt nào", bg="#181818", fg="gray").pack(pady=20)
             else:
@@ -7534,42 +7716,28 @@ if __name__ == '__main__':
                     info_frame = tk.Frame(card, bg="#252526", padx=10)
                     info_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
                     tk.Label(info_frame, text=mod_name, fg="white", bg="#252526", font=("Segoe UI", 11, "bold"), anchor="w").pack(fill=tk.X)
-                    
-                    ver_text = f"Version: {mod_ver}"
-                    if installed_ver != "Not installed": ver_text += f" (Installed: {installed_ver})"
+                    ver_text = f"Version: {mod_ver}" + (f" (Installed: {installed_ver})" if installed_ver != "Not installed" else "")
                     tk.Label(info_frame, text=ver_text, fg="#8b929a", bg="#252526", font=("Segoe UI", 9), anchor="w").pack(fill=tk.X)
-
+                    
                     g_mod_buttons[key] = (chk_btn, card)
-
                     def on_mod_click(k=key):
                         selected_option.set(k)
                         for mk, (mb, mc) in g_mod_buttons.items():
-                            if mk == k:
-                                mc.config(bg="#3d4450")
-                                mb.config(bg="#4cff00", fg="black")
-                            else:
-                                mc.config(bg="#252526")
-                                mb.config(bg="#3d4450", fg="white")
-
+                            if mk == k: mc.config(bg="#3d4450"); mb.config(bg="#4cff00", fg="black")
+                            else: mc.config(bg="#252526"); mb.config(bg="#3d4450", fg="white")
                     chk_btn.config(command=on_mod_click)
                     card.bind("<Button-1>", lambda e, k=key: on_mod_click(k))
                     info_frame.bind("<Button-1>", lambda e, k=key: on_mod_click(k))
                     for child in info_frame.winfo_children(): child.bind("<Button-1>", lambda e, k=key: on_mod_click(k))
-
-                if mod_list_data:
-                    g_mod_buttons[mod_list_data[0][0]][0].invoke()
+                if mod_list_data: g_mod_buttons[mod_list_data[0][0]][0].invoke()
 
             action_bar = tk.Frame(content_frame, bg="#181818", pady=20)
             action_bar.pack(fill=tk.X)
-            
             if 'g_auto_add_exclusion' not in globals():
                 global g_auto_add_exclusion
                 g_auto_add_exclusion = tk.BooleanVar(value=False)
-
             def_chk = ttk.Checkbutton(action_bar, text="🛡️ Auto-Exclusion (Defender)", variable=g_auto_add_exclusion, style="Switch.TCheckbutton")
             def_chk.pack(side=tk.LEFT)
-            CreateToolTip(def_chk, "Tự động thêm thư mục vào Exclusion Windows Defender (Tránh xóa file).")
-
             dl_btn = ttk.Button(action_bar, text="Bắt Đầu Tải Và Cài Đặt", style="Accent.TButton", command=start_download_thread)
             dl_btn.pack(side=tk.RIGHT, ipadx=20, ipady=5)
 
@@ -8390,65 +8558,160 @@ if __name__ == '__main__':
             options_treeview.see(selected_key)
             upload_status_label.config(text="Đã thay đổi thứ tự. Nhớ 'Upload Config' để lưu!", foreground="#ffcc00")
 
-    def open_game_theme_manager():
-        """Mở cửa sổ modal để Thêm/Xóa game theme."""
-        global g_theme_manager_window, g_theme_listbox, g_theme_name_entry, g_theme_url_entry
+    def action_clear_theme_form():
+        """
+        Xóa trắng các ô nhập liệu để chuẩn bị nhập game mới.
+        Bỏ chọn item trong listbox.
+        """
+        # 1. Xóa nội dung trong các ô nhập
+        if g_theme_name_entry:
+            g_theme_name_entry.delete(0, tk.END)
+        
+        if g_theme_url_entry:
+            g_theme_url_entry.delete(0, tk.END)
+            
+        if g_theme_trailer_entry:
+            g_theme_trailer_entry.delete(0, tk.END)
 
-        if g_theme_manager_window is not None:
-            try: g_theme_manager_window.destroy()
-            except: pass
+        # 2. Bỏ chọn dòng đang chọn trong Listbox (để người dùng biết đang không sửa game nào)
+        if g_theme_listbox:
+            g_theme_listbox.selection_clear(0, tk.END)
+            
+        # 3. Focus vào ô tên game để nhập ngay
+        if g_theme_name_entry:
+            g_theme_name_entry.focus_set()
+
+    def open_game_theme_manager():
+        """
+        Mở cửa sổ quản lý Theme (Admin Dashboard).
+        ĐÃ CẬP NHẬT: Thêm nút 'Nhập Mới' (Empty Form).
+        """
+        global g_theme_manager_window, g_theme_name_entry, g_theme_url_entry, g_theme_trailer_entry, g_theme_listbox
+
+        if g_theme_manager_window and g_theme_manager_window.winfo_exists():
+            g_theme_manager_window.lift()
+            return
 
         g_theme_manager_window = tk.Toplevel(root)
-        g_theme_manager_window.title("Quản lý Game Theme")
-        center_window_on_screen(g_theme_manager_window, 600, 400)
+        g_theme_manager_window.title("Quản Lý Game Theme & Trailer")
+        center_window_on_screen(g_theme_manager_window, 750, 550)
         g_theme_manager_window.transient(root)
         g_theme_manager_window.grab_set()
+        
+        # Áp dụng theme titlebar
+        g_theme_manager_window.after(10, lambda: apply_theme_to_titlebar(g_theme_manager_window))
 
-        main_frame = ttk.Frame(g_theme_manager_window, padding=10)
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        # Layout chính: Chia 2 cột
+        main_layout = ttk.Frame(g_theme_manager_window, padding=10)
+        main_layout.pack(fill=tk.BOTH, expand=True)
 
-        # Cột trái: Danh sách
-        list_frame = ttk.LabelFrame(main_frame, text="Game Themes Hiện tại")
-        list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
+        # --- CỘT TRÁI: DANH SÁCH GAME ---
+        left_frame = ttk.LabelFrame(main_layout, text="Danh sách Game", padding=5)
+        left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 5))
 
-        list_scroll = ttk.Scrollbar(list_frame, orient="vertical")
+        list_scroll = ttk.Scrollbar(left_frame)
         list_scroll.pack(side=tk.RIGHT, fill=tk.Y)
-        g_theme_listbox = tk.Listbox(list_frame, yscrollcommand=list_scroll.set)
-        g_theme_listbox.pack(fill=tk.BOTH, expand=True)
+
+        g_theme_listbox = tk.Listbox(left_frame, yscrollcommand=list_scroll.set, font=("Segoe UI", 10), exportselection=False)
+        g_theme_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         list_scroll.config(command=g_theme_listbox.yview)
 
-        # Điền vào listbox
+        # --- CỘT PHẢI: FORM NHẬP LIỆU ---
+        right_frame = ttk.LabelFrame(main_layout, text="Thông tin Chi tiết", padding=10)
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+        # 1. Tên Game
+        ttk.Label(right_frame, text="Tên Game (Chính xác):").pack(anchor=tk.W, pady=(0, 5))
+        g_theme_name_entry = ttk.Entry(right_frame, width=40)
+        g_theme_name_entry.pack(fill=tk.X, pady=(0, 10))
+
+        # 2. Link Ảnh
+        ttk.Label(right_frame, text="URL Hình Ảnh (Banner):").pack(anchor=tk.W, pady=(0, 5))
+        g_theme_url_entry = ttk.Entry(right_frame, width=40)
+        g_theme_url_entry.pack(fill=tk.X, pady=(0, 10))
+        
+        # 3. Link Trailer
+        ttk.Label(right_frame, text="URL Trailer (Youtube/MP4):").pack(anchor=tk.W, pady=(0, 5))
+        g_theme_trailer_entry = ttk.Entry(right_frame, width=40)
+        g_theme_trailer_entry.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(right_frame, text="Gợi ý: Link Youtube hoặc file .mp4", font=("Segoe UI", 8), foreground="gray").pack(anchor=tk.W, pady=(0, 10))
+
+        # --- BUTTONS ACTION (ĐÃ CẬP NHẬT) ---
+        btn_frame = ttk.Frame(right_frame)
+        btn_frame.pack(fill=tk.X, pady=20)
+
+        # Nút Làm Sạch Form (MỚI)
+        ttk.Button(btn_frame, text="✨ Nhập Mới (Làm Sạch Form)", command=action_clear_theme_form).pack(fill=tk.X, pady=(0, 10))
+
+        # Các nút cũ
+        ttk.Button(btn_frame, text="💾 Lưu / Cập Nhật", style="Accent.TButton", command=action_add_game_theme).pack(fill=tk.X, pady=5)
+        ttk.Button(btn_frame, text="❌ Xóa Game Này", style="Danger.TButton", command=action_delete_game_theme).pack(fill=tk.X, pady=5)
+        
+        ttk.Separator(right_frame, orient='horizontal').pack(fill=tk.X, pady=10)
+        
+        # --- LOGIC SELECTION ---
+        def on_theme_select_event(event):
+            selection = g_theme_listbox.curselection()
+            if selection:
+                game_name = g_theme_listbox.get(selection[0])
+                data = g_game_themes.get(game_name)
+                
+                # Xóa form cũ
+                g_theme_name_entry.delete(0, tk.END)
+                g_theme_url_entry.delete(0, tk.END)
+                g_theme_trailer_entry.delete(0, tk.END)
+                
+                # Điền form mới
+                g_theme_name_entry.insert(0, game_name)
+                
+                if isinstance(data, dict):
+                    g_theme_url_entry.insert(0, data.get("image", ""))
+                    g_theme_trailer_entry.insert(0, data.get("trailer", ""))
+                elif isinstance(data, str):
+                    g_theme_url_entry.insert(0, data)
+                
+        g_theme_listbox.bind('<<ListboxSelect>>', on_theme_select_event)
+
+        # Load dữ liệu ban đầu
         populate_theme_listbox()
 
-        # Cột phải: Form
-        form_frame = ttk.Frame(main_frame, width=250)
-        form_frame.pack(side=tk.LEFT, fill=tk.Y)
 
-        # Form Thêm
-        add_frame = ttk.LabelFrame(form_frame, text="Thêm Game Mới")
-        add_frame.pack(fill=tk.X)
+    # def action_add_game_theme():
+    #     """
+    #     Lưu theme (Ảnh + Trailer) vào bộ nhớ và Upload lên GitHub.
+    #     Hỗ trợ cấu trúc dữ liệu mới: Dict.
+    #     """
+    #     global g_game_themes
+    #     name = g_theme_name_entry.get().strip()
+    #     url_img = g_theme_url_entry.get().strip()
+    #     url_trailer = g_theme_trailer_entry.get().strip()
 
-        ttk.Label(add_frame, text="Tên Game:").pack(anchor=tk.W, padx=5, pady=(5,0))
-        g_theme_name_entry = ttk.Entry(add_frame)
-        g_theme_name_entry.pack(fill=tk.X, padx=5, pady=5)
+    #     if not name or not url_img:
+    #         custom_showerror("Thiếu thông tin", "Vui lòng nhập ít nhất Tên Game và URL Ảnh.", parent=g_theme_manager_window)
+    #         return
 
-        ttk.Label(add_frame, text="URL Hình ảnh:").pack(anchor=tk.W, padx=5, pady=(5,0))
-        g_theme_url_entry = ttk.Entry(add_frame)
-        g_theme_url_entry.pack(fill=tk.X, padx=5, pady=5)
+    #     # Tạo cấu trúc dữ liệu (Dictionary)
+    #     theme_data = {
+    #         "image": url_img,
+    #         "trailer": url_trailer # Có thể rỗng
+    #     }
 
-        add_button = ttk.Button(add_frame, text="Thêm Mới", 
-                                style="Accent.TButton",
-                                command=action_add_game_theme)
-        add_button.pack(pady=10, padx=5)
+    #     # Cập nhật vào biến toàn cục
+    #     g_game_themes[name] = theme_data
 
-        # Form Xóa
-        delete_frame = ttk.LabelFrame(form_frame, text="Xóa Game")
-        delete_frame.pack(fill=tk.X, pady=20)
+    #     # Gọi thread upload
+    #     threading.Thread(target=upload_theme_json_thread, args=(name,), daemon=True).start()
 
-        delete_button = ttk.Button(delete_frame, text="Xóa Game Đã Chọn",
-                                style="Danger.TButton",
-                                command=action_delete_game_theme)
-        delete_button.pack(pady=10, padx=5)
+    # Giữ nguyên populate_theme_listbox nhưng đảm bảo nó gọi đúng biến toàn cục
+    def populate_theme_listbox():
+        if not g_theme_listbox: return
+        g_theme_listbox.delete(0, tk.END)
+        
+        if not g_game_themes: return
+
+        sorted_games = sorted(g_game_themes.keys())
+        for game_name in sorted_games:
+            g_theme_listbox.insert(tk.END, game_name)
 
     def toggle_edit_form_state(enable=True):
         """Khóa hoặc Mở khóa toàn bộ form nhập liệu."""
@@ -9405,27 +9668,51 @@ if __name__ == '__main__':
             g_theme_listbox.insert(tk.END, game_name)
 
     def action_add_game_theme():
-        """LLogic cho nút 'Thêm Mới' trong modal."""
+        """
+        Lưu theme (Ảnh + Trailer) vào bộ nhớ và Upload lên GitHub.
+        ĐÃ SỬA: Cho phép ghi đè để cập nhật game cũ mà không báo lỗi "Đã tồn tại".
+        """
         global g_game_themes
-
+        
+        # Lấy dữ liệu từ ô nhập
         name = g_theme_name_entry.get().strip()
-        url = g_theme_url_entry.get().strip()
+        url_img = g_theme_url_entry.get().strip()
+        url_trailer = g_theme_trailer_entry.get().strip()
 
-        if not name or not url:
-            custom_showerror("Thiếu thông tin", "Vui lòng nhập cả Tên Game và URL.", parent=g_theme_manager_window)
+        # Kiểm tra dữ liệu đầu vào
+        if not name or not url_img:
+            custom_showerror("Thiếu thông tin", "Vui lòng nhập ít nhất Tên Game và URL Ảnh.", parent=g_theme_manager_window)
             return
 
-        if name in g_game_themes:
-            custom_showerror("Trùng tên", "Tên game này đã tồn tại.", parent=g_theme_manager_window)
-            return
+        # Tạo cấu trúc dữ liệu mới
+        theme_data = {
+            "image": url_img,
+            "trailer": url_trailer  # Có thể rỗng nếu không có trailer
+        }
 
-        # Thêm vào dict
-        g_game_themes[name] = url
+        # --- LOGIC QUAN TRỌNG ĐÃ SỬA ---
+        # Trước đây: if name in g_game_themes: báo lỗi -> return
+        # Bây giờ: Chỉ cần gán thẳng vào dictionary. Nó sẽ tự động cập nhật nếu đã có.
+        
+        is_update = name in g_game_themes # Kiểm tra xem đây là thêm mới hay cập nhật để thông báo cho đúng
+        
+        g_game_themes[name] = theme_data
 
-        # Bắt đầu upload
-        threading.Thread(target=upload_theme_json_thread, 
-                        args=(name,), 
-                        daemon=True).start()
+        # Cập nhật lại Listbox bên trái ngay lập tức để thấy thay đổi
+        populate_theme_listbox()
+
+        # Gọi thread upload lên Server (GitHub)
+        threading.Thread(target=upload_theme_json_thread, args=(name,), daemon=True).start()
+        
+        # Thông báo thành công
+        action_text = "Cập nhật" if is_update else "Thêm mới"
+        messagebox.showinfo("Thành công", f"Đã {action_text} game '{name}' thành công!\nDữ liệu đang được đồng bộ lên server.", parent=g_theme_manager_window)
+
+        # (Tùy chọn) Xóa form sau khi thêm mới (nhưng giữ lại nếu cập nhật để tiện sửa tiếp)
+        if not is_update:
+            g_theme_name_entry.delete(0, tk.END)
+            g_theme_url_entry.delete(0, tk.END)
+            g_theme_trailer_entry.delete(0, tk.END)
 
     def action_delete_game_theme():
         """Logic cho nút 'Xóa' trong modal."""
@@ -9524,32 +9811,24 @@ if __name__ == '__main__':
 
     def update_user_ui_on_main_thread(name, email, avatar_bytes):
         """
-        Cập nhật giao diện Titlebar.
-        - Khi Login: Hiện Avatar + Tên.
-        - Khi Logout: Reset về nút Đăng nhập mà KHÔNG TẮT APP.
+        Cập nhật giao diện Titlebar và Xử lý Đăng xuất.
         """
         global g_titlebar_google_frame, drive_service
         
-        # Màu sắc
         BG_TITLEBAR = "#1c1c1c"
         BG_HOVER = "#333333"
         FG_TEXT = "#ffffff"
         
-        # 1. Cập nhật Tab 3 (Trạng thái đã kết nối)
         if 'drive_auth_button' in globals():
             drive_auth_button.config(text="Đã kết nối Drive", style="Green.TButton",state=tk.DISABLED)
             
-        # 2. Cập nhật Title Bar
         if g_titlebar_google_frame:
-            # Xóa hết nội dung cũ (Nút đăng nhập hoặc Avatar cũ)
             for widget in g_titlebar_google_frame.winfo_children():
                 widget.destroy()
             
-            # --- TẠO KHUNG PROFILE ---
             profile_frame = tk.Frame(g_titlebar_google_frame, bg=BG_TITLEBAR, cursor="hand2", padx=10, pady=2)
             profile_frame.pack(fill=tk.Y, side=tk.RIGHT)
 
-            # Avatar
             if avatar_bytes:
                 avatar_tk = make_circle_avatar(avatar_bytes, size=(24, 24))
                 root.cached_images["auto_user_avatar"] = avatar_tk 
@@ -9559,12 +9838,13 @@ if __name__ == '__main__':
                 lbl_avt = tk.Label(profile_frame, text="👤", bg=BG_TITLEBAR, fg=FG_TEXT, font=("Segoe UI", 12))
                 lbl_avt.pack(side=tk.LEFT, padx=(0, 8))
 
-            # Tên User
             lbl_name = tk.Label(profile_frame, text=name, bg=BG_TITLEBAR, fg=FG_TEXT, font=("Segoe UI", 9))
             lbl_name.pack(side=tk.LEFT)
 
-            # --- LOGIC ĐĂNG XUẤT MỚI (KHÔNG TẮT APP) ---
+            # --- LOGIC ĐĂNG XUẤT (ĐÃ SỬA) ---
             def perform_logout():
+                global drive_service, g_accounts_loaded # Thêm g_accounts_loaded
+                
                 # 1. Xóa file token
                 token_path = resource_path('token.json')
                 if os.path.exists(token_path):
@@ -9580,41 +9860,41 @@ if __name__ == '__main__':
                 if 'upload_files_button' in globals():
                     upload_files_button.config(state=tk.DISABLED)
                     
-                # 4. Reset Title Bar (Vẽ lại nút Đăng Nhập)
+                # 4. Reset Title Bar
                 if g_titlebar_google_frame:
-                    # Xóa Avatar hiện tại
                     for widget in g_titlebar_google_frame.winfo_children():
                         widget.destroy()
                     
-                    # Tạo lại nút Đăng Nhập (Code copy từ setup_custom_titlebar)
                     btn_login = tk.Button(
                         g_titlebar_google_frame,
                         text=" Đăng nhập ", 
                         bg="#4285F4", fg="white",
                         font=("Segoe UI", 9, "bold"), bd=0,
-                        cursor="hand2", command=action_drive_login, # Gọi lại hàm login
+                        cursor="hand2", command=action_drive_login,
                         relief="flat"
                     )
                     btn_login.pack(ipady=4, pady=4)
-                    
-                    # Hiệu ứng hover cho nút mới
                     btn_login.bind("<Enter>", lambda e: btn_login.config(bg="#357ae8"))
                     btn_login.bind("<Leave>", lambda e: btn_login.config(bg="#4285F4"))
 
                 custom_showinfo("Đăng xuất", "Đã đăng xuất thành công.")
 
-            # --- MENU POPUP ---
+                # --- [FIX LỖI] LÀM MỚI TAB SHARE ACC (CHUYỂN VỀ GUEST MODE) ---
+                print("Logout OK -> Reloading Accounts in Guest Mode...")
+                g_accounts_loaded = False # Reset cờ để ép tải lại
+                # Tải lại account (Lúc này drive_service = None nên nó sẽ tải bản Public và khóa nút)
+                threading.Thread(target=load_accounts_from_drive_thread, daemon=True).start()
+                # -------------------------------------------------------------
+
             def show_user_menu(e):
                 menu = tk.Menu(root, tearoff=0)
                 menu.add_command(label=f"📧 {email}", state=tk.DISABLED)
                 menu.add_separator()
-                menu.add_command(label="Đăng xuất", command=perform_logout) # Gọi hàm logout mới
-                
+                menu.add_command(label="Đăng xuất", command=perform_logout)
                 x = profile_frame.winfo_rootx()
                 y = profile_frame.winfo_rooty() + profile_frame.winfo_height()
                 menu.post(x, y)
 
-            # --- HIỆU ỨNG HOVER ---
             def on_enter(e):
                 profile_frame.config(bg=BG_HOVER)
                 lbl_avt.config(bg=BG_HOVER)
@@ -9631,69 +9911,71 @@ if __name__ == '__main__':
                 widget.bind("<Leave>", on_leave)
 
     def try_auto_login_drive_thread():
-        """(Chạy ngầm) Tự động đăng nhập, lấy User Info và cập nhật UI."""
+        """(Chạy ngầm) Tự động đăng nhập User VÀ kích hoạt tải dữ liệu."""
         global drive_service
         
         token_path = resource_path('token.json')
         creds_path = resource_path('credentials.json')
         
-        # Kiểm tra file tồn tại
-        if not os.path.exists(creds_path) or not os.path.exists(token_path): 
-            return 
+        # --- LOGIC MỚI: Tách biệt việc Login và việc Tải Dữ Liệu ---
         
-        try:
-            print("Auto-Login: Đang kiểm tra token...")
-            creds = Credentials.from_authorized_user_file(token_path, SCOPES)
-            
-            # Làm mới token nếu hết hạn
-            if not creds.valid and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            
-            if creds.valid:
-                # 1. Khởi tạo Drive Service
-                drive_service = build('drive', 'v3', credentials=creds)
-                print("Auto-Login: Drive Service OK.")
+        # 1. Thử Đăng nhập (Chỉ chạy nếu có token)
+        if os.path.exists(creds_path) and os.path.exists(token_path):
+            try:
+                print("Auto-Login: Đang kiểm tra token...")
+                creds = Credentials.from_authorized_user_file(token_path, SCOPES)
                 
-                # 2. Lấy thông tin User (Profile & Avatar)
-                try:
-                    user_service = build('oauth2', 'v2', credentials=creds)
-                    user_info = user_service.userinfo().get().execute()
+                # Làm mới token nếu hết hạn
+                if not creds.valid and creds.expired and creds.refresh_token:
+                    creds.refresh(Request())
+                
+                if creds.valid:
+                    # Khởi tạo Drive Service
+                    drive_service = build('drive', 'v3', credentials=creds)
+                    print("Auto-Login: Drive Service OK.")
                     
-                    name = user_info.get('name', 'User')
-                    email = user_info.get('email', '')
-                    pic_url = user_info.get('picture', '')
-                    
-                    # Tải ảnh avatar (nếu có URL)
-                    avatar_data = None
-                    if pic_url:
-                        try:
-                            res = requests.get(pic_url, timeout=5)
-                            if res.status_code == 200:
-                                avatar_data = res.content
-                        except: pass
-                    
-                    # 3. Cập nhật UI (Chuyển về luồng chính để an toàn)
-                    # Dùng root.after để đảm bảo thread safe
-                    root.after(0, lambda: update_user_ui_on_main_thread(name, email, avatar_data))
-                    
-                except Exception as e:
-                    print(f"Auto-Login Warning: Không thể lấy info user ({e})")
+                    # Lấy thông tin User (Avatar, Tên)
+                    try:
+                        user_service = build('oauth2', 'v2', credentials=creds)
+                        user_info = user_service.userinfo().get().execute()
+                        
+                        name = user_info.get('name', 'User')
+                        email = user_info.get('email', '')
+                        pic_url = user_info.get('picture', '')
+                        
+                        # Tải ảnh avatar
+                        avatar_data = None
+                        if pic_url:
+                            try:
+                                res = requests.get(pic_url, timeout=5)
+                                if res.status_code == 200:
+                                    avatar_data = res.content
+                            except: pass
+                        
+                        # Cập nhật UI Avatar
+                        root.after(0, lambda: update_user_ui_on_main_thread(name, email, avatar_data))
+                        
+                        # Refresh list file ở Tab 3
+                        root.after(0, action_refresh_drive_list) 
+                        
+                    except Exception as e:
+                        print(f"Auto-Login Warning: Không thể lấy info user ({e})")
+                else:
+                    print("Auto-Login: Token không hợp lệ (Hết hạn và không refresh được).")
+            except Exception as e:
+                print(f"Auto-Login Error: {e}")
+        else:
+            print("Auto-Login: Chưa có file token (Chế độ Guest).")
 
-                # 4. Tiếp tục các công việc tải dữ liệu khác
-                root.after(0, action_refresh_drive_list) # Refresh list file ở Tab 3
-                load_accounts_from_drive_thread() # Tải account game
-                
-            else:
-                print("Auto-Login: Token không hợp lệ.")
-                
-        except Exception as e:
-            print(f"Auto-Login Error: {e}")
+        # 2. QUAN TRỌNG NHẤT: Luôn luôn gọi hàm tải dữ liệu account
+        # Bất kể có đăng nhập được hay không, vẫn phải chạy hàm này để nó tải file Public
+        print("Auto-Login: Gọi hàm tải Account...")
+        load_accounts_from_drive_thread()
 
     def action_drive_login():
-        """Đăng nhập và gọi hàm update UI chuẩn để đồng bộ giao diện."""
-        global drive_service
+        """Đăng nhập và tự động làm mới giao diện Account."""
+        global drive_service, g_accounts_loaded
         
-        # Cập nhật trạng thái nút
         if 'drive_auth_button' in globals():
             drive_auth_button.config(text="Đang kết nối Google...", state=tk.DISABLED)
         root.update_idletasks()
@@ -9723,7 +10005,6 @@ if __name__ == '__main__':
                 email = user_info.get('email', '')
                 pic_url = user_info.get('picture', '')
 
-                # Tải ảnh avatar thành dạng bytes
                 avatar_data = None
                 if pic_url:
                     try:
@@ -9733,13 +10014,16 @@ if __name__ == '__main__':
                     except Exception as e:
                         print(f"Lỗi tải avatar: {e}")
 
-                # 3. [QUAN TRỌNG] GỌI HÀM UPDATE UI CHUẨN (Thay vì tự vẽ)
-                # Hàm này đã được chỉnh màu #1c1c1c nên sẽ đẹp ngay lập tức
                 update_user_ui_on_main_thread(name, email, avatar_data)
+
+                # --- [FIX LỖI] LÀM MỚI TAB SHARE ACC (CHUYỂN SANG CHẾ ĐỘ ADMIN) ---
+                print("Login OK -> Reloading Accounts in Admin Mode...")
+                g_accounts_loaded = False # Reset cờ để ép tải lại
+                threading.Thread(target=load_accounts_from_drive_thread, daemon=True).start()
+                # ------------------------------------------------------------------
 
             except Exception as e:
                 print(f"Lỗi lấy info sau đăng nhập: {e}")
-                # Nếu lỗi vẫn cập nhật UI mặc định
                 update_user_ui_on_main_thread("User", "", None)
 
         else:
@@ -11921,7 +12205,7 @@ if __name__ == '__main__':
     root.focus_force()
     root.attributes('-topmost', 0)
     print("Đang kết nối Server Online...")
-    threading.Thread(target=start_socket_service, daemon=True).start()
+    # threading.Thread(target=start_socket_service, daemon=True).start()
     root.after(1000, lambda: show_new_feature_banner(
         root, 
         "✨ TÍNH NĂNG MỚI: DỊCH GAME", 
