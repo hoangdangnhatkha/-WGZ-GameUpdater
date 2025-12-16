@@ -14,7 +14,10 @@
     "Phasmophobia": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/739630/c227a2855aba60f3657bc0c3a46515b8c41fb2b6/header.jpg?t=1763980860",
     "MIMESIS": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2827200/8a2a6edc97fbf23ea6941974bdf4ed9a6ab34eb4/header.jpg?t=1764120239",
     "Backrooms: Escape Together": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2141730/header.jpg?t=1761959171",
-    "Clair Obscur: Expedition 33": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1903340/0f2bb607ca3f9cc7c795818b955542d076b2bebf/header_alt_assets_0.jpg?t=1765542896",
+    "Clair Obscur: Expedition 33": {
+        "image": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1903340/0f2bb607ca3f9cc7c795818b955542d076b2bebf/header_alt_assets_0.jpg?t=1765542896",
+        "trailer": "https://www.youtube.com/watch?v=2VaLOc1FpSo"
+    },
     "The Legend of Zelda: Breath of the Wild": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000096817/cfe9f8d674be958326d3ba11fc7598a4383e5c5d7809b6239ccac0783aac6cd8",
     "The Legend of Zelda: Tears of the Kingdom": "https://www.cnet.com/a/img/resize/975719fbb4242f346c0db05e044608b2dcf7cddc/hub/2022/09/13/fc6f151c-93b1-471c-97ea-a76c44e30235/switch-tloz-totk-artwork-01.jpg?auto=webp&fit=crop&height=675&width=1200"
 }
