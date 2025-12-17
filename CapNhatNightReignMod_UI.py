@@ -761,6 +761,9 @@ g_game_search_entry = None
 g_game_grid_container = None
 g_all_mods_flat = {}
 g_game_themes = {}
+g_slideshow_job = None      # Để lưu ID của timer (dùng để hủy khi chuyển game)
+g_slideshow_urls = []       # Danh sách URL hiện tại
+g_slideshow_index = 0       # Chỉ số ảnh đang hiệ
 global g_mod_buttons
 g_mod_buttons = {}
 global g_current_selected_key
@@ -4614,7 +4617,8 @@ def process_queue():
 
             # Xóa form trong modal
             g_theme_name_entry.delete(0, tk.END)
-            g_theme_url_entry.delete(0, tk.END)
+            if 'g_theme_url_text' in globals() and g_theme_url_text.winfo_exists():
+                g_theme_url_text.delete("1.0", tk.END)
 
             if new_game_name:
                 g_admin_game_combobox.set(new_game_name) # Tự động chọn game mới
@@ -7554,12 +7558,130 @@ if __name__ == '__main__':
             
             return None
 
+
+        # (Copy lại logic thread load ảnh từ code cũ của bạn vào đây)
+        def update_slideshow_loop():
+            """Vòng lặp đệ quy để vẽ ảnh lên hero_canvas."""
+            global g_slideshow_job, g_slideshow_index, g_slideshow_urls
+            
+            # Kiểm tra list rỗng
+            if not g_slideshow_urls: 
+                return
+
+            # Lấy URL hiện tại
+            current_url = g_slideshow_urls[g_slideshow_index]
+            
+            # Gọi hàm vẽ ảnh (Đảm bảo bạn đã có hàm tải ảnh từ URL)
+            # Chúng ta chạy trong thread để không đơ ứng dụng khi tải ảnh
+            threading.Thread(target=lambda: load_and_draw_on_canvas(current_url), daemon=True).start()
+
+            # Tính toán index tiếp theo
+            if len(g_slideshow_urls) > 1:
+                g_slideshow_index = (g_slideshow_index + 1) % len(g_slideshow_urls)
+                # Hẹn giờ 4 giây (4000ms) sau sẽ đổi ảnh
+                g_slideshow_job = root.after(4000, update_slideshow_loop)
+
+        def load_and_draw_on_canvas(url):
+            """
+            Hàm helper: Tải ảnh từ URL và vẽ lên hero_canvas.
+            Được gọi bởi thread phụ để không làm đơ giao diện.
+            """
+            try:
+                # Lấy kích thước hiện tại của canvas để resize ảnh cho đẹp
+                # Nếu canvas chưa hiện, dùng kích thước mặc định khoảng 780x440 (hoặc kích thước bạn muốn)
+                w = hero_canvas.winfo_width()
+                h = hero_canvas.winfo_height()
+                if w < 10: w = 780
+                if h < 10: h = 440
+
+                # Tải ảnh (dùng hàm có sẵn load_image_from_url)
+                tk_img = load_image_from_url(url, size=(w, h)) 
+                
+                if tk_img:
+                    def _update_ui():
+                        # Kiểm tra canvas còn tồn tại không trước khi vẽ
+                        if hero_canvas.winfo_exists():
+                            hero_canvas.delete("all")
+                            # Vẽ ảnh (neo vào góc trên trái NW)
+                            hero_canvas.create_image(0, 0, image=tk_img, anchor="nw")
+                            # Quan trọng: Giữ tham chiếu để ảnh không bị mất (Garbage Collection)
+                            hero_canvas.image = tk_img 
+                    
+                    # Đẩy việc cập nhật UI về luồng chính
+                    hero_canvas.after(0, _update_ui)
+                    
+            except Exception as e:
+                print(f"Lỗi tải ảnh slideshow: {e}")
+
+        # ------------------------------------------
+        # Hàm tiếp theo là hàm bạn đã có (để ngay dưới hàm trên)
+        # ------------------------------------------
+
+        def update_slideshow_loop():
+            """Vòng lặp đệ quy để tự động đổi ảnh."""
+            global g_slideshow_job, g_slideshow_index, g_slideshow_urls
+            
+            # Kiểm tra list rỗng
+            if not g_slideshow_urls: 
+                return
+
+            # Lấy URL hiện tại
+            current_url = g_slideshow_urls[g_slideshow_index]
+            
+            # Gọi hàm vẽ ảnh vừa thêm ở trên
+            threading.Thread(target=lambda: load_and_draw_on_canvas(current_url), daemon=True).start()
+
+            # Tính toán index tiếp theo
+            if len(g_slideshow_urls) > 1:
+                g_slideshow_index = (g_slideshow_index + 1) % len(g_slideshow_urls)
+                # Hẹn giờ 4 giây (4000ms) sau sẽ đổi ảnh
+                g_slideshow_job = root.after(4000, update_slideshow_loop)
+
+        def start_game_slideshow(game_name):
+            """Bắt đầu slideshow cho game được chọn tại Tab 1."""
+            global g_slideshow_job, g_slideshow_urls, g_slideshow_index, g_game_themes
+            
+            # 1. Reset trạng thái cũ
+            if g_slideshow_job:
+                try: root.after_cancel(g_slideshow_job)
+                except: pass
+                g_slideshow_job = None
+                
+            g_slideshow_urls = []
+            g_slideshow_index = 0
+
+            # 2. Lấy dữ liệu từ bộ nhớ (g_game_themes)
+            # Debug: In ra để kiểm tra xem đã nhận được dữ liệu mới chưa
+            raw_data = g_game_themes.get(game_name)
+            print(f"DEBUG: Data của game '{game_name}': {type(raw_data)}") 
+
+            if isinstance(raw_data, dict):
+                # ==> TRƯỜNG HỢP MỚI (DICT): Lấy key 'slideshow'
+                g_slideshow_urls = raw_data.get("slideshow", [])
+                
+                # Nếu list slideshow rỗng, thử lấy key 'image' làm backup
+                if not g_slideshow_urls and raw_data.get("image"):
+                    g_slideshow_urls = [raw_data.get("image")]
+                    
+            elif isinstance(raw_data, str) and raw_data:
+                # ==> TRƯỜNG HỢP CŨ (STRING): Chỉ là 1 url
+                g_slideshow_urls = [raw_data]
+
+            # 3. Bắt đầu vòng lặp hiển thị
+            if g_slideshow_urls:
+                print(f"DEBUG: Bắt đầu slideshow với {len(g_slideshow_urls)} ảnh.")
+                update_slideshow_loop()
+            else:
+                print("DEBUG: Không tìm thấy ảnh nào để hiển thị.")
+                # Xử lý khi không có ảnh (Xóa canvas hoặc hiện ảnh mặc định)
+                update_hero_canvas_image(None)
+
         # --- THAY THẾ HÀM show_steam_details ---
         def show_steam_details(game_name):
             global g_current_game_name, local_config, path_entry
             global g_mod_buttons, g_current_selected_key, selected_option
             global g_launch_game_button
-
+            global hero_canvas
             g_current_game_name = game_name
             local_config = load_local_config()
             g_mod_buttons = {}
@@ -7618,12 +7740,11 @@ if __name__ == '__main__':
             # --- BANNER AREA (Chứa cả Canvas và Video Player) ---
             banner_frame = tk.Frame(g_steam_detail_frame, bg="#181818", height=300)
             banner_frame.pack(fill=tk.X, anchor="n")
-            banner_frame.pack_propagate(False) # Cố định chiều cao, không bị co giãn khi đổi widget
+            banner_frame.pack_propagate(False)
 
             # Canvas (Hiển thị mặc định)
             hero_canvas = tk.Canvas(banner_frame, bg="#181818", highlightthickness=0)
             hero_canvas.pack(fill=tk.BOTH, expand=True)
-
             # Nút này sẽ được place() khi video chạy
 
             def refresh_gallery():
@@ -7740,6 +7861,7 @@ if __name__ == '__main__':
             def_chk.pack(side=tk.LEFT)
             dl_btn = ttk.Button(action_bar, text="Bắt Đầu Tải Và Cài Đặt", style="Accent.TButton", command=start_download_thread)
             dl_btn.pack(side=tk.RIGHT, ipadx=20, ipady=5)
+            start_game_slideshow(game_name)
 
         global g_show_steam_details
         g_show_steam_details = show_steam_details
@@ -7994,7 +8116,7 @@ if __name__ == '__main__':
 
         # 6. Auto Select (Ưu tiên: Custom -> Installed -> Uninstalled)
         target_game = None
-        
+
         # [MỚI] Ưu tiên giữ lại game đang chọn (để không bị nhảy trang khi refresh)
         if g_current_game_name and g_current_game_name in filtered_names:
             target_game = g_current_game_name
@@ -8040,59 +8162,24 @@ if __name__ == '__main__':
         # 10ms là đủ để UI kịp vẽ trang mới trước khi bắt đầu xử lý nặng
         root.after(10, lambda: _deferred_page_2_logic(game_name))
 
+    
+
     def _deferred_page_2_logic(game_name):
         """Hàm phụ: Chạy sau khi giao diện đã chuyển xong."""
         global local_config, path_entry
         
-        # 1. Load Config (Nặng)
+        # 1. Load Config
         local_config = load_local_config()
         
         # 2. Điền đường dẫn
         path_entry.delete(0, tk.END)
         last_used_folder = local_config.get("last_used_folder", "")
-        # Nếu game này có đường dẫn riêng đã lưu, ưu tiên dùng nó
         specific_path = local_config.get("game_paths", {}).get(game_name, "")
         path_entry.insert(0, specific_path if specific_path else last_used_folder)
 
-        # 3. Bắt đầu tải ảnh (Thread ngầm)
-        # (Copy lại logic thread load ảnh từ code cũ của bạn vào đây)
-        def load_game_image_thread():
-            icon_img = None
-            current_config = load_local_config()
-            custom_games = current_config.get('custom_games', {})
-            theme_overrides = current_config.get('theme_overrides', {})
-            
-            local_path = None
-            if game_name in custom_games:
-                local_path = custom_games[game_name].get("image_local_path")
-            elif game_name in theme_overrides:
-                local_path = theme_overrides[game_name]
-                
-            if local_path and os.path.exists(local_path):
-                try:
-                    cache_key = f"local_big_{local_path}"
-                    if cache_key in root.cached_images:
-                        icon_img = root.cached_images[cache_key]
-                    else:
-                        with Image.open(local_path) as img:
-                            img_resized = img.resize((460, 215), Image.Resampling.LANCZOS)
-                            icon_img = ImageTk.PhotoImage(img_resized)
-                            root.cached_images[cache_key] = icon_img
-                except: pass
-
-            if not icon_img:
-                image_url = g_game_themes.get(game_name)
-                if image_url:
-                    icon_img = load_image_from_url(image_url, size=(460, 215))
-
-            if not icon_img:
-                icon_img = root.default_game_icon_large 
-
-            progress_queue.put(("game_image_loaded", icon_img))
-
-        threading.Thread(target=load_game_image_thread, daemon=True).start()
+        # --- XÓA HẾT CÁC HÀM DEF Ở ĐÂY ---
         
-        # 4. Vẽ danh sách mod (Hàm tối ưu bên dưới)
+        # 3. Vẽ danh sách mod
         update_radio_buttons_text_for_game(game_name)
 
     def update_mod_button_states(selected_key):
@@ -8567,8 +8654,8 @@ if __name__ == '__main__':
         if g_theme_name_entry:
             g_theme_name_entry.delete(0, tk.END)
         
-        if g_theme_url_entry:
-            g_theme_url_entry.delete(0, tk.END)
+        if 'g_theme_url_text' in globals() and g_theme_url_text.winfo_exists():
+            g_theme_url_text.delete("1.0", tk.END) # <-- SỬA: Xóa Text widget
             
         if g_theme_trailer_entry:
             g_theme_trailer_entry.delete(0, tk.END)
@@ -8626,9 +8713,10 @@ if __name__ == '__main__':
         g_theme_name_entry.pack(fill=tk.X, pady=(0, 10))
 
         # 2. Link Ảnh
-        ttk.Label(right_frame, text="URL Hình Ảnh (Banner):").pack(anchor=tk.W, pady=(0, 5))
-        g_theme_url_entry = ttk.Entry(right_frame, width=40)
-        g_theme_url_entry.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(right_frame, text="URL Hình Ảnh (Mỗi dòng 1 link, dòng 1 là ảnh chính):").pack(anchor=tk.W, pady=(0, 5))
+        global g_theme_url_text # Khai báo global để dùng ở hàm save/load
+        g_theme_url_text = tk.Text(right_frame, height=5, width=40, font=("Segoe UI", 9))
+        g_theme_url_text.pack(fill=tk.X, pady=(0, 10))
         
         # 3. Link Trailer
         ttk.Label(right_frame, text="URL Trailer (Youtube/MP4):").pack(anchor=tk.W, pady=(0, 5))
@@ -8658,17 +8746,24 @@ if __name__ == '__main__':
                 
                 # Xóa form cũ
                 g_theme_name_entry.delete(0, tk.END)
-                g_theme_url_entry.delete(0, tk.END)
+                g_theme_url_text.delete("1.0", tk.END) # <-- SỬA: Xóa Text widget
                 g_theme_trailer_entry.delete(0, tk.END)
                 
                 # Điền form mới
                 g_theme_name_entry.insert(0, game_name)
                 
                 if isinstance(data, dict):
-                    g_theme_url_entry.insert(0, data.get("image", ""))
+                    # Ưu tiên lấy list slideshow, nếu không có thì lấy 1 ảnh lẻ
+                    images = data.get("slideshow", [])
+                    if not images and data.get("image"):
+                        images = [data.get("image")]
+                    
+                    # Hiển thị mỗi link 1 dòng
+                    g_theme_url_text.insert("1.0", "\n".join(images)) 
                     g_theme_trailer_entry.insert(0, data.get("trailer", ""))
-                elif isinstance(data, str):
-                    g_theme_url_entry.insert(0, data)
+                    
+                elif isinstance(data, str): # Logic cũ (chỉ là chuỗi)
+                    g_theme_url_text.insert("1.0", data)
                 
         g_theme_listbox.bind('<<ListboxSelect>>', on_theme_select_event)
 
@@ -9668,40 +9763,39 @@ if __name__ == '__main__':
             g_theme_listbox.insert(tk.END, game_name)
 
     def action_add_game_theme():
-        """
-        Lưu theme (Ảnh + Trailer) vào bộ nhớ và Upload lên GitHub.
-        ĐÃ SỬA: Cho phép ghi đè để cập nhật game cũ mà không báo lỗi "Đã tồn tại".
-        """
         global g_game_themes
         
-        # Lấy dữ liệu từ ô nhập
+        # Lấy dữ liệu
         name = g_theme_name_entry.get().strip()
-        url_img = g_theme_url_entry.get().strip()
-        url_trailer = g_theme_trailer_entry.get().strip()
+        
+        # --- SỬA ĐOẠN NÀY ---
+        raw_text = g_theme_url_text.get("1.0", tk.END).strip()
+        url_list = [line.strip() for line in raw_text.split('\n') if line.strip()]
+        
+        # Ảnh đầu tiên làm đại diện, cả list làm slideshow
+        main_image = url_list[0] if url_list else ""
+        # --------------------
 
-        # Kiểm tra dữ liệu đầu vào
-        if not name or not url_img:
-            custom_showerror("Thiếu thông tin", "Vui lòng nhập ít nhất Tên Game và URL Ảnh.", parent=g_theme_manager_window)
+        url_trailer = g_theme_trailer_entry.get().strip()
+        
+        if not name or not main_image:
+            custom_showerror("Thiếu thông tin", "Vui lòng nhập Tên Game và ít nhất 1 Link Ảnh.", parent=g_theme_manager_window)
             return
 
-        # Tạo cấu trúc dữ liệu mới
+        # Lưu cấu trúc mới
         theme_data = {
-            "image": url_img,
-            "trailer": url_trailer  # Có thể rỗng nếu không có trailer
+            "image": main_image,        # Để tương thích code cũ
+            "slideshow": url_list,      # Danh sách đầy đủ
+            "trailer": url_trailer
         }
 
         # --- LOGIC QUAN TRỌNG ĐÃ SỬA ---
         # Trước đây: if name in g_game_themes: báo lỗi -> return
         # Bây giờ: Chỉ cần gán thẳng vào dictionary. Nó sẽ tự động cập nhật nếu đã có.
         
-        is_update = name in g_game_themes # Kiểm tra xem đây là thêm mới hay cập nhật để thông báo cho đúng
-        
+        is_update = name in g_game_themes
         g_game_themes[name] = theme_data
-
-        # Cập nhật lại Listbox bên trái ngay lập tức để thấy thay đổi
         populate_theme_listbox()
-
-        # Gọi thread upload lên Server (GitHub)
         threading.Thread(target=upload_theme_json_thread, args=(name,), daemon=True).start()
         
         # Thông báo thành công
@@ -9711,7 +9805,8 @@ if __name__ == '__main__':
         # (Tùy chọn) Xóa form sau khi thêm mới (nhưng giữ lại nếu cập nhật để tiện sửa tiếp)
         if not is_update:
             g_theme_name_entry.delete(0, tk.END)
-            g_theme_url_entry.delete(0, tk.END)
+            if 'g_theme_url_text' in globals() and g_theme_url_text.winfo_exists():
+                g_theme_url_text.delete("1.0", tk.END)
             g_theme_trailer_entry.delete(0, tk.END)
 
     def action_delete_game_theme():
