@@ -81,9 +81,12 @@
         ]
     },
     "MIMESIS": {
-        "image": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2827200/8a2a6edc97fbf23ea6941974bdf4ed9a6ab34eb4/header.jpg?t=1764120239",
         "slideshow": [
-            "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2827200/8a2a6edc97fbf23ea6941974bdf4ed9a6ab34eb4/header.jpg?t=1764120239"
+            "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2827200/8a2a6edc97fbf23ea6941974bdf4ed9a6ab34eb4/header.jpg?t=1764120239",
+            "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2827200/fa58724015b713b7ee35f00d69110fe61f5ef4d7/ss_fa58724015b713b7ee35f00d69110fe61f5ef4d7.jpg",
+            "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2827200/59f8d08f48e363b9ce73c545843b1681de78cfa2/ss_59f8d08f48e363b9ce73c545843b1681de78cfa2.1920x1080.jpg?t=1765414621",
+            "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2827200/28d22d9ae1f7c96a9a622b51de83e51cae553eab/ss_28d22d9ae1f7c96a9a622b51de83e51cae553eab.1920x1080.jpg?t=1765414621",
+            "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2827200/4d2f2dcf90d139d9308559d04998464f3c3c9e6f/ss_4d2f2dcf90d139d9308559d04998464f3c3c9e6f.1920x1080.jpg?t=1765414621"
         ]
     },
     "Backrooms: Escape Together": {
