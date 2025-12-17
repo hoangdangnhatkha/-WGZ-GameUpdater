@@ -209,5 +209,20 @@
     "path_guide": "Giải nén bất cứ đâu",
     "delete_before_extract": [],
     "url": "https://drive.google.com/uc?id=11NZZrZVsWiLHVPm9EP_9SdAAlKl1RH7F"
+  },
+  "18": {
+    "name": "Tải Game Pokémon Legends: Z-A",
+    "urls": [
+      "https://drive.google.com/uc?id=12KJW2E5-x5P5jvJTZshjDdzujMq9bN2d"
+    ],
+    "version": "v2.0.0 + DLC",
+    "game": "Pokémon Legends: Z-A",
+    "type": "rar",
+    "password": "linkneverdie.com",
+    "launch_file": "Pokemon.Legends.Z.A.v2.0.0_LinkNeverDie.Com/_Start game + shortcut - Ryujinx New EA.bat",
+    "tag": null,
+    "path_guide": "Tải về bất cứ đâu",
+    "delete_before_extract": [],
+    "url": "https://drive.google.com/uc?id=12KJW2E5-x5P5jvJTZshjDdzujMq9bN2d"
   }
 }
