@@ -1,20 +1,27 @@
 {
-  "Elden Ring Nightreign": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2622380/header.jpg?t=1753977256",
-  "Risk of Rain 2": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/632360/header.jpg?t=1751308044",
-  "Elden Ring": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1245620/header.jpg?t=1748630546",
-  "League Of Legend": "https://cdn1.epicgames.com/offer/24b9b5e323bc40eea252a10cdd3b2f10/EGS_LeagueofLegends_RiotGames_S1_2560x1440-47eb328eac5ddd63ebd096ded7d0d5ab",
-  "Valorant": "https://www.riotgames.com/darkroom/1440/8d5c497da1c2eeec8cffa99b01abc64b:5329ca773963a5b739e98e715957ab39/ps-f2p-val-console-launch-16x9.jpg",
-  "Khác": "https://developers.elementor.com/docs/assets/img/elementor-placeholder-image.png",
-  "Cypberpunk 2077": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1091500/e9047d8ec47ae3d94bb8b464fb0fc9e9972b4ac7/header.jpg?t=1756209867",
-  "Shape of Dreams": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2444750/header.jpg?t=1760945549",
-  "GodBreakers": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2687400/22c96009885b8a3598662b2531b553f51ed44442/header.jpg?t=1762516311",
-  "The Spell Brigade": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2904000/1e137b999c5c05ce7df67076c474b26f9d4bdf82/header.jpg?t=1763396803",
-  "Wizard Of Legend 2": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2193540/header.jpg?t=1755717024",
-  "PEAK": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3527290/bd3771d9a3827610b2742de13d8552918008c302/header_alt_assets_2.jpg?t=1764003551",
-  "Phasmophobia": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/739630/c227a2855aba60f3657bc0c3a46515b8c41fb2b6/header.jpg?t=1763980860",
-  "MIMESIS": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2827200/8a2a6edc97fbf23ea6941974bdf4ed9a6ab34eb4/header.jpg?t=1764120239",
-  "Backrooms: Escape Together": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2141730/header.jpg?t=1761959171",
-  "Clair Obscur: Expedition 33": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1903340/0f2bb607ca3f9cc7c795818b955542d076b2bebf/header_alt_assets_0.jpg?t=1765542896",
-  "The Legend of Zelda: Breath of the Wild": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000096817/cfe9f8d674be958326d3ba11fc7598a4383e5c5d7809b6239ccac0783aac6cd8",
-  "The Legend of Zelda: Tears of the Kingdom": "https://www.cnet.com/a/img/resize/975719fbb4242f346c0db05e044608b2dcf7cddc/hub/2022/09/13/fc6f151c-93b1-471c-97ea-a76c44e30235/switch-tloz-totk-artwork-01.jpg?auto=webp&fit=crop&height=675&width=1200"
+    "Elden Ring Nightreign": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2622380/header.jpg?t=1753977256",
+    "Risk of Rain 2": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/632360/header.jpg?t=1751308044",
+    "Elden Ring": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1245620/header.jpg?t=1748630546",
+    "League Of Legend": "https://cdn1.epicgames.com/offer/24b9b5e323bc40eea252a10cdd3b2f10/EGS_LeagueofLegends_RiotGames_S1_2560x1440-47eb328eac5ddd63ebd096ded7d0d5ab",
+    "Valorant": "https://www.riotgames.com/darkroom/1440/8d5c497da1c2eeec8cffa99b01abc64b:5329ca773963a5b739e98e715957ab39/ps-f2p-val-console-launch-16x9.jpg",
+    "Khác": "https://developers.elementor.com/docs/assets/img/elementor-placeholder-image.png",
+    "Cypberpunk 2077": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1091500/e9047d8ec47ae3d94bb8b464fb0fc9e9972b4ac7/header.jpg?t=1756209867",
+    "Shape of Dreams": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2444750/header.jpg?t=1760945549",
+    "GodBreakers": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2687400/22c96009885b8a3598662b2531b553f51ed44442/header.jpg?t=1762516311",
+    "The Spell Brigade": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2904000/1e137b999c5c05ce7df67076c474b26f9d4bdf82/header.jpg?t=1763396803",
+    "Wizard Of Legend 2": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2193540/header.jpg?t=1755717024",
+    "PEAK": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/3527290/bd3771d9a3827610b2742de13d8552918008c302/header_alt_assets_2.jpg?t=1764003551",
+    "Phasmophobia": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/739630/c227a2855aba60f3657bc0c3a46515b8c41fb2b6/header.jpg?t=1763980860",
+    "MIMESIS": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2827200/8a2a6edc97fbf23ea6941974bdf4ed9a6ab34eb4/header.jpg?t=1764120239",
+    "Backrooms: Escape Together": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2141730/header.jpg?t=1761959171",
+    "Clair Obscur: Expedition 33": {
+        "image": [
+            "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1903340/0f2bb607ca3f9cc7c795818b955542d076b2bebf/header_alt_assets_0.jpg?t=1765542896",
+            "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1903340/ss_483a27df5072beb3a4650634a764bda750fbcb82.1920x1080.jpg?t=1765922192",
+            "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/1903340/ss_e49800e906e8a0f00707458c836567c933603bac.1920x1080.jpg?t=1765922192"
+        ],
+        "trailer": ""
+    },
+    "The Legend of Zelda: Breath of the Wild": "https://assets.nintendo.com/image/upload/q_auto/f_auto/store/software/switch2/70010000096817/cfe9f8d674be958326d3ba11fc7598a4383e5c5d7809b6239ccac0783aac6cd8",
+    "The Legend of Zelda: Tears of the Kingdom": "https://www.cnet.com/a/img/resize/975719fbb4242f346c0db05e044608b2dcf7cddc/hub/2022/09/13/fc6f151c-93b1-471c-97ea-a76c44e30235/switch-tloz-totk-artwork-01.jpg?auto=webp&fit=crop&height=675&width=1200"
 }
