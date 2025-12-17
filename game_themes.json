@@ -1,8 +1,11 @@
 {
     "Elden Ring Nightreign": {
-        "image": "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2622380/header.jpg?t=1753977256",
         "slideshow": [
-            "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2622380/header.jpg?t=1753977256"
+            "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2622380/header.jpg?t=1753977256",
+            "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2622380/ss_0b9594934db8a1457c915e200f9d0d9b447a3df4.1920x1080.jpg?t=1764808750",
+            "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2622380/ss_1deefb0b7ea597f4227777239910b4990aa0cc77.1920x1080.jpg?t=1764808750",
+            "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2622380/ss_802cd66236d951fba204fb9980e2c0c9213a264c.1920x1080.jpg?t=1764808750",
+            "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/2622380/ss_edfd360b92d6f9b983b759fd837e664b86cd9563.1920x1080.jpg?t=1764808750"
         ]
     },
     "Risk of Rain 2": {
