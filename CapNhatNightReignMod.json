@@ -128,14 +128,20 @@
     },
     "12": {
         "name": "Tải Game Phasmophobia",
-        "url": "https://drive.google.com/uc?id=14aiHMwBsyK8t55ZwT-eXSgPcY3mqF5sB",
-        "version": "v0.15.0",
+        "urls": [
+            "https://drive.google.com/uc?id=1nLW7xDK2Vrs_I6NIVxQfDAe46KeHM3Og"
+        ],
+        "version": "v0.15.1",
         "game": "Phasmophobia",
         "type": "rar",
         "password": "hadoantv.com",
-        "launch_file": "Phasmophobia/Launcher.exe",
+        "launch_file": null,
+        "tag": null,
         "path_guide": "Cài bất cứ đâu",
-        "delete_before_extract": []
+        "delete_before_extract": [
+            "Phasmophobia"
+        ],
+        "url": "https://drive.google.com/uc?id=1nLW7xDK2Vrs_I6NIVxQfDAe46KeHM3Og"
     },
     "13": {
         "name": "Tải Game MIMESIS",
