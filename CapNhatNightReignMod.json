@@ -247,5 +247,20 @@
         "path_guide": null,
         "delete_before_extract": [],
         "url": "https://drive.google.com/uc?id=1wTjhSH_tysD0QlPPaiLku5MlJEm1-jb7"
+    },
+    "20": {
+        "name": "Fix LND Launcher",
+        "urls": [
+            "https://drive.google.com/uc?id=1XF4eUTR3qJR9hhNiVkWoSGyHQwXvqArV"
+        ],
+        "version": "v1.0",
+        "game": "Fix LND Launcher",
+        "type": "rar",
+        "password": null,
+        "launch_file": null,
+        "tag": "UPD",
+        "path_guide": null,
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=1XF4eUTR3qJR9hhNiVkWoSGyHQwXvqArV"
     }
 }
