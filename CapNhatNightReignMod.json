@@ -262,5 +262,20 @@
         "path_guide": null,
         "delete_before_extract": [],
         "url": "https://drive.google.com/uc?id=1XF4eUTR3qJR9hhNiVkWoSGyHQwXvqArV"
+    },
+    "21": {
+        "name": "More Players Mod",
+        "urls": [
+            "https://drive.google.com/uc?id=1o4U57K7U8HpLWHlQHgSX-N9ZmJEjHGYL"
+        ],
+        "version": "v2.0.1",
+        "game": "MIMESIS",
+        "type": "zip",
+        "password": null,
+        "launch_file": null,
+        "tag": "HOT",
+        "path_guide": "Giải nén trong thư mục game MIMESIS",
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=1o4U57K7U8HpLWHlQHgSX-N9ZmJEjHGYL"
     }
 }
