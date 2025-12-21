@@ -127,5 +127,10 @@
             "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/400080/ss_6cad38b6a078d72ae59b4284aefa072a2f656f3b.1920x1080.jpg?t=1705078158",
             "https://shared.fastly.steamstatic.com/store_item_assets/steam/apps/400080/ss_9a2774145fcc202f0dbb899a8707da0543ce7a4e.1920x1080.jpg?t=1705078158"
         ]
+    },
+    "Fix LND Launcher": {
+        "slideshow": [
+            "https://www.creativefabrica.com/wp-content/uploads/2021/07/16/Construction-work-repair-icon-Graphics-14824218-1.jpg"
+        ]
     }
 }
