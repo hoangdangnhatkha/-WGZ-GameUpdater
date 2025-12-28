@@ -789,7 +789,7 @@ global g_mod_buttons
 g_mod_buttons = {}
 global g_current_selected_key
 g_current_selected_key = None
-CURRENT_VERSION = "1.4.1"
+CURRENT_VERSION = "1.4.2"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
 ROCKET_GIF_URL = "https://media.tenor.com/ike6N7DwCa0AAAAM/%D8%B1%D9%8A%D8%A7%D9%84-%D9%85%D8%AF%D8%B1%D9%8A%D8%AF.gif"
@@ -4967,16 +4967,24 @@ def setup_custom_titlebar(root_window, app_title="App Name", on_google_login=Non
 
     # Nút Minimize (─)
     def minimize_win():
-        root_window.state('withdraw')
-        root_window.overrideredirect(False)
-        root_window.state('iconic')
+        root.overrideredirect(False) # Trả lại viền để Windows cho phép minimize
+        root.iconify()
         
     def on_map(event):
+        # Khi cửa sổ được mở lên lại (Map event)
         if event.widget == root_window and root_window.state() == 'normal':
+            # Kiểm tra nếu cửa sổ đang có viền (do lúc minimize ta đã set False)
             if not root_window.overrideredirect():
+                # 1. Xóa viền đi để trở lại giao diện Custom
                 root_window.overrideredirect(True)
+                
+                # 2. [QUAN TRỌNG] Gọi hàm này để ép icon hiện lại dưới Taskbar
+                # Nếu thiếu dòng này, app sẽ biến mất khỏi taskbar
+                set_appwindow(root_window) 
+
     root_window.bind('<Map>', on_map)
     
+    # --- ĐÂY LÀ DÒNG TẠO NÚT (BẠN ĐÃ BỊ THIẾU DÒNG NÀY) ---
     create_sys_btn("─", minimize_win)
 
     # --- KHU VỰC USER / GOOGLE LOGIN (Nằm bên trái nút Minimize) ---
@@ -7066,6 +7074,7 @@ if __name__ == '__main__':
         "NEW":  ("#4cff00", "black"),   # Xanh Neon / Đen
         "UPD":  ("#4a90e2", "white"),   # Xanh Dương / Trắng
         "BEST": ("#9b59b6", "white"),   # Tím / Trắng
+        "FIX ":  ("#57606f", "white")
     }
 
     def get_tag_badge_icon(tag_text, height=14):
@@ -8176,18 +8185,30 @@ if __name__ == '__main__':
                     break # Lấy tag của mod đầu tiên tìm thấy
             
             # -----------------------------------
-            
+            # --- Code MỚI (Hỗ trợ Emoji Màu) ---
             if tag_type:
-                badge_img = get_tag_badge_icon(tag_type)
-                if badge_img:
-                    # Tạo Label chứa badge
-                    badge_lbl = tk.Label(item_frame, image=badge_img, bg="#191919", bd=0)
-                    badge_lbl.image = badge_img
-                    
-                    # Dán đè lên góc TRÁI TRÊN của icon
-                    # in_=icon_container: Đặt vị trí tương đối so với icon
-                    # x=-2, y=-2: Đẩy lùi ra ngoài một chút cho đẹp (hiệu ứng nổi)
-                    badge_lbl.place(in_=icon_container, x=-2, y=-2)
+                # 1. Lấy màu sắc từ cấu hình (TAG_COLORS)
+                # Nếu không tìm thấy tag trong danh sách, mặc định là Xám/Trắng
+                bg_color, txt_color = TAG_COLORS.get(tag_type, ("#444444", "white"))
+
+                # 2. Tạo Label Text thay vì Image
+                # Font "Segoe UI Emoji" là chìa khóa để hiện icon màu trên Windows
+                badge_lbl = tk.Label(
+                    item_frame, 
+                    text=tag_type, 
+                    font=("Segoe UI Emoji", 8, "bold"), 
+                    bg=bg_color, 
+                    fg=txt_color,
+                    bd=0,       # Không viền
+                    padx=4,     # Đệm ngang (tạo độ rộng)
+                    pady=0      # Đệm dọc
+                )
+                
+                # 3. Dán đè lên góc trái trên của icon
+                badge_lbl.place(in_=icon_container, x=-2, y=-2)
+                
+                # (Tùy chọn) Gắn sự kiện click vào badge cũng chọn game
+                badge_lbl.bind("<Button-1>", lambda e: on_select_game(game_name, item_frame))
             # -------------------------------
 
             display_name = local_config.get('display_name_overrides', {}).get(game_name, game_name)
@@ -9169,32 +9190,32 @@ if __name__ == '__main__':
             upload_status_label.config(text="Upload thành công! Dữ liệu đã an toàn.", foreground="green")
 
     def update_game_combobox_list():
-        """Cập nhật Dropdown Game từ cả 2 nguồn: Config Option và Config Theme."""
+        """Cập nhật Dropdown Game và danh sách Master để validate."""
         global g_game_themes, current_config_data
-        
+        # [FIX 1] Khai báo biến toàn cục cần cập nhật
+        global g_master_game_list 
+
         # 1. Lấy game từ các Option hiện có
         games = set()
         if current_config_data:
             for v in current_config_data.values():
-                if isinstance(v, dict) and "game" in v: 
+                if isinstance(v, dict) and "game" in v:
                     games.add(v["game"])
-
-        # 2. [FIX QUAN TRỌNG] Gộp thêm game từ danh sách Theme (g_game_themes)
-        # Đây là phần bị thiếu khiến danh sách của bạn bị ngắn
+        
+        # 2. Gộp thêm game từ danh sách Theme
         if 'g_game_themes' in globals() and g_game_themes:
             games.update(g_game_themes.keys())
 
-        # 3. Sắp xếp và cập nhật vào Widget
+        # 3. Sắp xếp
         sorted_games = sorted(list(games))
         
+        # [FIX 2] CẬP NHẬT DANH SÁCH MASTER (Quan trọng nhất)
+        # Đây là dòng còn thiếu khiến việc validate bị lỗi
+        g_master_game_list = sorted_games 
+
+        # 4. Cập nhật vào Widget Combobox
         if "Game:" in form_widgets:
             form_widgets["Game:"].config(values=sorted_games)
-            
-            # Nếu danh sách không rỗng và chưa chọn gì, chọn cái đầu tiên hoặc giữ nguyên
-            current_val = form_widgets["Game:"].get()
-            if not current_val and sorted_games:
-                # form_widgets["Game:"].current(0) # Tùy chọn: Tự động chọn cái đầu
-                pass
 
     # --- Hàm Helper tạo Input Group ---
     def create_modern_input(parent, label_text, widget_key, widget_type="Entry", options=None, height=1):
@@ -9699,6 +9720,7 @@ if __name__ == '__main__':
     
     ttk.Label(game_frame, text="Game:", style="secondary.TLabel").pack(anchor=tk.W)
     
+    
     # Tạo một frame con để chứa Combobox và Nút nằm ngang hàng
     game_input_group = ttk.Frame(game_frame)
     game_input_group.pack(fill=tk.X, pady=2)
@@ -9919,28 +9941,30 @@ if __name__ == '__main__':
         g_search_timer = root.after(1000, do_game_search)
 
     def on_game_combobox_validate(event):
-        """Kiểm tra giá trị khi người dùng click ra ngoài."""
-        global g_master_game_list, g_admin_game_combobox
+        """
+        Xử lý khi chọn game: Kiểm tra hợp lệ và đổi màu chữ.
+        """
+        widget = event.widget
+        val = widget.get().strip()
+        
+        if not val:
+            return
 
-        current_text = g_admin_game_combobox.get()
-        if not current_text: return # Nếu trống thì thôi
-
-        # Nếu text không hợp lệ VÀ không phải "Thêm Game..."
-        valid_options = g_master_game_list + ["Thêm Game..."]
-
-        if current_text not in valid_options:
-            # Tự động chọn "best match" đầu tiên
-            for game in g_master_game_list:
-                if current_text.lower() in game.lower():
-                    g_admin_game_combobox.set(game)
-                    return # Tìm thấy, thoát
-
-            # Nếu không tìm thấy match nào, xóa nó
-            custom_showerror("Tên không hợp lệ", 
-                                f"'{current_text}' không phải là một game hợp lệ.\n"
-                                "Vui lòng chọn từ danh sách hoặc 'Thêm Game...'.",
-                                parent=root)
-            g_admin_game_combobox.set("")
+        # Logic kiểm tra:
+        # Nếu game có trong master list -> Hợp lệ (Màu trắng/Mặc định)
+        # Nếu game mới tự nhập -> Cảnh báo nhẹ (Màu vàng)
+        if val in g_master_game_list:
+            try:
+                widget.config(foreground="white") # Hoặc để trống nếu dùng theme mặc định
+            except: pass 
+        else:
+            # Báo hiệu đây là Game Mới (sẽ được tạo mới khi Lưu)
+            try:
+                widget.config(foreground="#ffcc00") # Màu vàng
+            except: pass
+            
+        # Mẹo: In ra console để debug nếu cần
+        # print(f"Validate Game: {val} | Exists: {val in g_master_game_list}")
 
 
 
