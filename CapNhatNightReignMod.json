@@ -292,5 +292,20 @@
         "path_guide": null,
         "delete_before_extract": [],
         "url": "https://drive.google.com/uc?id=1F7hFfBzdXvG4M8-vRY1yu9KoXI1Jlk0_"
+    },
+    "23": {
+        "name": "Liar Bar",
+        "urls": [
+            "https://drive.google.com/uc?id=1IIf-7IhaeXuXYII7qtAQs7QVhI7Cg9FO"
+        ],
+        "version": "v0.97",
+        "game": "Liar Bar",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "launch_file": null,
+        "tag": null,
+        "path_guide": null,
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=1IIf-7IhaeXuXYII7qtAQs7QVhI7Cg9FO"
     }
 }
