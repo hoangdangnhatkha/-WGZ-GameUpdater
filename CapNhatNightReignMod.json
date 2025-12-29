@@ -49,14 +49,18 @@
     },
     "5": {
         "name": "Tải game Risk Of Rain 2",
-        "url": "https://drive.google.com/uc?id=1zTvIqeP8Oyfgow1wIIwLIJD3khPuVuB2",
+        "urls": [
+            "https://drive.google.com/uc?id=1h0JlUmlB62u2VbaLhrnAvPydY_0RFyqX"
+        ],
         "version": "v1.3.9.1",
         "game": "Risk of Rain 2",
         "type": "rar",
         "password": "linkneverdie.com",
-        "delete_before_extract": [],
+        "launch_file": "Risk.of.Rain.2.v1.4.0_LinkNeverDie.Com/_Risk of Rain 2 - LND Game Launcher.exe",
+        "tag": null,
         "path_guide": "Giải nén bất cứ đâu.",
-        "launch_file": "Risk.of.Rain.2.v1.4.0_LinkNeverDie.Com/_Risk of Rain 2 - LND Game Launcher.exe"
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=1h0JlUmlB62u2VbaLhrnAvPydY_0RFyqX"
     },
     "6": {
         "name": "Mod Risk Of Rain 2",
