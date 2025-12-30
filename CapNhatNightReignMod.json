@@ -125,14 +125,18 @@
     },
     "11": {
         "name": "Tải Game PEAK",
-        "url": "https://drive.google.com/uc?id=19nZ_Kn3dBNI72y6FgSvCvNqAeqMpqBK6",
+        "urls": [
+            "https://drive.google.com/uc?id=16klTpVX7oqhHaXg--zbfQmsXUpPau-5f"
+        ],
         "version": "v1.46.a",
         "game": "PEAK",
         "type": "rar",
-        "password": "linkneverdie.com",
+        "password": "hadoantv.com",
         "launch_file": "PEAK.v1.46.a_LinkNeverDie.Com/_PEAK - LND Game Launcher.exe",
+        "tag": null,
         "path_guide": "Giải nén bất cứ đâu",
-        "delete_before_extract": []
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=16klTpVX7oqhHaXg--zbfQmsXUpPau-5f"
     },
     "12": {
         "name": "Tải Game Phasmophobia",
