@@ -64,16 +64,20 @@
     },
     "6": {
         "name": "Mod Risk Of Rain 2",
-        "url": "https://drive.google.com/uc?id=1833uPXulGNNXM3j2Z-FpyTOlpAFPtlzp",
-        "version": "ver20251110",
+        "urls": [
+            "https://drive.google.com/uc?id=19sYPBdbqLmJ6aIZTyy783q5bexoEvgPz"
+        ],
+        "version": "ver20251229",
         "game": "Risk of Rain 2",
         "type": "zip",
         "password": null,
+        "launch_file": null,
+        "tag": null,
+        "path_guide": "Thư mục gốc của game ROR2",
         "delete_before_extract": [
             "BepInEx"
         ],
-        "path_guide": "Thư mục gốc của game ROR2",
-        "launch_file": null
+        "url": "https://drive.google.com/uc?id=19sYPBdbqLmJ6aIZTyy783q5bexoEvgPz"
     },
     "7": {
         "name": "Tải Game Shape of Dreams",
