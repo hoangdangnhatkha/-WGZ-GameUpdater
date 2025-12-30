@@ -315,5 +315,20 @@
         "path_guide": null,
         "delete_before_extract": [],
         "url": "https://drive.google.com/uc?id=1IIf-7IhaeXuXYII7qtAQs7QVhI7Cg9FO"
+    },
+    "24": {
+        "name": "60FPS + No Trade Evolution Mod",
+        "urls": [
+            "https://drive.google.com/uc?id=10xamoTyhVQdOBdEGZ-SJOd4ZNd2MKRqf"
+        ],
+        "version": "v1.0",
+        "game": "Pokémon Legends: Z-A",
+        "type": "rar",
+        "password": null,
+        "launch_file": null,
+        "tag": null,
+        "path_guide": null,
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=10xamoTyhVQdOBdEGZ-SJOd4ZNd2MKRqf"
     }
 }
