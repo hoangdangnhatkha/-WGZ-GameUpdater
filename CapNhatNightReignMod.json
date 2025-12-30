@@ -132,7 +132,7 @@
         "game": "PEAK",
         "type": "rar",
         "password": "hadoantv.com",
-        "launch_file": "PEAK.v1.46.a_LinkNeverDie.Com/_PEAK - LND Game Launcher.exe",
+        "launch_file": "PEAK/PEAK.exe",
         "tag": null,
         "path_guide": "Giải nén bất cứ đâu",
         "delete_before_extract": [],
