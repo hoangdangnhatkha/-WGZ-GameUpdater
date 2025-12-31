@@ -96,7 +96,7 @@ if sys.platform == "win32":
 global root
 root = None
 g_show_steam_details = None
-
+g_loaded_images = {}
 
 def enforce_admin_rights():
     """
@@ -820,7 +820,7 @@ global g_mod_buttons
 g_mod_buttons = {}
 global g_current_selected_key
 g_current_selected_key = None
-CURRENT_VERSION = "1.4.2"
+CURRENT_VERSION = "1.4.3"
 EXPECTED_UPDATER_HASH = "6F5E4FDB65D1BFFE174DE56908614C44EB5C87D5178AF1BEE99931B05140D79D"
 GIF_URL = "https://media3.giphy.com/media/v1.Y2lkPTZjMDliOTUyNmQ4bGtzOW15aDhqcGYzbmx2bjVwdzBxMzNtcDB6aG9oZDBpejdpcyZlcD12MV9zdGlja2Vyc19zZWFyY2gmY3Q9cw/MZ7yrimhG3DThJqHjl/200w.gif"
 ROCKET_GIF_URL = "https://media.tenor.com/ike6N7DwCa0AAAAM/%D8%B1%D9%8A%D8%A7%D9%84-%D9%85%D8%AF%D8%B1%D9%8A%D8%AF.gif"
@@ -3139,6 +3139,145 @@ def start_download_thread():
 
     root.after(100, process_queue)
     threading.Thread(target=download_and_extract_logic, daemon=True).start()
+
+def action_refresh_data():
+    """
+    Smart Refresh: Chỉ tải lại Config Text, giữ nguyên ảnh cũ để tiết kiệm băng thông.
+    """
+    # Disable nút tạm thời để tránh bấm liên tục
+    if 'btn_refresh_data' in globals() and btn_refresh_data.winfo_exists():
+        btn_refresh_data.configure(state="disabled", text="⏳ Đang tải...")
+        
+    if 'status_label' in globals() and status_label.winfo_exists():
+        status_label.configure(text="Đang đồng bộ dữ liệu mới...", style="White.TLabel")
+
+    # Chạy luồng xử lý riêng
+    threading.Thread(target=smart_refresh_thread, daemon=True).start()
+
+def smart_refresh_thread():
+    global config_data, g_all_mods_flat, g_loaded_images
+    global GLOBAL_CONFIG_URL 
+    
+    # [FIX AN TOÀN] Nếu biến chưa tồn tại thì tạo mới để tránh crash
+    if 'g_loaded_images' not in globals():
+        g_loaded_images = {}
+
+    try:
+        print("[Smart Refresh] Bắt đầu tải JSON mới...")
+        
+        # --- 1. TÌM URL ---
+        url = "https://raw.githubusercontent.com/hoangdangnhatkha/-WGZ-GameUpdater/refs/heads/main/CapNhatNightReignMod.json"
+        if local_config and "config_url" in local_config:
+            url = local_config["config_url"]
+        if not url and 'GLOBAL_CONFIG_URL' in globals():
+            url = GLOBAL_CONFIG_URL
+        if not url:
+            print("⚠️ Cảnh báo: Chưa tìm thấy URL. Đang dùng URL dự phòng...")
+            url = "https://raw.githubusercontent.com/hoangdangnhatkha/-WGZ-GameUpdater/refs/heads/main/CapNhatNightReignMod.json"
+
+        # --- 2. TẢI DATA ---
+        import time
+        anti_cache_url = f"{url}?t={int(time.time())}"
+        
+        print(f"Đang tải từ: {anti_cache_url}")
+        response = requests.get(anti_cache_url, timeout=10)
+        response.raise_for_status()
+        config_data = response.json()
+        
+        # --- 3. TÁI TẠO DỮ LIỆU PHẲNG (PARSE ĐÚNG CẤU TRÚC JSON) ---
+        temp_flat = {}
+        for key, value in config_data.items():
+            if key in ["updater", "themes", "motd"]: continue
+            if isinstance(value, dict):
+                temp_flat[key] = value
+                
+        g_all_mods_flat = temp_flat 
+        print(f"[Smart Refresh] Tìm thấy {len(g_all_mods_flat)} mục game/mod.")
+
+        # --- 4. KIỂM TRA ẢNH (Chỉ tải cái còn thiếu) ---
+        print("[Smart Refresh] Đang kiểm tra ảnh mới...")
+        
+        for game_id, game_info in g_all_mods_flat.items():
+            # Code cũ bị lỗi ở đây do g_loaded_images chưa có
+            # Code mới đã an toàn nhờ dòng [FIX AN TOÀN] ở đầu hàm
+            if game_id not in g_loaded_images:
+                img_url = game_info.get("image_url", "") or game_info.get("image", "")
+
+                if img_url:
+                    try:
+                        print(f"-> Tải ảnh mới cho ID {game_id}...")
+                        res = requests.get(img_url, timeout=5)
+                        img_bytes = io.BytesIO(res.content)
+                        pil_img = Image.open(img_bytes)
+                        pil_img = pil_img.resize((140, 200), Image.LANCZOS)
+                        g_loaded_images[game_id] = ImageTk.PhotoImage(pil_img)
+                    except Exception as e:
+                        print(f"Lỗi tải ảnh {game_id}: {e}")
+            else:
+                pass # Đã có ảnh -> Bỏ qua để tiết kiệm
+
+        print("[Smart Refresh] Hoàn tất. Đang vẽ lại UI...")
+        root.after(0, finish_smart_refresh)
+
+    except Exception as e:
+        print(f"Lỗi Smart Refresh: {e}")
+        import traceback
+        traceback.print_exc()
+        root.after(0, lambda: btn_refresh_data.configure(state="normal", text="🔄 Làm Mới Dữ Liệu"))
+        
+def finish_smart_refresh():
+    """Hàm chạy trên UI Thread để vẽ lại Grid - ĐÃ SỬA LỖI SCROLL CHÍNH XÁC"""
+    global g_all_mods_flat, download_options
+    # Sử dụng biến g_steam_sidebar_frame có sẵn trong code của bạn
+    global g_steam_sidebar_frame 
+    
+    try:
+        print("[Refresh] Đang gom nhóm dữ liệu để vẽ lại...")
+
+        # 1. GOM NHÓM DATA
+        new_grouped_data = {}
+        if g_all_mods_flat:
+            for key, data in g_all_mods_flat.items():
+                if key == "updater": continue
+                game_name = data.get("game", "Khác")
+                if game_name not in new_grouped_data:
+                    new_grouped_data[game_name] = []
+                new_grouped_data[game_name].append( (key, data) )
+        
+        download_options = new_grouped_data
+
+        # 2. VẼ LẠI GIAO DIỆN
+        if 'populate_page_1_grid' in globals():
+            populate_page_1_grid(download_options)
+        
+        # --- [FIX LỖI SCROLL] ---
+        # Lấy lại tiêu điểm vào vùng danh sách game
+        try:
+            # Code của bạn dùng g_steam_sidebar_frame nằm trong Canvas
+            # Nên .master của nó chính là cái Canvas chúng ta cần focus
+            if 'g_steam_sidebar_frame' in globals() and g_steam_sidebar_frame:
+                canvas_widget = g_steam_sidebar_frame.master
+                canvas_widget.focus_set()
+                # Giả lập chuột đi vào để kích hoạt binding cuộn
+                canvas_widget.event_generate("<Enter>") 
+            else:
+                # Dự phòng: Focus vào cửa sổ chính
+                root.focus_set()
+        except Exception as e:
+            print(f"Lỗi set focus: {e}")
+        # ------------------------
+
+        if 'status_label' in globals() and status_label.winfo_exists():
+            status_label.configure(text="Dữ liệu đã được cập nhật!", style="White.TLabel")
+            
+    except Exception as e:
+        print(f"Lỗi vẽ UI: {e}")
+        import traceback
+        traceback.print_exc()
+        
+    finally:
+        if 'btn_refresh_data' in globals() and btn_refresh_data.winfo_exists():
+            btn_refresh_data.configure(state="normal", text="🔄 Làm Mới Dữ Liệu")
 
 def get_system_info_text():
     """
@@ -7480,6 +7619,20 @@ if __name__ == '__main__':
         sidebar_footer = tk.Frame(sidebar_container, bg="#191919", pady=10, padx=10)
         sidebar_footer.pack(side=tk.BOTTOM, fill=tk.X)
 
+        # [MỚI] Nút Refresh Dữ Liệu
+        # Style dùng chung với nút Gemini hoặc dùng Accent cho nổi bật
+        global btn_refresh_data # Khai báo global để có thể điều khiển từ xa nếu cần
+        btn_refresh_data = ttk.Button(
+            sidebar_footer, 
+            text="🔄 Làm Mới Dữ Liệu", 
+            command=action_refresh_data,
+            style="Accent.TButton" 
+        )
+        # Pack lên trên nút Gemini, cách một chút (pady)
+        btn_refresh_data.pack(fill=tk.X, ipady=3, pady=(0, 5))
+        # Thêm tooltip cho chuyên nghiệp
+        CreateToolTip(btn_refresh_data, "Tải lại danh sách Game và Config mới nhất từ GitHub.")
+
         # 1. Style cho nút (Giữ nguyên)
         style.configure("Gemini.TButton", 
                         font=("Segoe UI", 11, "bold"), 
@@ -7513,7 +7666,7 @@ if __name__ == '__main__':
         # relx=1.0: Sát lề phải
         # rely=0.0: Sát lề trên
         # x=-5, y=0: Dịch vào trong một chút cho cân đối
-        badge.place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
+        badge.place(in_=gemini_full_btn, relx=1.0, rely=0.0, anchor="ne", x=0, y=-4)
 
         # Quan trọng: Click vào sticker cũng kích hoạt lệnh mở Gemini
         badge.bind("<Button-1>", lambda e: action_open_gemini_pro())
