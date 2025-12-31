@@ -1,277 +1,338 @@
 {
-  "updater": {
-    "latest_version": "1.4.2",
-    "release_notes": "- Thêm Chia Sẻ Acccount\n- Thêm nút Chạy Game cho từng game",
-    "download_url": "https://drive.google.com/uc?export=download&id=1xLitheCe9ygKSajQl9LbwxYskikYSG1J",
-    "base_url": "https://drive.google.com/uc?export=download&id=1d61kOCYYuVEoPSpB5C7Culx7JF9HDxBK"
-  },
-  "1": {
-    "name": "Cập Nhật Mod",
-    "url": "https://drive.google.com/uc?id=1f9rT20EHRoF4dfc19IcC3ykhwNmUPis_",
-    "version": "v1.4.0",
-    "game": "Elden Ring Nightreign",
-    "type": "zip",
-    "password": null,
-    "delete_before_extract": [],
-    "path_guide": "Chọn thư mục mod ...\\ELDEN VINS NIGHTREIGN. (Nơi có file ELDEN VINS NIGHTREIGN.me3)",
-    "launch_file": "ELDEN VINS NIGHTREIGN.me3"
-  },
-  "2": {
-    "name": "Tải/Cập Nhật Seamless Coop",
-    "url": "https://drive.google.com/uc?id=1182Ju68pjG9LfPTgLaeME6lHPk6aeIEe",
-    "version": "v1.0.6",
-    "game": "Elden Ring Nightreign",
-    "type": "zip",
-    "password": null,
-    "delete_before_extract": [],
-    "path_guide": "Chọn thư mục mod ...\\ELDEN VINS NIGHTREIGN. (Nơi có file ELDEN VINS NIGHTREIGN.me3)",
-    "launch_file": "ELDEN VINS NIGHTREIGN.me3"
-  },
-  "3": {
-    "name": "Việt Hóa Mod",
-    "url": "https://drive.google.com/uc?id=1Hw-JR5E_SrtPHpeK6RknRxoJKMbvdexe",
-    "version": "v1.2",
-    "game": "Elden Ring Nightreign",
-    "type": "exe",
-    "password": null,
-    "delete_before_extract": [],
-    "path_guide": "Tải về bất cứ đâu. App cài việt hóa sẽ hiện lên thì hãy chọn đường dẫn đến file game gốc của Elden Ring Nightreign"
-  },
-  "4": {
-    "name": "Update Việt Hóa Mod",
-    "url": "https://drive.google.com/uc?id=16hP8Q7Bx2tx_G0eQl0F-uEhTTQ2DJ3Or",
-    "version": "v1.3.2",
-    "game": "Elden Ring Nightreign",
-    "type": "zip",
-    "password": null,
-    "delete_before_extract": [],
-    "path_guide": "Hãy chọn đường dẫn đến file game gốc của Elden Ring Nightreign ...\\Elden Ring Nightreign\\Game\\"
-  },
-  "5": {
-    "name": "Tải game Risk Of Rain 2",
-    "url": "https://drive.google.com/uc?id=1zTvIqeP8Oyfgow1wIIwLIJD3khPuVuB2",
-    "version": "v1.3.9.1",
-    "game": "Risk of Rain 2",
-    "type": "rar",
-    "password": "linkneverdie.com",
-    "delete_before_extract": [],
-    "path_guide": "Giải nén bất cứ đâu.",
-    "launch_file": "Risk.of.Rain.2.v1.4.0_LinkNeverDie.Com/_Risk of Rain 2 - LND Game Launcher.exe"
-  },
-  "6": {
-    "name": "Mod Risk Of Rain 2",
-    "url": "https://drive.google.com/uc?id=1833uPXulGNNXM3j2Z-FpyTOlpAFPtlzp",
-    "version": "ver20251110",
-    "game": "Risk of Rain 2",
-    "type": "zip",
-    "password": null,
-    "delete_before_extract": ["BepInEx"],
-    "path_guide": "Thư mục gốc của game ROR2",
-    "launch_file": null
-  },
-  "7": {
-    "name": "Tải Game Shape of Dreams",
-    "url": "https://drive.google.com/uc?id=1dZDMWkLKJoBhy5BpoQjONwUn0YBNimQR",
-    "version": "v1.0.9.9",
-    "game": "Shape of Dreams",
-    "type": "zip",
-    "password": null,
-    "delete_before_extract": [],
-    "path_guide": "Giải nén bất cứ đâu",
-    "launch_file": "Shape.of.Dreams.v1.0.9.9/_Shape of Dreams - LND Game Launcher.exe"
-  },
-  "8": {
-    "name": "Tải Game GodBreakers",
-    "url": "https://drive.google.com/uc?id=1oDxwL-rB3p-UOgPK5hTegZ5JMWknfySa",
-    "version": "v20251031",
-    "game": "GodBreakers",
-    "type": "rar",
-    "password": "linkneverdie.com",
-    "delete_before_extract": [],
-    "path_guide": null,
-    "launch_file": "GODBREAKERS.b20560501_LinkNeverDie.Com/_GODBREAKERS - LND Game Launcher.exe"
-  },
-  "9": {
-    "name": "Tải Game The Spell Brigade",
-    "url": "https://drive.google.com/uc?id=1KtJiHYs7rrr5c2OeMqWcIQXpjJmYx3gI",
-    "version": "v0.13.0.6449",
-    "game": "The Spell Brigade",
-    "type": "rar",
-    "password": "linkneverdie.com",
-    "delete_before_extract": [],
-    "path_guide": null,
-    "launch_file": "The.Spell.Brigade.v0.13.0.6449_LinkNeverDie.Com/_The Spell Brigade - LND Game Launcher.exe"
-  },
-  "10": {
-    "name": "Tải Game Wizard Of Lgend 2",
-    "url": "https://drive.google.com/uc?id=1moCNSRJ_MtDVerRAFOLe7-66AINA3ozp",
-    "version": "v1.1.0",
-    "game": "Wizard Of Legend 2",
-    "type": "rar",
-    "password": "linkneverdie.com",
-    "delete_before_extract": [],
-    "path_guide": null,
-    "launch_file": "Wizard.of.Legend.2.v1.1.0_LinkNeverDie.Com/_Wizard of Legend 2 - LND Game Launcher.exe"
-  },
-  "11": {
-    "name": "Tải Game PEAK",
-    "url": "https://drive.google.com/uc?id=19nZ_Kn3dBNI72y6FgSvCvNqAeqMpqBK6",
-    "version": "v1.46.a",
-    "game": "PEAK",
-    "type": "rar",
-    "password": "linkneverdie.com",
-    "launch_file": "PEAK.v1.46.a_LinkNeverDie.Com/_PEAK - LND Game Launcher.exe",
-    "path_guide": "Giải nén bất cứ đâu",
-    "delete_before_extract": []
-  },
-  "12": {
-    "name": "Tải Game Phasmophobia",
-    "urls": [
-      "https://drive.google.com/uc?id=1CgOyBy5u2E_8Rfjb9t2FS2l2SmimzNjF"
-    ],
-    "version": "v0.15.1",
-    "game": "Phasmophobia",
-    "type": "rar",
-    "password": "hadoantv.com",
-    "launch_file": "Phasmophobia/Launcher.exe",
-    "tag": null,
-    "path_guide": "Cài bất cứ đâu",
-    "delete_before_extract": ["Phasmophobia"],
-    "url": "https://drive.google.com/uc?id=1CgOyBy5u2E_8Rfjb9t2FS2l2SmimzNjF"
-  },
-  "13": {
-    "name": "Tải Game MIMESIS",
-    "urls": [
-      "https://drive.google.com/uc?id=1m5ruaOnZwE-Q2ejp-twUgrvyJUuMkxg6"
-    ],
-    "version": "v0.2.5",
-    "game": "MIMESIS",
-    "type": "rar",
-    "password": "linkneverdie.com",
-    "launch_file": "MIMESIS.v0.2.5_LinkNeverDie.Com/MIMESIS.exe",
-    "tag": "HOT",
-    "path_guide": "Giải nén bất cứ.",
-    "delete_before_extract": [],
-    "url": "https://drive.google.com/uc?id=1m5ruaOnZwE-Q2ejp-twUgrvyJUuMkxg6"
-  },
-  "14": {
-    "name": "BET v0.11.5.1",
-    "url": "https://drive.google.com/uc?id=12VSkalB5oXAc1RJB8npLd898du4pDL6-",
-    "version": "v0.11.5.1",
-    "game": "Backrooms: Escape Together",
-    "type": "rar",
-    "password": "linkneverdie.com",
-    "launch_file": "BET.v0.11.5.1_LinkNeverDie.Com/_Backrooms Escape Together - LND Game Launcher.exe",
-    "path_guide": null,
-    "delete_before_extract": []
-  },
-  "15": {
-    "name": "Tải Game Clair Obscur Expedition 33",
-    "urls": [
-      "https://drive.google.com/uc?id=1AllS3NU313k_vZbPIJ1Exg98QUGZ5Uxg",
-      "https://drive.google.com/uc?id=1gEyogzVSgLoBU_kXjKg12xV8reduxe87",
-      "https://drive.google.com/uc?id=1viY6YeKHqzg_xQdQVLyVYTXSskAQTRZL",
-      "https://drive.google.com/uc?id=1iDtiRyLnXwc1Eh3YuIvniNQtTm6ecNuc"
-    ],
-    "version": "v1.5.0",
-    "game": "Clair Obscur: Expedition 33",
-    "type": "rar",
-    "password": "linkneverdie.com",
-    "launch_file": "Clair.Obscur.Expedition.33.v1.5.0_LinkNeverDie.Com/__Start game + create shortcut.exe",
-    "tag": "GOTY",
-    "path_guide": "Tải về bất cứ đâu",
-    "delete_before_extract": [],
-    "url": "https://drive.google.com/uc?id=1AllS3NU313k_vZbPIJ1Exg98QUGZ5Uxg"
-  },
-  "16": {
-    "name": "Tải Game The Legend of Zelda: Breath of the Wild",
-    "urls": [
-      "https://drive.google.com/uc?id=1_TdyS78J7WpEr9PUdjNY3FNEB4P15wfZ"
-    ],
-    "version": "v1.5.0",
-    "game": "The Legend of Zelda: Breath of the Wild",
-    "type": "rar",
-    "password": "linkneverdie.com",
-    "launch_file": "The.Legend.of.Zelda.BOTW.Cemu_LinkNeverDie.Com/__Start game and create shortcut.bat",
-    "tag": "GOTY",
-    "path_guide": "Giải nén bất cứ đâu",
-    "delete_before_extract": [],
-    "url": "https://drive.google.com/uc?id=1_TdyS78J7WpEr9PUdjNY3FNEB4P15wfZ"
-  },
-  "17": {
-    "name": "Tải Game The Legend of Zelda: Tears of the Kingdom",
-    "urls": [
-      "https://drive.google.com/uc?id=11NZZrZVsWiLHVPm9EP_9SdAAlKl1RH7F",
-      "https://drive.google.com/uc?id=1_mYThK-szuO_31AGiTHLAW4DXt54Wv50"
-    ],
-    "version": "v1.1.1",
-    "game": "The Legend of Zelda: Tears of the Kingdom",
-    "type": "rar",
-    "password": "linkneverdie.com",
-    "launch_file": null,
-    "tag": null,
-    "path_guide": "Giải nén bất cứ đâu",
-    "delete_before_extract": [],
-    "url": "https://drive.google.com/uc?id=11NZZrZVsWiLHVPm9EP_9SdAAlKl1RH7F"
-  },
-  "18": {
-    "name": "Tải Game Pokémon Legends: Z-A",
-    "urls": [
-      "https://drive.google.com/uc?id=12KJW2E5-x5P5jvJTZshjDdzujMq9bN2d"
-    ],
-    "version": "v2.0.0 + DLC",
-    "game": "Pokémon Legends: Z-A",
-    "type": "rar",
-    "password": "linkneverdie.com",
-    "launch_file": "Pokemon.Legends.Z.A.v2.0.0_LinkNeverDie.Com/_Start game + shortcut - Ryujinx New EA.bat",
-    "tag": null,
-    "path_guide": "Tải về bất cứ đâu",
-    "delete_before_extract": [],
-    "url": "https://drive.google.com/uc?id=12KJW2E5-x5P5jvJTZshjDdzujMq9bN2d"
-  },
-  "19": {
-    "name": "Tải Game Out of Space",
-    "urls": [
-      "https://drive.google.com/uc?id=1wTjhSH_tysD0QlPPaiLku5MlJEm1-jb7"
-    ],
-    "version": "v1.2.4b13",
-    "game": "Out of Space",
-    "type": "rar",
-    "password": null,
-    "launch_file": null,
-    "tag": "NEW",
-    "path_guide": null,
-    "delete_before_extract": [],
-    "url": "https://drive.google.com/uc?id=1wTjhSH_tysD0QlPPaiLku5MlJEm1-jb7"
-  },
-  "20": {
-    "name": "Fix LND Launcher",
-    "urls": [
-      "https://drive.google.com/uc?id=1XF4eUTR3qJR9hhNiVkWoSGyHQwXvqArV"
-    ],
-    "version": "v1.0",
-    "game": "Fix LND Launcher",
-    "type": "rar",
-    "password": null,
-    "launch_file": null,
-    "tag": null,
-    "path_guide": null,
-    "delete_before_extract": [],
-    "url": "https://drive.google.com/uc?id=1XF4eUTR3qJR9hhNiVkWoSGyHQwXvqArV"
-  },
-  "21": {
-    "name": "More Players Mod",
-    "urls": [
-      "https://drive.google.com/uc?id=1o4U57K7U8HpLWHlQHgSX-N9ZmJEjHGYL"
-    ],
-    "version": "v2.0.1",
-    "game": "MIMESIS",
-    "type": "zip",
-    "password": null,
-    "launch_file": null,
-    "tag": "HOT",
-    "path_guide": "Giải nén trong thư mục game MIMESIS",
-    "delete_before_extract": [],
-    "url": "https://drive.google.com/uc?id=1o4U57K7U8HpLWHlQHgSX-N9ZmJEjHGYL"
-  }
+    "updater": {
+        "latest_version": "1.4.2",
+        "release_notes": "- Thêm Chia Sẻ Acccount\n- Thêm nút Chạy Game cho từng game",
+        "download_url": "https://drive.google.com/uc?export=download&id=1xLitheCe9ygKSajQl9LbwxYskikYSG1J",
+        "base_url": "https://drive.google.com/uc?export=download&id=1d61kOCYYuVEoPSpB5C7Culx7JF9HDxBK"
+    },
+    "1": {
+        "name": "Cập Nhật Mod",
+        "url": "https://drive.google.com/uc?id=1f9rT20EHRoF4dfc19IcC3ykhwNmUPis_",
+        "version": "v1.4.0",
+        "game": "Elden Ring Nightreign",
+        "type": "zip",
+        "password": null,
+        "delete_before_extract": [],
+        "path_guide": "Chọn thư mục mod ...\\ELDEN VINS NIGHTREIGN. (Nơi có file ELDEN VINS NIGHTREIGN.me3)",
+        "launch_file": "ELDEN VINS NIGHTREIGN.me3"
+    },
+    "2": {
+        "name": "Tải/Cập Nhật Seamless Coop",
+        "url": "https://drive.google.com/uc?id=1182Ju68pjG9LfPTgLaeME6lHPk6aeIEe",
+        "version": "v1.0.6",
+        "game": "Elden Ring Nightreign",
+        "type": "zip",
+        "password": null,
+        "delete_before_extract": [],
+        "path_guide": "Chọn thư mục mod ...\\ELDEN VINS NIGHTREIGN. (Nơi có file ELDEN VINS NIGHTREIGN.me3)",
+        "launch_file": "ELDEN VINS NIGHTREIGN.me3"
+    },
+    "3": {
+        "name": "Việt Hóa Mod",
+        "url": "https://drive.google.com/uc?id=1Hw-JR5E_SrtPHpeK6RknRxoJKMbvdexe",
+        "version": "v1.2",
+        "game": "Elden Ring Nightreign",
+        "type": "exe",
+        "password": null,
+        "delete_before_extract": [],
+        "path_guide": "Tải về bất cứ đâu. App cài việt hóa sẽ hiện lên thì hãy chọn đường dẫn đến file game gốc của Elden Ring Nightreign"
+    },
+    "4": {
+        "name": "Update Việt Hóa Mod",
+        "url": "https://drive.google.com/uc?id=16hP8Q7Bx2tx_G0eQl0F-uEhTTQ2DJ3Or",
+        "version": "v1.3.2",
+        "game": "Elden Ring Nightreign",
+        "type": "zip",
+        "password": null,
+        "delete_before_extract": [],
+        "path_guide": "Hãy chọn đường dẫn đến file game gốc của Elden Ring Nightreign ...\\Elden Ring Nightreign\\Game\\"
+    },
+    "5": {
+        "name": "Tải game Risk Of Rain 2",
+        "urls": [
+            "https://drive.google.com/uc?id=1SWGB4OnSHPpUqjkZWT41k8nrb0WOExaE"
+        ],
+        "version": "v1.4.1 + Online",
+        "game": "Risk of Rain 2",
+        "type": "rar",
+        "password": "daominha.com",
+        "launch_file": "Risk.of.Rain.2.Build.20943763/Risk of Rain 2.exe",
+        "tag": "UPD",
+        "path_guide": "Giải nén bất cứ đâu.",
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=1SWGB4OnSHPpUqjkZWT41k8nrb0WOExaE"
+    },
+    "6": {
+        "name": "Mod Risk Of Rain 2",
+        "urls": [
+            "https://drive.google.com/uc?id=1OUQoR6Ox1iEnEOIYtGoXoQewj-ydlzrV"
+        ],
+        "version": "verhappynewyear20251231",
+        "game": "Risk of Rain 2",
+        "type": "rar",
+        "password": null,
+        "launch_file": null,
+        "tag": null,
+        "path_guide": "Thư mục gốc của game ROR2",
+        "delete_before_extract": [
+            "BepInEx"
+        ],
+        "url": "https://drive.google.com/uc?id=1OUQoR6Ox1iEnEOIYtGoXoQewj-ydlzrV"
+    },
+    "7": {
+        "name": "Tải Game Shape of Dreams",
+        "url": "https://drive.google.com/uc?id=1dZDMWkLKJoBhy5BpoQjONwUn0YBNimQR",
+        "version": "v1.0.9.9",
+        "game": "Shape of Dreams",
+        "type": "zip",
+        "password": null,
+        "delete_before_extract": [],
+        "path_guide": "Giải nén bất cứ đâu",
+        "launch_file": "Shape.of.Dreams.v1.0.9.9/_Shape of Dreams - LND Game Launcher.exe"
+    },
+    "8": {
+        "name": "Tải Game GodBreakers",
+        "url": "https://drive.google.com/uc?id=1oDxwL-rB3p-UOgPK5hTegZ5JMWknfySa",
+        "version": "v20251031",
+        "game": "GodBreakers",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "delete_before_extract": [],
+        "path_guide": null,
+        "launch_file": "GODBREAKERS.b20560501_LinkNeverDie.Com/_GODBREAKERS - LND Game Launcher.exe"
+    },
+    "9": {
+        "name": "Tải Game The Spell Brigade",
+        "url": "https://drive.google.com/uc?id=1KtJiHYs7rrr5c2OeMqWcIQXpjJmYx3gI",
+        "version": "v0.13.0.6449",
+        "game": "The Spell Brigade",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "delete_before_extract": [],
+        "path_guide": null,
+        "launch_file": "The.Spell.Brigade.v0.13.0.6449_LinkNeverDie.Com/_The Spell Brigade - LND Game Launcher.exe"
+    },
+    "10": {
+        "name": "Tải Game Wizard Of Lgend 2",
+        "url": "https://drive.google.com/uc?id=1moCNSRJ_MtDVerRAFOLe7-66AINA3ozp",
+        "version": "v1.1.0",
+        "game": "Wizard Of Legend 2",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "delete_before_extract": [],
+        "path_guide": null,
+        "launch_file": "Wizard.of.Legend.2.v1.1.0_LinkNeverDie.Com/_Wizard of Legend 2 - LND Game Launcher.exe"
+    },
+    "11": {
+        "name": "Tải Game PEAK",
+        "urls": [
+            "https://drive.google.com/uc?id=16klTpVX7oqhHaXg--zbfQmsXUpPau-5f"
+        ],
+        "version": "v1.46.a",
+        "game": "PEAK",
+        "type": "rar",
+        "password": "hadoantv.com",
+        "launch_file": "PEAK/PEAK.exe",
+        "tag": "UPD",
+        "path_guide": "Giải nén bất cứ đâu",
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=16klTpVX7oqhHaXg--zbfQmsXUpPau-5f"
+    },
+    "12": {
+        "name": "Tải Game Phasmophobia",
+        "urls": [
+            "https://drive.google.com/uc?id=1CgOyBy5u2E_8Rfjb9t2FS2l2SmimzNjF"
+        ],
+        "version": "v0.15.1",
+        "game": "Phasmophobia",
+        "type": "rar",
+        "password": "hadoantv.com",
+        "launch_file": "Phasmophobia/Launcher.exe",
+        "tag": null,
+        "path_guide": "Cài bất cứ đâu",
+        "delete_before_extract": [
+            "Phasmophobia"
+        ],
+        "url": "https://drive.google.com/uc?id=1CgOyBy5u2E_8Rfjb9t2FS2l2SmimzNjF"
+    },
+    "13": {
+        "name": "Tải Game MIMESIS",
+        "urls": [
+            "https://drive.google.com/uc?id=1m5ruaOnZwE-Q2ejp-twUgrvyJUuMkxg6"
+        ],
+        "version": "v0.2.5",
+        "game": "MIMESIS",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "launch_file": "MIMESIS.v0.2.5_LinkNeverDie.Com/MIMESIS.exe",
+        "tag": "HOT",
+        "path_guide": "Giải nén bất cứ.",
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=1m5ruaOnZwE-Q2ejp-twUgrvyJUuMkxg6"
+    },
+    "14": {
+        "name": "BET v0.11.5.1",
+        "url": "https://drive.google.com/uc?id=12VSkalB5oXAc1RJB8npLd898du4pDL6-",
+        "version": "v0.11.5.1",
+        "game": "Backrooms: Escape Together",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "launch_file": "BET.v0.11.5.1_LinkNeverDie.Com/_Backrooms Escape Together - LND Game Launcher.exe",
+        "path_guide": null,
+        "delete_before_extract": []
+    },
+    "15": {
+        "name": "Tải Game Clair Obscur Expedition 33",
+        "urls": [
+            "https://drive.google.com/uc?id=1AllS3NU313k_vZbPIJ1Exg98QUGZ5Uxg",
+            "https://drive.google.com/uc?id=1gEyogzVSgLoBU_kXjKg12xV8reduxe87",
+            "https://drive.google.com/uc?id=1viY6YeKHqzg_xQdQVLyVYTXSskAQTRZL",
+            "https://drive.google.com/uc?id=1iDtiRyLnXwc1Eh3YuIvniNQtTm6ecNuc"
+        ],
+        "version": "v1.5.0",
+        "game": "Clair Obscur: Expedition 33",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "launch_file": "Clair.Obscur.Expedition.33.v1.5.0_LinkNeverDie.Com/__Start game + create shortcut.exe",
+        "tag": "GOTY",
+        "path_guide": "Tải về bất cứ đâu",
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=1AllS3NU313k_vZbPIJ1Exg98QUGZ5Uxg"
+    },
+    "16": {
+        "name": "Tải Game The Legend of Zelda: Breath of the Wild",
+        "urls": [
+            "https://drive.google.com/uc?id=1_TdyS78J7WpEr9PUdjNY3FNEB4P15wfZ"
+        ],
+        "version": "v1.5.0",
+        "game": "The Legend of Zelda: Breath of the Wild",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "launch_file": "The.Legend.of.Zelda.BOTW.Cemu_LinkNeverDie.Com/__Start game and create shortcut.bat",
+        "tag": "GOTY",
+        "path_guide": "Giải nén bất cứ đâu",
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=1_TdyS78J7WpEr9PUdjNY3FNEB4P15wfZ"
+    },
+    "17": {
+        "name": "Tải Game The Legend of Zelda: Tears of the Kingdom",
+        "urls": [
+            "https://drive.google.com/uc?id=11NZZrZVsWiLHVPm9EP_9SdAAlKl1RH7F",
+            "https://drive.google.com/uc?id=1_mYThK-szuO_31AGiTHLAW4DXt54Wv50"
+        ],
+        "version": "v1.1.1",
+        "game": "The Legend of Zelda: Tears of the Kingdom",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "launch_file": null,
+        "tag": null,
+        "path_guide": "Giải nén bất cứ đâu",
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=11NZZrZVsWiLHVPm9EP_9SdAAlKl1RH7F"
+    },
+    "18": {
+        "name": "Tải Game Pokémon Legends: Z-A",
+        "urls": [
+            "https://drive.google.com/uc?id=12KJW2E5-x5P5jvJTZshjDdzujMq9bN2d"
+        ],
+        "version": "v2.0.0 + DLC",
+        "game": "Pokémon Legends: Z-A",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "launch_file": "Pokemon.Legends.Z.A.v2.0.0_LinkNeverDie.Com/_Start game + shortcut - Ryujinx New EA.bat",
+        "tag": null,
+        "path_guide": "Tải về bất cứ đâu",
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=12KJW2E5-x5P5jvJTZshjDdzujMq9bN2d"
+    },
+    "19": {
+        "name": "Tải Game Out of Space",
+        "urls": [
+            "https://drive.google.com/uc?id=1wTjhSH_tysD0QlPPaiLku5MlJEm1-jb7"
+        ],
+        "version": "v1.2.4b13",
+        "game": "Out of Space",
+        "type": "rar",
+        "password": null,
+        "launch_file": null,
+        "tag": null,
+        "path_guide": null,
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=1wTjhSH_tysD0QlPPaiLku5MlJEm1-jb7"
+    },
+    "20": {
+        "name": "Fix LND Launcher",
+        "urls": [
+            "https://drive.google.com/uc?id=1XF4eUTR3qJR9hhNiVkWoSGyHQwXvqArV"
+        ],
+        "version": "v1.0",
+        "game": "Fix LND Launcher",
+        "type": "rar",
+        "password": null,
+        "launch_file": null,
+        "tag": null,
+        "path_guide": null,
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=1XF4eUTR3qJR9hhNiVkWoSGyHQwXvqArV"
+    },
+    "21": {
+        "name": "More Players Mod",
+        "urls": [
+            "https://drive.google.com/uc?id=1o4U57K7U8HpLWHlQHgSX-N9ZmJEjHGYL"
+        ],
+        "version": "v2.0.1",
+        "game": "MIMESIS",
+        "type": "zip",
+        "password": null,
+        "launch_file": null,
+        "tag": "HOT",
+        "path_guide": "Giải nén trong thư mục game MIMESIS",
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=1o4U57K7U8HpLWHlQHgSX-N9ZmJEjHGYL"
+    },
+    "22": {
+        "name": "Tải Exploding Kittens 2",
+        "urls": [
+            "https://drive.google.com/uc?id=1F7hFfBzdXvG4M8-vRY1yu9KoXI1Jlk0_"
+        ],
+        "version": "v0.0.30",
+        "game": "Exploding Kittens 2",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "launch_file": "Exploding.Kittens.2.v0.0.30_LinkNeverDie.Com/ExplodingKittens.exe",
+        "tag": null,
+        "path_guide": null,
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=1F7hFfBzdXvG4M8-vRY1yu9KoXI1Jlk0_"
+    },
+    "23": {
+        "name": "Liar Bar",
+        "urls": [
+            "https://drive.google.com/uc?id=1IIf-7IhaeXuXYII7qtAQs7QVhI7Cg9FO"
+        ],
+        "version": "v0.97",
+        "game": "Liar Bar",
+        "type": "rar",
+        "password": "linkneverdie.com",
+        "launch_file": "Liars.Bar.v0.97_LinkNeverDie.Com/__Start game + create shortcut.exe",
+        "tag": null,
+        "path_guide": null,
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=1IIf-7IhaeXuXYII7qtAQs7QVhI7Cg9FO"
+    },
+    "24": {
+        "name": "60FPS + No Trade Evolution Mod",
+        "urls": [
+            "https://drive.google.com/uc?id=10xamoTyhVQdOBdEGZ-SJOd4ZNd2MKRqf"
+        ],
+        "version": "v1.0",
+        "game": "Pokémon Legends: Z-A",
+        "type": "rar",
+        "password": null,
+        "launch_file": null,
+        "tag": null,
+        "path_guide": null,
+        "delete_before_extract": [],
+        "url": "https://drive.google.com/uc?id=10xamoTyhVQdOBdEGZ-SJOd4ZNd2MKRqf"
+    }
 }
