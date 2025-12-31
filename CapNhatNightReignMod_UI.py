@@ -244,122 +244,153 @@ def center_window_on_screen(window, width, height):
         # Fallback: nếu lỗi, chỉ đặt kích thước
         window.geometry(f'{width}x{height}')
 
+def format_size(size_bytes):
+    if not size_bytes:
+        return "Unknown"
+    # Chuyển đổi bytes sang B, KB, MB, GB
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if size_bytes < 1024.0:
+            return f"{size_bytes:.2f} {unit}"
+        size_bytes /= 1024.0
+    return f"{size_bytes:.2f} PB"
 
-
-def show_smart_download_confirm(title, mod_name, stats_data, is_space_ok):
+def show_smart_download_confirm(parent, game_name, version, stats, is_space_ok, failed_links, on_confirm, on_cancel):
     """
-    (V10 - NO CLOSE) Hiển thị cửa sổ xác nhận VÀ VÔ HIỆU HÓA NÚT 'X'.
-    Người dùng buộc phải chọn Có hoặc Không.
+    Popup xác nhận tải Modern UI - Có hiển thị danh sách Link lỗi.
     """
-    dlg = tk.Toplevel(root)
-    dlg.title(title)
-    dlg.transient(root)
-    dlg.grab_set()
-    dlg.resizable(False, False)
+    popup = tk.Toplevel(parent)
+    popup.title("Xác nhận tải xuống")
     
-    # --- [QUAN TRỌNG] VÔ HIỆU HÓA NÚT X ---
-    def do_nothing():
-        # Phát tiếng 'ding' để cảnh báo người dùng
-        try: dlg.bell()
-        except: pass
+    # Tự động điều chỉnh độ cao nếu có link lỗi
+    base_height = 470
+    if failed_links and len(failed_links) > 0:
+        base_height += 150 # Dài thêm để chứa khung lỗi
+        
+    popup.geometry(f"500x{base_height}") # Rộng hơn chút (450->500)
+    popup.resizable(False, False)
+    popup.configure(bg="#1e1e1e")
     
-    dlg.protocol("WM_DELETE_WINDOW", do_nothing)
-    # ---------------------------------------
-    
-    dlg.after(10, lambda: apply_theme_to_titlebar(dlg))
-
-    main_frame = ttk.Frame(dlg, padding=20)
-    main_frame.pack(fill=tk.BOTH, expand=True)
-
-    # Header: Dấu hỏi to + Tên Game
-    header_frame = ttk.Frame(main_frame)
-    header_frame.pack(fill=tk.X, pady=(0, 15))
-    
-    # Icon Dấu hỏi to (Size 48)
+    # Căn giữa màn hình
     try:
-        icon_q = get_ctx_icon("question", "#4a90e2", size=48)
-        lbl_icon_q = tk.Label(header_frame, image=icon_q, bg=style.lookup("TFrame", "background"))
-        lbl_icon_q.pack()
-    except: pass
+        x = parent.winfo_rootx() + (parent.winfo_width() // 2) - 250
+        y = parent.winfo_rooty() + (parent.winfo_height() // 2) - (base_height // 2)
+        popup.geometry(f"+{x}+{y}")
+    except:
+        popup.geometry("+300+300")
+
+    # Khóa nút X
+    popup.protocol("WM_DELETE_WINDOW", lambda: None) 
+
+    # --- HEADER ---
+    header_bg = "#c0392b" if not is_space_ok or failed_links else "#2d3436"
+    header_frame = tk.Frame(popup, bg=header_bg, pady=15)
+    header_frame.pack(fill="x")
     
-    ttk.Label(main_frame, text=f"Thông tin dung lượng '{mod_name}':", font=("Segoe UI", 10, "bold"), anchor="center").pack(pady=(0, 10))
+    # Logic icon: Nếu thiếu chỗ hoặc có link lỗi thì hiện cảnh báo
+    if not is_space_ok:
+        icon_text = "⚠️" 
+        title_text = "CẢNH BÁO DUNG LƯỢNG"
+    elif failed_links:
+        icon_text = "🔗"
+        title_text = "LINK TẢI CÓ VẤN ĐỀ"
+    else:
+        icon_text = "☁️"
+        title_text = "SẴN SÀNG TẢI XUỐNG"
 
-    # --- KHUNG GRID (HIỂN THỊ THÔNG SỐ) ---
-    grid_frame = ttk.Frame(main_frame)
-    grid_frame.pack(fill=tk.X, padx=10)
+    tk.Label(header_frame, text=icon_text, font=("Segoe UI Emoji", 30), bg=header_bg, fg="white").pack()
+    tk.Label(header_frame, text=title_text, font=("Segoe UI", 12, "bold"), bg=header_bg, fg="white").pack(pady=(5,0))
+
+    # --- BODY INFO ---
+    body_frame = tk.Frame(popup, bg="#1e1e1e", padx=20, pady=10)
+    body_frame.pack(fill="both", expand=True)
+
+    tk.Label(body_frame, text=game_name, font=("Segoe UI", 14, "bold"), fg="#00cec9", bg="#1e1e1e").pack(pady=5)
     
-    try:
-        ic_down = get_ctx_icon("download", "white", size=24)
-        ic_fold = get_ctx_icon("folder", "#FFD700", size=24) 
-        ic_save = get_ctx_icon("save", "#DDA0DD", size=24)
-        ic_disk = get_ctx_icon("disk", "#A9A9A9", size=24)
-    except: 
-        ic_down = ic_fold = ic_save = ic_disk = None
+    # --- [MỚI] KHUNG HIỂN THỊ LINK LỖI (NẾU CÓ) ---
+    if failed_links:
+        error_frame = tk.Frame(body_frame, bg="#2d3436", padx=10, pady=5)
+        error_frame.pack(fill="x", pady=(0, 10))
+        
+        tk.Label(error_frame, text=f"⚠️ Có {len(failed_links)} link không thể kiểm tra (Có thể bị hỏng):", 
+                 font=("Segoe UI", 9, "bold"), fg="#ff7675", bg="#2d3436").pack(anchor="w")
+        
+        # Textbox để hiện link (cho phép scroll và copy)
+        txt_links = tk.Text(error_frame, height=4, font=("Consolas", 8), bg="#1e1e1e", fg="#fab1a0", bd=0)
+        txt_links.pack(fill="x", pady=5)
+        
+        # Chèn link vào
+        for link in failed_links:
+            txt_links.insert("end", f"• {link}\n")
+        
+        # Khóa lại để không cho sửa, nhưng vẫn copy được
+        txt_links.config(state="disabled")
+    # ---------------------------------------------
+
+    # --- BẢNG THÔNG SỐ ---
+    stats_frame = tk.Frame(body_frame, bg="#2d3436", padx=10, pady=10)
+    stats_frame.pack(fill="x", pady=5)
     
-    lbl_font = ("Segoe UI", 10)
-    bg_col = style.lookup("TFrame", "background")
+    def create_stat_row(p, label, value, color="white", row=0):
+        tk.Label(p, text=label, font=("Segoe UI", 10), fg="#dfe6e9", bg="#2d3436").grid(row=row, column=0, sticky="w", pady=2)
+        tk.Label(p, text=value, font=("Segoe UI", 10, "bold"), fg=color, bg="#2d3436").grid(row=row, column=1, sticky="e", pady=2)
+        p.grid_columnconfigure(1, weight=1)
 
-    # Hàng 1: Download
-    if ic_down: tk.Label(grid_frame, image=ic_down, bg=bg_col).grid(row=0, column=0, padx=(0, 10), pady=2)
-    ttk.Label(grid_frame, text=f"Dung lượng tải về: {stats_data['down']}", font=lbl_font).grid(row=0, column=1, sticky="w")
-
-    # Hàng 2: Extract
-    if ic_fold: tk.Label(grid_frame, image=ic_fold, bg=bg_col).grid(row=1, column=0, padx=(0, 10), pady=2)
-    ttk.Label(grid_frame, text=f"Dung lượng giải nén: ~{stats_data['extract']}", font=lbl_font).grid(row=1, column=1, sticky="w")
-
-    # Kẻ ngang
-    ttk.Separator(grid_frame, orient='horizontal').grid(row=2, column=0, columnspan=2, sticky="ew", pady=10)
-
-    # Hàng 3: Tổng cần
-    if ic_save: tk.Label(grid_frame, image=ic_save, bg=bg_col).grid(row=3, column=0, padx=(0, 10), pady=2)
-    ttk.Label(grid_frame, text=f"TỔNG CẦN THIẾT: ~{stats_data['total']}", font=("Segoe UI", 10, "bold")).grid(row=3, column=1, sticky="w")
-
-    # Hàng 4: Ổ đĩa
-    if ic_disk: tk.Label(grid_frame, image=ic_disk, bg=bg_col).grid(row=4, column=0, padx=(0, 10), pady=2)
-    ttk.Label(grid_frame, text=f"Ổ đĩa trống: {stats_data['free']}", font=lbl_font).grid(row=4, column=1, sticky="w")
-
-    # Kẻ ngang
-    ttk.Separator(grid_frame, orient='horizontal').grid(row=5, column=0, columnspan=2, sticky="ew", pady=10)
-
-    # Hàng 5: Trạng thái
-    status_icon_name = "check" if is_space_ok else "warning"
-    status_color = "#4cff00" if is_space_ok else "#ffcc00"
+    create_stat_row(stats_frame, "📥 Tải về:", stats.get('down', 'Unknown'), "#0984e3", 0)
+    create_stat_row(stats_frame, "📦 Giải nén (Est):", stats.get('extract', 'Unknown'), "#a29bfe", 1)
     
-    try:
-        ic_status = get_ctx_icon(status_icon_name, status_color, size=24)
-        tk.Label(grid_frame, image=ic_status, bg=bg_col).grid(row=6, column=0, padx=(0, 10), pady=2)
-    except: pass
+    tk.Frame(stats_frame, height=1, bg="#636e72").grid(row=2, column=0, columnspan=2, sticky="ew", pady=5)
     
-    status_text = "Dung lượng ổ đĩa: Đủ (An toàn)." if is_space_ok else "CẢNH BÁO: Không đủ dung lượng!"
-    tk.Label(grid_frame, text=status_text, font=("Segoe UI", 10, "bold"), fg=status_color, bg=bg_col).grid(row=6, column=1, sticky="w")
+    total_color = "#e17055" if not is_space_ok else "#00b894"
+    create_stat_row(stats_frame, "💾 Tổng cần thiết:", stats.get('total', 'Unknown'), total_color, 3)
+    create_stat_row(stats_frame, "💿 Ổ cứng trống:", stats.get('free', 'Unknown'), "white", 4)
 
-    # Câu hỏi
-    ttk.Label(main_frame, text="Bạn có muốn tiếp tục không?", font=("Segoe UI", 10)).pack(pady=(20, 10))
+    # --- KẾT LUẬN ---
+    conclusion_frame = tk.Frame(body_frame, bg="#1e1e1e", pady=5)
+    conclusion_frame.pack(fill="x")
 
-    # Nút bấm
-    btn_frame = ttk.Frame(dlg, padding=10)
-    btn_frame.pack(side=tk.BOTTOM, fill=tk.X)
+    if not is_space_ok:
+        msg_text = "❌ KHÔNG ĐỦ DUNG LƯỢNG!"
+        msg_color = "#ff7675"
+    elif failed_links:
+        msg_text = "⚠️ CẢNH BÁO: Link tải có thể bị lỗi!"
+        msg_color = "#fab1a0" # Cam nhạt
+    else:
+        msg_text = "✅ ĐỦ DUNG LƯỢNG! An toàn để tải."
+        msg_color = "#00b894"
 
-    result = [False]
-    def on_yes():
-        result[0] = True
-        dlg.destroy()
-    def on_no():
-        dlg.destroy()
+    tk.Label(conclusion_frame, text=msg_text, font=("Segoe UI", 11, "bold"), fg=msg_color, bg="#1e1e1e").pack()
 
-    btn_yes = ttk.Button(btn_frame, text="Có (Yes)", style="Accent.TButton", command=on_yes)
-    btn_yes.pack(side=tk.RIGHT, padx=5)
+    # --- BUTTONS ---
+    btn_frame = tk.Frame(popup, bg="#1e1e1e", pady=20)
+    btn_frame.pack(side="bottom", fill="x")
+
+    def on_click_cancel():
+        popup.destroy()
+        if on_cancel: on_cancel()
+
+    def on_click_confirm():
+        popup.destroy()
+        if on_confirm: on_confirm()
+
+    tk.Button(btn_frame, text="Hủy bỏ", font=("Segoe UI", 10), bg="#2d3436", fg="white", 
+              bd=0, padx=20, pady=8, cursor="hand2", command=on_click_cancel).pack(side="left", padx=30)
+
+    # Logic nút tải: Nếu có link lỗi, đổi màu nút tải thành màu Cam (Cảnh giác)
+    if failed_links:
+        confirm_text = "VẪN TẢI THỬ"
+        confirm_bg = "#e67e22" # Màu cam
+    elif not is_space_ok:
+        confirm_text = "VẪN TẢI (Rủi ro)"
+        confirm_bg = "#d63031" # Màu đỏ
+    else:
+        confirm_text = "TẢI NGAY 🚀"
+        confirm_bg = "#0984e3" # Màu xanh
     
-    # Nút No (Không)
-    btn_no = ttk.Button(btn_frame, text="Không (No)", command=on_no)
-    btn_no.pack(side=tk.RIGHT, padx=5)
+    tk.Button(btn_frame, text=confirm_text, font=("Segoe UI", 10, "bold"), bg=confirm_bg, fg="white", 
+              bd=0, padx=30, pady=8, cursor="hand2", command=on_click_confirm).pack(side="right", padx=30)
 
-    dlg.update_idletasks()
-    center_window_on_screen(dlg, dlg.winfo_reqwidth() + 20, dlg.winfo_reqheight() + 20)
-    
-    # Chờ cửa sổ đóng
-    root.wait_window(dlg)
-    return result[0]
+    popup.transient(parent)
+    popup.grab_set()
 
 
 def _show_custom_dialog(title, message, dialog_type="info", parent=None):
@@ -2478,32 +2509,44 @@ def download_single_part(url, target_path, part_index, total_parts):
             raise e_gdown
 def get_remote_file_size(url):
     """
-    Lấy kích thước file từ xa (Google Drive API hoặc HTTP Header) mà không cần tải về.
-    Trả về: Kích thước (bytes) hoặc 0 nếu không lấy được.
+    Lấy kích thước file từ xa.
+    Cải tiến: Sử dụng stream=True để follow redirect chính xác hơn.
     """
     global drive_service
     
-    # 1. Thử lấy bằng Google Drive API (Nhanh & Chính xác nhất)
+    # 1. ƯU TIÊN: Google Drive API (Nếu có cấu hình)
+    # Đây là cách DUY NHẤT chính xác 100% với file Google Drive > 100MB
     file_id = extract_gdrive_id_from_url(url)
-    if file_id and drive_service:
+    if file_id and 'drive_service' in globals() and drive_service:
         try:
-            # Chỉ lấy trường 'size' để tiết kiệm băng thông
             meta = drive_service.files().get(fileId=file_id, fields="size").execute()
+            print(f"Lấy size từ Drive API: {meta.get('size')}")
             return int(meta.get('size', 0))
-        except:
-            pass # Nếu lỗi API (vd: file công khai nhưng chưa login), chuyển sang cách HTTP
+        except Exception as e:
+            print(f"Drive API lỗi hoặc chưa login: {e}")
 
-    # 2. Thử lấy bằng HTTP Header (Requests)
+    # 2. DỰ PHÒNG: HTTP Request (Stream)
     try:
-        # stream=True để không tải nội dung, chỉ lấy header
-        response = requests.head(url, allow_redirects=True, timeout=5)
-        
-        # Kiểm tra Content-Length
-        size = response.headers.get('content-length')
-        if size:
-            return int(size)
-    except:
-        pass
+        # stream=True: Kết nối nhưng KHÔNG tải body -> Giống HEAD nhưng server ít chặn hơn
+        # allow_redirects=True: Bắt buộc để xử lý link rút gọn hoặc link redirect Google
+        with requests.get(url, stream=True, allow_redirects=True, timeout=5) as response:
+            
+            # Lấy Content-Length
+            size = response.headers.get('Content-Length')
+            
+            # --- LOGIC XỬ LÝ GOOGLE DRIVE SCAN WARNING ---
+            # Nếu là link Google Drive mà trả về "text/html", nghĩa là dính trang cảnh báo virus.
+            # Lúc này size nhận được là size của trang web, không phải file.
+            content_type = response.headers.get('Content-Type', '').lower()
+            if "drive.google.com" in url and "text/html" in content_type:
+                print("URL là trang cảnh báo virus Google Drive -> Không thể lấy size qua HTTP.")
+                return 0
+            # ---------------------------------------------
+
+            if size:
+                return int(size)
+    except Exception as e:
+        print(f"Lỗi lấy size qua HTTP: {e}")
         
     return 0
 
@@ -2555,6 +2598,7 @@ def download_and_extract_logic():
     progress_queue.put(("status", "Đang tính toán dung lượng..."))
     
     total_download_size = 0
+    failed_url_list = []
     unknown_size_count = 0
     
     # Tính tổng dung lượng cần tải
@@ -2563,6 +2607,7 @@ def download_and_extract_logic():
         if size > 0:
             total_download_size += size
         else:
+            failed_url_list.append(url)
             unknown_size_count += 1
             
     # Kiểm tra dung lượng trống ổ đĩa
@@ -2594,27 +2639,72 @@ def download_and_extract_logic():
     if total_download_size > 0 and free_disk < total_required_space:
         is_space_ok = False
 
-    # --- SỬA LỖI UI THREAD (GỌI POPUP MỚI) ---
-    user_response = [None]
+    # --- [PHẦN SỬA ĐỔI QUAN TRỌNG: GỌI UI VÀ ĐỢI PHẢN HỒI] ---
     
-    def show_confirm_popup():
-        title = "Xác nhận tải" if is_space_ok else "Cảnh báo dung lượng"
-        # Gọi hàm mới (đã khóa nút X)
-        user_response[0] = show_smart_download_confirm(title, mod_display_name, stats_data, is_space_ok)
+    # 1. Tạo biến cờ để đồng bộ giữa Thread và UI
+    download_event = threading.Event()
+    user_decision = {"proceed": False}
 
-    # Chuyển lệnh lên luồng chính và chờ
-    root.after(0, show_confirm_popup)
-    
-    # Vòng lặp chờ phản hồi từ UI Thread
-    while user_response[0] is None:
-        time.sleep(0.1)
-        if not root.winfo_exists(): return 
+    def on_ui_confirm():
+        user_decision["proceed"] = True
+        download_event.set()
 
-    # Nếu chọn No hoặc tắt cửa sổ (mà giờ tắt X không được nữa, phải chọn nút)
-    if not user_response[0]:
+    def on_ui_cancel():
+        user_decision["proceed"] = False
+        download_event.set()
+        
+        # --- [MỚI] LOGIC QUAY VỀ TRANG CHỦ TAB 1 ---
+        # Chạy trên luồng chính UI để tránh lỗi thread
+        def back_to_home():
+            try:
+                # 1. Chuyển về Tab đầu tiên (Index 0)
+                # Giả sử tên biến Notebook của bạn là 'notebook' hoặc 'main_notebook'
+                if 'notebook' in globals():
+                    notebook.select(0)
+                
+                # 2. Gọi hàm quay lại danh sách (Mô phỏng bấm nút Back)
+                # Nếu bạn có hàm 'on_back_click' hoặc 'show_mod_list', hãy gọi nó
+                if 'on_back_click' in globals():
+                    on_back_click()
+                
+                # Reset trạng thái nút (nếu đang bị disable)
+                progress_queue.put(("status", "ENABLE_BUTTONS"))
+                option_label.configure(text="Đã hủy tải xuống.", style="White.TLabel")
+                
+            except Exception as e:
+                print(f"Lỗi khi quay về trang chủ: {e}")
+
+        root.after(100, back_to_home)
+        # ---------------------------------------------
+
+    def trigger_ui_thread_safe():
+        show_smart_download_confirm(
+            parent=root,
+            game_name=mod_display_name,
+            version=version,
+            stats=stats_data,
+            is_space_ok=is_space_ok,
+            failed_links=failed_url_list, 
+            on_confirm=on_ui_confirm,
+            on_cancel=on_ui_cancel
+        )
+
+    root.after(0, trigger_ui_thread_safe)
+
+    # 5. [QUAN TRỌNG] Thread đứng lại ở đây chờ người dùng bấm nút
+    # Code sẽ không chạy xuống dưới cho đến khi download_event.set() được gọi
+    print("Đang chờ người dùng xác nhận...")
+    download_event.wait() 
+
+    # 6. Kiểm tra kết quả sau khi chờ
+    if not user_decision["proceed"]:
+        progress_queue.put(("status", "Đã hủy tải xuống."))
+        progress_queue.put(("status", "ENABLE_BUTTONS"))
         progress_queue.put(("cancel_and_return_home", None))
         return
-    # ----------------------------------------------------
+
+    # --- NẾU NGƯỜI DÙNG ĐỒNG Ý, TIẾP TỤC TẢI ---
+    progress_queue.put(("status", f"Bắt đầu tải {mod_display_name}..."))
 
     # 2. Lưu config đường dẫn (Tiếp tục code cũ)
     if 'last_used_folder' not in local_config: 
@@ -4098,12 +4188,12 @@ def process_queue():
             elif message_value == "ENABLE_BUTTONS":
                 start_button.config(state=tk.NORMAL)
                 browse_button.config(state=tk.NORMAL)
-                if g_current_page == page_3_progress:
-                    show_page(page_2_mod_list)
+                # if g_current_page == page_3_progress:
+                #     show_page(page_2_mod_list)
 
-                # Xử lý nếu đang ở trang 1
-                elif not g_current_game_name: 
-                    show_page(page_1_game_grid)
+                # # Xử lý nếu đang ở trang 1
+                # elif not g_current_game_name: 
+                show_page(page_1_game_grid)
                 current_status_text = status_label.cget("text")
                 if "thành công" not in current_status_text and "Lỗi" not in current_status_text and "Sai mật khẩu" not in current_status_text:
                     status_label.configure(text="Hãy chọn đường dẫn và bấm bắt đầu.", style="White.TLabel")
