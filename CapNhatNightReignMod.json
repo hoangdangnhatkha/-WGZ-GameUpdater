@@ -65,9 +65,9 @@
     "6": {
         "name": "Mod Risk Of Rain 2",
         "urls": [
-            "https://drive.google.com/uc?id=19sYPBdbqLmJ6aIZTyy783q5bexoEvgPz"
+            "https://drive.google.com/uc?id=1OUQoR6Ox1iEnEOIYtGoXoQewj-ydlzrV"
         ],
-        "version": "ver20251229",
+        "version": "verhappynewyear20251231",
         "game": "Risk of Rain 2",
         "type": "zip",
         "password": null,
@@ -77,7 +77,7 @@
         "delete_before_extract": [
             "BepInEx"
         ],
-        "url": "https://drive.google.com/uc?id=19sYPBdbqLmJ6aIZTyy783q5bexoEvgPz"
+        "url": "https://drive.google.com/uc?id=1OUQoR6Ox1iEnEOIYtGoXoQewj-ydlzrV"
     },
     "7": {
         "name": "Tải Game Shape of Dreams",
