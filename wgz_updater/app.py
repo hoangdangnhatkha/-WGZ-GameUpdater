@@ -48,8 +48,20 @@ def _install_app_icon(app: QApplication) -> None:
 
 
 def main() -> int:
+    from .core.local_config import LocalConfig
+    from .core.win32_utils import elevate_and_relaunch, is_admin
+
+    # Admin elevation — must happen before QApplication
+    if not is_admin():
+        launched = elevate_and_relaunch()
+        if launched:
+            return 0
+
     configure_logging()
     _install_excepthook()
+
+    # Load persisted settings
+    LocalConfig().load()
 
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
@@ -75,25 +87,35 @@ def main() -> int:
         from .features.library.view import LibraryView
         window.install_view("library", LibraryView(window))
     except Exception:
-        log.exception("Library view not installed yet")
+        log.exception("Library view failed to load")
 
     try:
         from .features.accounts.view import AccountsView
         window.install_view("accounts", AccountsView(window))
     except Exception:
-        log.exception("Accounts view not installed yet")
+        log.exception("Accounts view failed to load")
 
     try:
         from .features.settings.view import SettingsView
         window.install_view("settings", SettingsView(window))
     except Exception:
-        log.exception("Settings view not installed yet")
+        log.exception("Settings view failed to load")
 
     try:
         from .widgets.status_strip import StatusStrip
         window.install_status_strip(StatusStrip(window))
     except Exception:
-        log.exception("Status strip not installed yet")
+        log.exception("Status strip failed to load")
+
+    # Background: auto-detect Steam/Riot paths
+    try:
+        from .core.auto_path import AutoPathWorker
+        auto = AutoPathWorker(app)
+        auto.steam_found.connect(lambda p: log.info("Steam path set: %s", p))
+        auto.riot_found.connect(lambda p: log.info("Riot path set: %s", p))
+        auto.start()
+    except Exception:
+        log.exception("AutoPathWorker failed to start")
 
     rc = app.exec()
     instance.release()
