@@ -60,13 +60,11 @@ SPLASH_OFFLINE = "Lỗi mạng. Đang chạy chế độ offline..."
 # Library grid + detail page
 ACTION_LAUNCH_GAME = "🚀 Chạy Game"
 ACTION_BACK = "← Quay lại"
-ACTION_BROWSE_FOLDER = "Chọn thư mục..."
 LABEL_INSTALL_PATH = "Thư mục cài đặt:"
 LABEL_PATH_GUIDE = "Hướng dẫn cài đặt:"
 LABEL_MOD_SELECT = "Chọn bản cài:"
 LABEL_PART_OF = "Phần {current}/{total}"
 STATUS_READY = "Sẵn sàng"
-STATUS_DONE = "Hoàn tất!"
 STATUS_CANCELLED = "Đã hủy"
 
 # Accounts
