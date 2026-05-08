@@ -2,154 +2,142 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QGuiApplication
-from PyQt6.QtWidgets import (
-    QAbstractItemView,
-    QCheckBox,
-    QHBoxLayout,
-    QHeaderView,
-    QInputDialog,
-    QLabel,
-    QLineEdit,
-    QMessageBox,
-    QPushButton,
-    QSplitter,
-    QTableView,
-    QVBoxLayout,
-    QWidget,
-)
+from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 
+from ...core.config import load_config
 from ...resources.strings_vi import (
-    ACTION_AUTO_LOGIN,
-    DIALOG_ERROR_TITLE,
-    NAV_ACCOUNTS,
+    DIALOG_ERROR_TITLE, MSG_ACCOUNTS_LOADED,
+    MSG_ACCOUNTS_SAVED, MSG_DRIVE_ERROR,
 )
-from .account_list_model import AccountListModel
+from ...widgets.dialogs import wgz_error, wgz_info
+from .account_list_page import AccountListPage
 from .models import AccountRecord
-from .riot_login import RiotLoginWorker
-from .trailer_player import TrailerPlayer
+from .service_grid_page import ServiceGridPage
 
 log = logging.getLogger(__name__)
+
+_PAGE_GRID = 0
+_PAGE_LIST = 1
+
+
+class _DriveLoadWorker(QThread):
+    finished_ok = pyqtSignal(dict)   # {service: [AccountRecord, ...]}
+    failed = pyqtSignal(str)
+
+    def run(self) -> None:
+        try:
+            from .sheets_service import SheetsService
+            svc = SheetsService()
+            records = svc.fetch_accounts()
+            grouped: dict[str, list[AccountRecord]] = {}
+            for rec in records:
+                grouped.setdefault(rec.service, []).append(rec)
+            self.finished_ok.emit(grouped)
+        except Exception as exc:
+            log.exception("Drive load failed")
+            self.failed.emit(str(exc))
+
+
+class _DriveSaveWorker(QThread):
+    finished_ok = pyqtSignal()
+    failed = pyqtSignal(str)
+
+    def __init__(self, records: list[AccountRecord], parent=None) -> None:
+        super().__init__(parent)
+        self._records = records
+
+    def run(self) -> None:
+        try:
+            from .sheets_service import SheetsService
+            svc = SheetsService()
+            svc.write_accounts(self._records)
+            try:
+                from .github_sync import GitHubSync
+                GitHubSync().push(self._records)
+            except Exception:
+                log.warning("GitHub sync skipped (token missing or error)", exc_info=True)
+            self.finished_ok.emit()
+        except Exception as exc:
+            log.exception("Drive save failed")
+            self.failed.emit(str(exc))
 
 
 class AccountsView(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self._login_worker: RiotLoginWorker | None = None
+        self._accounts: dict[str, list[AccountRecord]] = {}
+        self._current_service: str = ""
+        self._load_worker: _DriveLoadWorker | None = None
+        self._save_worker: _DriveSaveWorker | None = None
 
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(20, 14, 20, 14)
-        outer.setSpacing(10)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        header = QHBoxLayout()
-        title = QLabel(NAV_ACCOUNTS, self)
-        title.setStyleSheet("font-size: 22px; font-weight: 600;")
-        header.addWidget(title)
-        header.addStretch(1)
-        self._mask_toggle = QCheckBox("Ẩn mật khẩu", self)
-        self._mask_toggle.setChecked(True)
-        self._mask_toggle.toggled.connect(self._on_mask_toggle)
-        header.addWidget(self._mask_toggle)
-        outer.addLayout(header)
+        self._stack = QStackedWidget(self)
+        layout.addWidget(self._stack)
 
-        splitter = QSplitter(Qt.Orientation.Horizontal, self)
-        outer.addWidget(splitter, 1)
+        self._grid_page = ServiceGridPage(self)
+        self._list_page = AccountListPage(self)
 
-        # Left: account table + actions
-        left = QWidget(self)
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(8)
+        self._stack.addWidget(self._grid_page)  # _PAGE_GRID = 0
+        self._stack.addWidget(self._list_page)  # _PAGE_LIST = 1
 
-        self._model = AccountListModel(self)
-        self._table = QTableView(self)
-        self._table.setModel(self._model)
-        self._table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self._table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._table.verticalHeader().setVisible(False)
-        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-        self._table.verticalHeader().setDefaultSectionSize(34)
-        left_layout.addWidget(self._table, 1)
+        self._grid_page.service_selected.connect(self._on_service_selected)
+        self._list_page.back_requested.connect(self._on_back)
+        self._list_page.save_requested.connect(self._on_save)
+        self._list_page.load_requested.connect(self._on_load)
 
-        actions = QHBoxLayout()
-        add_btn = QPushButton("Thêm", self)
-        add_btn.clicked.connect(self._on_add)
-        del_btn = QPushButton("Xóa", self)
-        del_btn.clicked.connect(self._on_delete)
-        copy_btn = QPushButton("Copy mật khẩu", self)
-        copy_btn.clicked.connect(self._on_copy_password)
-        login_btn = QPushButton(ACTION_AUTO_LOGIN, self)
-        login_btn.setObjectName("Accent")
-        login_btn.clicked.connect(self._on_auto_login)
-        actions.addWidget(add_btn)
-        actions.addWidget(del_btn)
-        actions.addWidget(copy_btn)
-        actions.addStretch(1)
-        actions.addWidget(login_btn)
-        left_layout.addLayout(actions)
+        self._grid_page.populate({})
 
-        splitter.addWidget(left)
+        try:
+            cfg = load_config(prefer_remote=False)
+            self._game_names = [g.name for g in cfg.games]
+        except Exception:
+            self._game_names = []
 
-        # Right: trailer player
-        self._trailer = TrailerPlayer(self)
-        splitter.addWidget(self._trailer)
-        splitter.setStretchFactor(0, 3)
-        splitter.setStretchFactor(1, 2)
+        self._on_load()
 
-    def set_records(self, records: list[AccountRecord]) -> None:
-        self._model.set_records(records)
+    def _on_service_selected(self, service: str) -> None:
+        self._current_service = service
+        records = self._accounts.get(service, [])
+        self._list_page.show_service(service, records, self._game_names)
+        self._stack.setCurrentIndex(_PAGE_LIST)
 
-    def play_trailer(self, url: str) -> None:
-        self._trailer.play(url)
+    def _on_back(self) -> None:
+        self._accounts[self._current_service] = self._list_page.get_records()
+        self._grid_page.populate(self._accounts)
+        self._stack.setCurrentIndex(_PAGE_GRID)
 
-    def _on_mask_toggle(self, checked: bool) -> None:
-        self._model.set_mask_password(checked)
-
-    def _selected_row(self) -> int:
-        sel = self._table.selectionModel().selectedRows()
-        return sel[0].row() if sel else -1
-
-    def _on_add(self) -> None:
-        service, ok = QInputDialog.getText(self, "Dịch vụ", "Tên dịch vụ:")
-        if not ok or not service.strip():
+    def _on_load(self) -> None:
+        if self._load_worker and self._load_worker.isRunning():
             return
-        username, ok = QInputDialog.getText(self, "Tên đăng nhập", "Username:")
-        if not ok:
-            return
-        password, ok = QInputDialog.getText(self, "Mật khẩu", "Password:", QLineEdit.EchoMode.Password)
-        if not ok:
-            return
-        self._model.add(AccountRecord(service=service.strip(), username=username, password=password))
-
-    def _on_delete(self) -> None:
-        row = self._selected_row()
-        if row < 0:
-            return
-        if QMessageBox.question(self, "Xóa", "Xóa tài khoản đã chọn?") == QMessageBox.StandardButton.Yes:
-            self._model.remove(row)
-
-    def _on_copy_password(self) -> None:
-        row = self._selected_row()
-        rec = self._model.record_at(row)
-        if rec:
-            QGuiApplication.clipboard().setText(rec.password)
-
-    def _on_auto_login(self) -> None:
-        row = self._selected_row()
-        rec = self._model.record_at(row)
-        if not rec:
-            QMessageBox.information(self, NAV_ACCOUNTS, "Hãy chọn một tài khoản.")
-            return
-        if self._login_worker is not None and self._login_worker.isRunning():
-            return
-        worker = RiotLoginWorker(
-            username=rec.username,
-            password=rec.password,
-            parent=self,
+        worker = _DriveLoadWorker(self)
+        worker.finished_ok.connect(self._on_loaded)
+        worker.failed.connect(
+            lambda msg: wgz_error(self, DIALOG_ERROR_TITLE, MSG_DRIVE_ERROR.format(error=msg))
         )
-        worker.failed.connect(lambda msg: QMessageBox.critical(self, DIALOG_ERROR_TITLE, msg))
-        worker.finished.connect(lambda: setattr(self, "_login_worker", None))
-        self._login_worker = worker
+        self._load_worker = worker
+        worker.start()
+
+    def _on_loaded(self, grouped: dict) -> None:
+        self._accounts = grouped
+        self._grid_page.populate(self._accounts)
+        if self._stack.currentIndex() == _PAGE_LIST and self._current_service:
+            records = self._accounts.get(self._current_service, [])
+            self._list_page.set_records(records)
+        wgz_info(self, "Drive", MSG_ACCOUNTS_LOADED)
+
+    def _on_save(self) -> None:
+        if self._save_worker and self._save_worker.isRunning():
+            return
+        self._accounts[self._current_service] = self._list_page.get_records()
+        all_records = [r for recs in self._accounts.values() for r in recs]
+        worker = _DriveSaveWorker(all_records, self)
+        worker.finished_ok.connect(lambda: wgz_info(self, "Drive", MSG_ACCOUNTS_SAVED))
+        worker.failed.connect(
+            lambda msg: wgz_error(self, DIALOG_ERROR_TITLE, MSG_DRIVE_ERROR.format(error=msg))
+        )
+        self._save_worker = worker
         worker.start()

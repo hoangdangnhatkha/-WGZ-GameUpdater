@@ -12,7 +12,7 @@ SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 
 class SheetsService:
-    def __init__(self, spreadsheet_id: str, range_name: str = "Sheet1!A:D") -> None:
+    def __init__(self, spreadsheet_id: str = "", range_name: str = "Sheet1!A:D") -> None:
         self._spreadsheet_id = spreadsheet_id
         self._range = range_name
         self._service = None
