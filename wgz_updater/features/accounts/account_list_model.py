@@ -4,22 +4,52 @@ from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
 
 from .models import AccountRecord
 
-HEADERS = ("Dịch vụ", "Tên đăng nhập", "Mật khẩu", "Ghi chú")
+_HEADERS = ["Dịch vụ", "Tên hiển thị", "Username", "Mật khẩu", "Game"]
+COL_SERVICE, COL_NICKNAME, COL_USERNAME, COL_PASSWORD, COL_GAME = range(5)
 
 
 class AccountListModel(QAbstractTableModel):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self._records: list[AccountRecord] = []
-        self._mask_password = True
+        self._mask = True
+
+    def rowCount(self, parent=QModelIndex()) -> int:
+        return len(self._records)
+
+    def columnCount(self, parent=QModelIndex()) -> int:
+        return len(_HEADERS)
+
+    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
+        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
+            return _HEADERS[section]
+        return None
+
+    def data(self, index: QModelIndex, role=Qt.ItemDataRole.DisplayRole):
+        if not index.isValid() or role != Qt.ItemDataRole.DisplayRole:
+            return None
+        rec = self._records[index.row()]
+        col = index.column()
+        if col == COL_SERVICE:
+            return rec.service
+        if col == COL_NICKNAME:
+            return rec.nickname or rec.username
+        if col == COL_USERNAME:
+            return rec.username
+        if col == COL_PASSWORD:
+            return "•" * 8 if self._mask else rec.password
+        if col == COL_GAME:
+            return rec.game
+        return None
 
     def set_records(self, records: list[AccountRecord]) -> None:
         self.beginResetModel()
         self._records = list(records)
         self.endResetModel()
 
-    def records(self) -> list[AccountRecord]:
-        return list(self._records)
+    def set_mask_password(self, mask: bool) -> None:
+        self._mask = mask
+        self.layoutChanged.emit()
 
     def add(self, record: AccountRecord) -> None:
         row = len(self._records)
@@ -38,36 +68,5 @@ class AccountListModel(QAbstractTableModel):
             return self._records[row]
         return None
 
-    def set_mask_password(self, mask: bool) -> None:
-        self._mask_password = mask
-        if self._records:
-            self.dataChanged.emit(
-                self.index(0, 2),
-                self.index(len(self._records) - 1, 2),
-            )
-
-    def rowCount(self, parent=QModelIndex()) -> int:
-        return 0 if parent.isValid() else len(self._records)
-
-    def columnCount(self, parent=QModelIndex()) -> int:
-        return len(HEADERS)
-
-    def headerData(self, section, orientation, role=Qt.ItemDataRole.DisplayRole):
-        if role == Qt.ItemDataRole.DisplayRole and orientation == Qt.Orientation.Horizontal:
-            return HEADERS[section]
-        return None
-
-    def data(self, index, role=Qt.ItemDataRole.DisplayRole):
-        if not index.isValid() or role != Qt.ItemDataRole.DisplayRole:
-            return None
-        rec = self._records[index.row()]
-        col = index.column()
-        if col == 0:
-            return rec.service
-        if col == 1:
-            return rec.username
-        if col == 2:
-            return "•" * 8 if self._mask_password and rec.password else rec.password
-        if col == 3:
-            return rec.note
-        return None
+    def all_records(self) -> list[AccountRecord]:
+        return list(self._records)
