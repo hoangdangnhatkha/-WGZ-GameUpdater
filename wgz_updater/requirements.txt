@@ -1,0 +1,12 @@
+PyQt6>=6.6
+PyQt6-WebEngine>=6.6
+httpx[http2]>=0.27
+gdown>=5.1
+google-auth>=2.30
+google-auth-oauthlib>=1.2
+google-api-python-client>=2.130
+pywinauto>=0.6.8
+pywin32>=306
+Pillow>=10.0
+pydantic>=2.6
+packaging>=23.0
