@@ -1,0 +1,303 @@
+/* WGZ Game Updater — Win11 Fluent dark
+   Mica is applied via DWM, so window backgrounds use translucent fills. */
+
+* {
+    font-family: "Segoe UI Variable", "Segoe UI", sans-serif;
+    font-size: 14px;
+    color: #f3f3f3;
+}
+
+QWidget#MainRoot {
+    background: transparent;
+}
+
+QWidget#TitleBar {
+    background: transparent;
+    border: none;
+}
+
+QLabel#TitleBarLabel {
+    color: #f3f3f3;
+    font-size: 13px;
+    padding-left: 12px;
+}
+
+QPushButton#TitleBarButton {
+    background: transparent;
+    border: none;
+    width: 46px;
+    height: 32px;
+    color: #f3f3f3;
+    font-size: 11px;
+}
+QPushButton#TitleBarButton:hover {
+    background: rgba(255, 255, 255, 0.08);
+}
+QPushButton#TitleBarClose:hover {
+    background: #c42b1c;
+    color: white;
+}
+
+QFrame#Sidebar {
+    background: rgba(20, 20, 20, 0.35);
+    border: none;
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+QPushButton#NavItem {
+    text-align: left;
+    padding: 10px 16px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: #d8d8d8;
+    margin: 2px 8px;
+}
+QPushButton#NavItem:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+QPushButton#NavItem:checked {
+    background: rgba(255, 255, 255, 0.1);
+    color: #ffffff;
+    font-weight: 600;
+    border-left: 3px solid #0078d4;
+}
+
+QFrame#StatusStrip {
+    background: rgba(20, 20, 20, 0.55);
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+QLabel#StatusStripTitle {
+    color: #f3f3f3;
+    font-weight: 600;
+}
+
+QLabel#StatusStripDetail {
+    color: #b8b8b8;
+    font-size: 12px;
+}
+
+QProgressBar {
+    background: rgba(255, 255, 255, 0.08);
+    border: none;
+    border-radius: 4px;
+    height: 6px;
+    text-align: center;
+}
+QProgressBar::chunk {
+    background: #0078d4;
+    border-radius: 4px;
+}
+
+QPushButton {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 6px 14px;
+    color: #f3f3f3;
+}
+QPushButton:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+QPushButton:pressed {
+    background: rgba(255, 255, 255, 0.04);
+}
+QPushButton:disabled {
+    color: #6f6f6f;
+}
+
+QPushButton#Accent {
+    background: #0078d4;
+    border: 1px solid #0078d4;
+    color: white;
+    font-weight: 600;
+}
+QPushButton#Accent:hover {
+    background: #1a86d9;
+}
+QPushButton#Accent:pressed {
+    background: #006cbe;
+}
+
+QLineEdit, QTextEdit, QPlainTextEdit, QComboBox {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    padding: 6px 10px;
+    selection-background-color: #0078d4;
+}
+QLineEdit:focus, QTextEdit:focus, QComboBox:focus {
+    border: 1px solid #0078d4;
+}
+
+QTableView, QTreeView, QListView {
+    background: transparent;
+    border: none;
+    gridline-color: rgba(255, 255, 255, 0.05);
+    selection-background-color: rgba(0, 120, 212, 0.3);
+    selection-color: #ffffff;
+    alternate-background-color: rgba(255, 255, 255, 0.02);
+}
+QHeaderView::section {
+    background: transparent;
+    color: #b8b8b8;
+    border: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 8px 12px;
+    font-weight: 600;
+}
+QTableView::item {
+    padding: 8px 12px;
+    border: none;
+}
+QTableView::item:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+QScrollBar:vertical {
+    background: transparent;
+    width: 10px;
+    margin: 4px 2px;
+}
+QScrollBar::handle:vertical {
+    background: rgba(255, 255, 255, 0.18);
+    border-radius: 4px;
+    min-height: 30px;
+}
+QScrollBar::handle:vertical:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0;
+}
+
+QLabel#PillInstalled {
+    background: rgba(16, 124, 16, 0.25);
+    color: #6ccb5f;
+    border-radius: 10px;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-weight: 600;
+}
+QLabel#PillUpdate {
+    background: rgba(202, 80, 16, 0.25);
+    color: #ffb454;
+    border-radius: 10px;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-weight: 600;
+}
+QLabel#PillNotInstalled {
+    background: rgba(120, 120, 120, 0.18);
+    color: #b8b8b8;
+    border-radius: 10px;
+    padding: 2px 10px;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+QFrame#DropZone {
+    border: 2px dashed rgba(255, 255, 255, 0.18);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+}
+QFrame#DropZoneActive {
+    border: 2px dashed #0078d4;
+    background: rgba(0, 120, 212, 0.08);
+}
+
+QToolTip {
+    background: #2b2b2b;
+    color: #f3f3f3;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 4px 8px;
+}
+
+/* ── Game Card ── */
+#GameCard {
+    background: #252545;
+    border-radius: 6px;
+    border: 1px solid #333;
+}
+#GameCard:hover {
+    background: #2d2d60;
+    border: 1px solid #0078d4;
+}
+#GameCardName {
+    font-size: 11px;
+    font-weight: 600;
+    color: #e0e0e0;
+}
+
+/* ── Tag Badge ── */
+/* Inline styles are set per-tag in GameCard.__init__ */
+
+/* ── Hero Image placeholder ── */
+#HeroImage {
+    background: #1a1a2e;
+    border-radius: 4px;
+}
+
+/* ── Service Card (Accounts grid) ── */
+#ServiceCard {
+    background: #252545;
+    border-radius: 6px;
+    border: 1px solid #333;
+    min-width: 150px;
+}
+#ServiceCard:hover {
+    background: #2d2d60;
+    border: 1px solid #0078d4;
+}
+#ServiceCardName {
+    font-size: 12px;
+    font-weight: 600;
+    color: #e0e0e0;
+}
+#ServiceCardCount {
+    font-size: 10px;
+    color: #888;
+}
+
+/* ── Download Progress Page ── */
+#ProgressPage {
+    background: transparent;
+}
+#ProgressPage QProgressBar {
+    min-height: 18px;
+    border-radius: 9px;
+}
+
+/* ── Account Row ── */
+#AccountRow {
+    background: #252545;
+    border-radius: 4px;
+    padding: 6px;
+    border: 1px solid #333;
+}
+#AccountRow:hover {
+    border: 1px solid #0078d4;
+}
+#AccountNickname {
+    font-size: 12px;
+    font-weight: 600;
+    color: #e0e0e0;
+}
+#AccountMeta {
+    font-size: 10px;
+    color: #888;
+}
+
+/* ── Back Button ── */
+#BackButton {
+    background: transparent;
+    border: none;
+    color: #0078d4;
+    font-size: 13px;
+    padding: 4px 0;
+    text-align: left;
+}
+#BackButton:hover {
+    color: #4da3ff;
+}
