@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
 from pathlib import Path
@@ -31,7 +32,7 @@ class LocalConfig:
         global _instance
         if _instance is None:
             _instance = super().__new__(cls)
-            _instance._data: dict = {k: v for k, v in _DEFAULTS.items()}
+            _instance._data: dict = copy.deepcopy(_DEFAULTS)
         return _instance
 
     def load(self) -> None:
