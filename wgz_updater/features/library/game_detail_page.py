@@ -84,7 +84,7 @@ class GameDetailPage(QWidget):
         layout.addLayout(path_row)
 
         # DropZone
-        drop = DropZone(self)
+        drop = DropZone(parent=self)
         drop.folder_dropped.connect(self._path_edit.setText)
         layout.addWidget(drop)
 

@@ -50,6 +50,11 @@ class Game(BaseModel):
     launch_file: str | None = None
     tag: str | None = None
 
+    @field_validator("path_guide", mode="before")
+    @classmethod
+    def _coerce_path_guide(cls, v: Any) -> str:
+        return v if isinstance(v, str) else ""
+
     @field_validator("urls", mode="before")
     @classmethod
     def _ensure_list(cls, v: Any) -> list[str]:

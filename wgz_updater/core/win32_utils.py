@@ -28,8 +28,11 @@ def is_admin() -> bool:
 def elevate_and_relaunch(argv: list[str] | None = None) -> bool:
     if is_admin():
         return False
-    params = " ".join(f'"{a}"' for a in (argv or sys.argv))
-    rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, None, 1)
+    import os
+    args = argv if argv is not None else sys.argv
+    params = " ".join(f'"{a}"' for a in args)
+    cwd = os.getcwd()
+    rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", sys.executable, params, cwd, 1)
     return rc > 32
 
 

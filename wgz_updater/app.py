@@ -53,7 +53,7 @@ def main() -> int:
 
     # Admin elevation — must happen before QApplication
     if not is_admin():
-        launched = elevate_and_relaunch()
+        launched = elevate_and_relaunch(["-m", "wgz_updater"] + sys.argv[1:])
         if launched:
             return 0
 

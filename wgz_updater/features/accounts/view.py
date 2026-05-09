@@ -97,8 +97,6 @@ class AccountsView(QWidget):
         except Exception:
             self._game_names = []
 
-        self._on_load()
-
     def _on_service_selected(self, service: str) -> None:
         self._current_service = service
         records = self._accounts.get(service, [])
