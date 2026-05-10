@@ -13,6 +13,9 @@ from .paths import (
     CONFIG_BUNDLED,
     CONFIG_LOCAL,
     GITHUB_JSON_URL,
+    GITHUB_THEMES_URL,
+    THEMES_BUNDLED_CANDIDATES,
+    THEMES_LOCAL,
     ensure_user_dirs,
 )
 
@@ -117,12 +120,30 @@ def _read_local() -> dict | None:
     return None
 
 
+def _read_local_themes() -> dict | None:
+    for path in (THEMES_LOCAL, *THEMES_BUNDLED_CANDIDATES):
+        if path.exists():
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except Exception:
+                log.exception("Failed reading %s", path)
+    return None
+
+
 def _write_cache(raw: dict) -> None:
     ensure_user_dirs()
     try:
         CONFIG_LOCAL.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
         log.exception("Failed writing config cache")
+
+
+def _write_themes_cache(raw: dict) -> None:
+    ensure_user_dirs()
+    try:
+        THEMES_LOCAL.write_text(json.dumps(raw, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        log.exception("Failed writing themes cache")
 
 
 def load_config(*, prefer_remote: bool = True) -> AppConfig:
@@ -136,4 +157,19 @@ def load_config(*, prefer_remote: bool = True) -> AppConfig:
             log.warning("Remote config fetch failed; falling back to local")
     if raw is None:
         raw = _read_local() or {}
+
+    themes_raw: dict | None = None
+    if prefer_remote:
+        try:
+            themes_raw = get_json(GITHUB_THEMES_URL, cachebust=True)
+            _write_themes_cache(themes_raw)
+            log.info("Loaded remote themes")
+        except Exception:
+            log.warning("Remote themes fetch failed; falling back to local")
+    if themes_raw is None:
+        themes_raw = _read_local_themes() or {}
+
+    if isinstance(themes_raw, dict) and themes_raw:
+        raw.setdefault("game_themes.json", {}).update(themes_raw)
+
     return AppConfig.from_raw(raw)

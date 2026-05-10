@@ -32,6 +32,7 @@ class GameDetailPage(QWidget):
         super().__init__(parent)
         self._registry = registry
         self._local = LocalConfig()
+        self._entries: list[Game] = []
         self._game: Game | None = None
         self._slideshow_urls: list[str] = []
         self._slide_idx = 0
@@ -63,6 +64,7 @@ class GameDetailPage(QWidget):
 
         # Mod/variant selector
         self._mod_combo = QComboBox(self)
+        self._mod_combo.currentIndexChanged.connect(self._on_variant_changed)
         layout.addWidget(self._mod_combo)
 
         # Path guide
@@ -101,19 +103,33 @@ class GameDetailPage(QWidget):
         layout.addLayout(btn_row)
         layout.addStretch(1)
 
-    def show_game(self, game: Game, config: AppConfig | None = None) -> None:
-        self._game = game
+    def show_game(
+        self,
+        entries: list[Game] | Game,
+        config: AppConfig | None = None,
+    ) -> None:
+        if isinstance(entries, Game):
+            entries = [entries]
+        if not entries:
+            return
+        self._entries = entries
         self._slide_timer.stop()
         self._slideshow_urls = []
         self._slide_idx = 0
         self._hero.clear()
         self._hero.setText("...")
 
-        self._title.setText(f"{game.name}  {game.version}")
+        canonical = entries[0].game or entries[0].name
+        self._title.setText(canonical)
 
-        # Hero image / slideshow
+        # Hero image / slideshow — look up theme by canonical name
         if config:
-            theme = config.themes.get(game.game) or config.themes.get(game.name)
+            theme = config.themes.get(canonical)
+            if theme is None:
+                for e in entries:
+                    theme = config.themes.get(e.game) or config.themes.get(e.name)
+                    if theme:
+                        break
             if theme:
                 if theme.slideshow:
                     self._slideshow_urls = theme.slideshow
@@ -123,23 +139,34 @@ class GameDetailPage(QWidget):
                 elif theme.image:
                     ImageLoader.instance().request(theme.image, self._set_hero)
 
-        # Mod combo
+        # Mod/variant combo: each entry is one option; if entry has multiple urls, expand to parts
         self._mod_combo.blockSignals(True)
         self._mod_combo.clear()
-        if game.urls and len(game.urls) > 1:
-            for i in range(len(game.urls)):
-                self._mod_combo.addItem(f"{game.name} — Phần {i + 1}")
-        elif game.primary_url:
-            self._mod_combo.addItem(game.name)
+        for entry in entries:
+            if entry.urls and len(entry.urls) > 1:
+                for i in range(len(entry.urls)):
+                    self._mod_combo.addItem(
+                        f"{entry.name} — Phần {i + 1}", userData=(entry, i)
+                    )
+            else:
+                self._mod_combo.addItem(entry.name, userData=(entry, 0))
         self._mod_combo.blockSignals(False)
+        self._mod_combo.setCurrentIndex(0)
+        self._apply_variant(0)
 
-        # Path guide
-        self._guide.setPlainText(game.path_guide or "")
+    def _on_variant_changed(self, index: int) -> None:
+        if index >= 0:
+            self._apply_variant(index)
 
-        # Install path pre-fill
-        saved = self._local.get_game_path(game.id) or self._local.last_used_folder or ""
+    def _apply_variant(self, index: int) -> None:
+        data = self._mod_combo.itemData(index)
+        if not data:
+            return
+        entry, _url_idx = data
+        self._game = entry
+        self._guide.setPlainText(entry.path_guide or "")
+        saved = self._local.get_game_path(entry.id) or self._local.last_used_folder or ""
         self._path_edit.setText(saved)
-
         self._update_dl_button()
         self._update_launch_state()
 
@@ -195,7 +222,8 @@ class GameDetailPage(QWidget):
         self._local.set_game_path(self._game.id, path)
         self._local.last_used_folder = path
         self._local.save()
-        url_idx = max(0, self._mod_combo.currentIndex())
+        data = self._mod_combo.itemData(self._mod_combo.currentIndex())
+        url_idx = data[1] if data else 0
         self.download_requested.emit(self._game, path, url_idx)
 
     def _on_launch(self) -> None:

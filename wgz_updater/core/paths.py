@@ -29,6 +29,13 @@ CONFIG_FILENAME = "CapNhatNightReignMod.json"
 CONFIG_LOCAL = APP_DIR / CONFIG_FILENAME
 CONFIG_BUNDLED = PACKAGE_ROOT / CONFIG_FILENAME
 
+THEMES_FILENAME = "game_themes.json"
+THEMES_LOCAL = APP_DIR / THEMES_FILENAME
+THEMES_BUNDLED_CANDIDATES = (
+    PACKAGE_ROOT / THEMES_FILENAME,
+    PACKAGE_ROOT.parent / THEMES_FILENAME,
+)
+
 CREDENTIALS_FILE = APP_DIR / "credentials.json"
 TOKEN_FILE = APP_DIR / "token.json"
 GITHUB_TOKEN_FILE = APP_DIR / "github_token.txt"
@@ -36,6 +43,10 @@ GITHUB_TOKEN_FILE = APP_DIR / "github_token.txt"
 GITHUB_JSON_URL = (
     "https://raw.githubusercontent.com/hoangdangnhatkha/-WGZ-GameUpdater/"
     "refs/heads/main/CapNhatNightReignMod.json"
+)
+GITHUB_THEMES_URL = (
+    "https://raw.githubusercontent.com/hoangdangnhatkha/-WGZ-GameUpdater/"
+    "refs/heads/main/game_themes.json"
 )
 
 MAIN_EXE_NAME = "GameUpdater.exe"

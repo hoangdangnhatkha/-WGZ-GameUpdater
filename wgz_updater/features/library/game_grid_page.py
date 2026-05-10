@@ -64,6 +64,20 @@ class GameGridPage(QWidget):
         self._config = config
         self._render(config.games)
 
+    @staticmethod
+    def _group(games: list[Game]) -> list[tuple[str, list[Game]]]:
+        """Group games by canonical key (game.game, falling back to game.name).
+        Preserves first-seen order."""
+        order: list[str] = []
+        groups: dict[str, list[Game]] = {}
+        for g in games:
+            key = (g.game or g.name or "").strip() or g.id
+            if key not in groups:
+                groups[key] = []
+                order.append(key)
+            groups[key].append(g)
+        return [(k, groups[k]) for k in order]
+
     def _render(self, games: list[Game]) -> None:
         while self._grid.count():
             item = self._grid.takeAt(0)
@@ -71,16 +85,24 @@ class GameGridPage(QWidget):
                 item.widget().deleteLater()
         self._cards.clear()
 
-        for i, game in enumerate(games):
+        for i, (key, entries) in enumerate(self._group(games)):
             image_url = ""
             if self._config:
-                theme = (
-                    self._config.themes.get(game.game)
-                    or self._config.themes.get(game.name)
-                )
+                theme = self._config.themes.get(key)
+                if theme is None:
+                    for e in entries:
+                        theme = (
+                            self._config.themes.get(e.game)
+                            or self._config.themes.get(e.name)
+                        )
+                        if theme:
+                            break
                 if theme:
                     image_url = theme.image or (theme.slideshow[0] if theme.slideshow else "")
-            card = GameCard(game, self._registry, image_url=image_url, parent=self._grid_widget)
+            card = GameCard(
+                entries, self._registry,
+                display_name=key, image_url=image_url, parent=self._grid_widget,
+            )
             card.clicked.connect(self.game_selected)
             self._grid.addWidget(card, i // _COLS, i % _COLS)
             self._cards.append(card)
@@ -88,8 +110,7 @@ class GameGridPage(QWidget):
     def _filter(self, text: str) -> None:
         q = text.strip().lower()
         for card in self._cards:
-            visible = not q or q in card._game.name.lower() or q in card._game.game.lower()
-            card.setVisible(visible)
+            card.setVisible(card.matches(q))
 
     def refresh_cards(self) -> None:
         """Refresh all card button states (call after install/update)."""

@@ -20,17 +20,22 @@ _TAG_COLORS: dict[str, tuple[str, str]] = {
 
 
 class GameCard(QFrame):
-    clicked = pyqtSignal(object)  # emits Game
+    clicked = pyqtSignal(object)  # emits list[Game] (variants of same game)
 
     def __init__(
         self,
-        game: Game,
+        entries: list[Game],
         registry: InstallRegistry,
+        display_name: str = "",
         image_url: str = "",
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self._game = game
+        if not entries:
+            raise ValueError("GameCard requires at least one Game entry")
+        self._entries = entries
+        self._game = entries[0]
+        self._display_name = display_name or self._game.game or self._game.name
         self._registry = registry
         self.setObjectName("GameCard")
         self.setFixedWidth(210)
@@ -47,9 +52,13 @@ class GameCard(QFrame):
         self._img_label.setObjectName("HeroImage")
         layout.addWidget(self._img_label)
 
-        # Tag badge
-        tag = (game.tag or "").upper()
-        if tag in _TAG_COLORS:
+        # Tag badge — use first entry that has a tag
+        tag = ""
+        for e in entries:
+            if (e.tag or "").upper() in _TAG_COLORS:
+                tag = e.tag.upper()
+                break
+        if tag:
             bg, fg = _TAG_COLORS[tag]
             self._tag = QLabel(tag, self)
             self._tag.setStyleSheet(
@@ -58,15 +67,21 @@ class GameCard(QFrame):
             )
             layout.addWidget(self._tag)
 
-        # Name
-        name_lbl = QLabel(game.name, self)
+        # Name + variant count
+        name_lbl = QLabel(self._display_name, self)
         name_lbl.setObjectName("GameCardName")
         name_lbl.setWordWrap(True)
         layout.addWidget(name_lbl)
 
+        if len(entries) > 1:
+            count_lbl = QLabel(f"{len(entries)} bản", self)
+            count_lbl.setObjectName("GameCardName")
+            count_lbl.setStyleSheet("color:#888;font-size:11px;")
+            layout.addWidget(count_lbl)
+
         # Action button
         self._btn = QPushButton(self)
-        self._btn.clicked.connect(lambda: self.clicked.emit(self._game))
+        self._btn.clicked.connect(lambda: self.clicked.emit(self._entries))
         layout.addWidget(self._btn)
 
         self._refresh_button()
@@ -75,7 +90,15 @@ class GameCard(QFrame):
             ImageLoader.instance().request(image_url, self._set_image)
 
     def _refresh_button(self) -> None:
-        status = self._registry.status_for(self._game)
+        # Aggregate status: INSTALLED if any installed, else UPDATE if any needs update, else NOT_INSTALLED
+        statuses = [self._registry.status_for(g) for g in self._entries]
+        if any(s == InstallStatus.INSTALLED for s in statuses):
+            status = InstallStatus.INSTALLED
+        elif any(s == InstallStatus.UPDATE for s in statuses):
+            status = InstallStatus.UPDATE
+        else:
+            status = InstallStatus.NOT_INSTALLED
+
         if status == InstallStatus.NOT_INSTALLED:
             self._btn.setText(ACTION_DOWNLOAD)
             self._btn.setObjectName("")
@@ -97,10 +120,21 @@ class GameCard(QFrame):
         self._img_label.setPixmap(scaled)
 
     def refresh(self) -> None:
-        """Call after install status changes."""
         self._refresh_button()
+
+    @property
+    def display_name(self) -> str:
+        return self._display_name
+
+    def matches(self, query: str) -> bool:
+        if not query:
+            return True
+        q = query.lower()
+        if q in self._display_name.lower():
+            return True
+        return any(q in (e.name or "").lower() or q in (e.game or "").lower() for e in self._entries)
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit(self._game)
+            self.clicked.emit(self._entries)
         super().mousePressEvent(event)
