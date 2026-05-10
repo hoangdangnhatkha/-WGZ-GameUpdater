@@ -14,7 +14,8 @@ from .game_card import GameCard
 from .models import InstallRegistry
 
 log = logging.getLogger(__name__)
-_COLS = 3
+_CARD_W = 210
+_CARD_GAP = 14
 
 
 class GameGridPage(QWidget):
@@ -28,19 +29,22 @@ class GameGridPage(QWidget):
         self._config: AppConfig | None = None
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(20, 14, 20, 14)
-        outer.setSpacing(10)
+        outer.setContentsMargins(28, 18, 28, 18)
+        outer.setSpacing(12)
 
         # Header row
         header = QHBoxLayout()
         title = QLabel(NAV_LIBRARY, self)
-        title.setStyleSheet("font-size:22px;font-weight:600;")
+        title.setStyleSheet(
+            "font-family:'Bahnschrift','Inter Tight',sans-serif;"
+            "font-size:26px;font-weight:700;letter-spacing:1.2px;"
+        )
         header.addWidget(title)
         header.addStretch(1)
         self._search = QLineEdit(self)
         self._search.setPlaceholderText("Tìm kiếm game...")
         self._search.setClearButtonEnabled(True)
-        self._search.setFixedWidth(240)
+        self._search.setFixedWidth(260)
         self._search.textChanged.connect(self._filter)
         header.addWidget(self._search)
         refresh_btn = QPushButton(ACTION_REFRESH, self)
@@ -48,17 +52,25 @@ class GameGridPage(QWidget):
         header.addWidget(refresh_btn)
         outer.addLayout(header)
 
+        sub = QLabel("// THƯ VIỆN GAME · NHẤN CARD ĐỂ XEM CHI TIẾT", self)
+        sub.setStyleSheet(
+            "font-family:'Cascadia Mono',Consolas,monospace;"
+            "font-size:10px;color:#5e5e62;letter-spacing:1.2px;"
+        )
+        outer.addWidget(sub)
+
         # Scroll area with grid
         self._scroll = QScrollArea(self)
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         self._grid_widget = QWidget()
         self._grid = QGridLayout(self._grid_widget)
-        self._grid.setSpacing(10)
+        self._grid.setSpacing(_CARD_GAP)
         self._grid.setContentsMargins(0, 0, 4, 4)
         self._grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self._scroll.setWidget(self._grid_widget)
         outer.addWidget(self._scroll, 1)
+        self._cur_cols = 1
 
     def populate(self, config: AppConfig) -> None:
         self._config = config
@@ -85,7 +97,7 @@ class GameGridPage(QWidget):
                 item.widget().deleteLater()
         self._cards.clear()
 
-        for i, (key, entries) in enumerate(self._group(games)):
+        for key, entries in self._group(games):
             image_url = ""
             if self._config:
                 theme = self._config.themes.get(key)
@@ -104,13 +116,35 @@ class GameGridPage(QWidget):
                 display_name=key, image_url=image_url, parent=self._grid_widget,
             )
             card.clicked.connect(self.game_selected)
-            self._grid.addWidget(card, i // _COLS, i % _COLS)
             self._cards.append(card)
+        self._relayout()
+
+    def _columns_for_width(self, width: int) -> int:
+        avail = max(0, width - 8)
+        return max(1, (avail + _CARD_GAP) // (_CARD_W + _CARD_GAP))
+
+    def _relayout(self, *, force: bool = False) -> None:
+        cols = self._columns_for_width(self._scroll.viewport().width())
+        if not force and cols == self._cur_cols and self._grid.count() > 0:
+            return
+        self._cur_cols = cols
+        for i in reversed(range(self._grid.count())):
+            it = self._grid.takeAt(i)
+            if it and it.widget():
+                it.widget().setParent(self._grid_widget)
+        visible = [c for c in self._cards if not c.isHidden()]
+        for idx, card in enumerate(visible):
+            self._grid.addWidget(card, idx // cols, idx % cols)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self._relayout()
 
     def _filter(self, text: str) -> None:
         q = text.strip().lower()
         for card in self._cards:
             card.setVisible(card.matches(q))
+        self._relayout(force=True)
 
     def refresh_cards(self) -> None:
         """Refresh all card button states (call after install/update)."""
