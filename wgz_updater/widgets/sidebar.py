@@ -6,6 +6,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QFrame,
+    QLabel,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -25,18 +26,31 @@ class Sidebar(QFrame):
     def __init__(self, items: list[NavItem], parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("Sidebar")
-        self.setFixedWidth(220)
+        self.setFixedWidth(232)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 12, 0, 12)
-        layout.setSpacing(2)
+        layout.setContentsMargins(0, 6, 0, 12)
+        layout.setSpacing(0)
+
+        brand = QLabel("WGZ", self)
+        brand.setObjectName("SidebarBrand")
+        layout.addWidget(brand)
+
+        tagline = QLabel("// GAME UPDATER · ONLINE", self)
+        tagline.setObjectName("SidebarTagline")
+        layout.addWidget(tagline)
+
+        section = QLabel("NAVIGATE", self)
+        section.setObjectName("SidebarSection")
+        layout.addWidget(section)
 
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
         self._buttons: dict[str, QPushButton] = {}
 
-        for item in items:
-            btn = QPushButton(f"  {item.icon_glyph}  {item.label}".rstrip(), self)
+        for i, item in enumerate(items, start=1):
+            label = f"  {i:02d}    {item.label.upper()}"
+            btn = QPushButton(label, self)
             btn.setObjectName("NavItem")
             btn.setCheckable(True)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -47,6 +61,10 @@ class Sidebar(QFrame):
             layout.addWidget(btn)
 
         layout.addStretch(1)
+
+        footer = QLabel("v.0.0.1  ·  PyQt6", self)
+        footer.setObjectName("SidebarSection")
+        layout.addWidget(footer)
 
         if items:
             first = items[0].key

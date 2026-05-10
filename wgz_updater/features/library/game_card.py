@@ -60,10 +60,12 @@ class GameCard(QFrame):
                 break
         if tag:
             bg, fg = _TAG_COLORS[tag]
-            self._tag = QLabel(tag, self)
+            self._tag = QLabel(f"[ {tag} ]", self)
             self._tag.setStyleSheet(
-                f"background:{bg};color:{fg};border-radius:3px;"
-                f"padding:1px 5px;font-size:9px;font-weight:700;"
+                f"background:transparent;color:{bg};"
+                f"font-family:'Cascadia Mono', Consolas, monospace;"
+                f"font-size:10px;font-weight:700;letter-spacing:1.2px;"
+                f"padding:0;"
             )
             layout.addWidget(self._tag)
 
@@ -74,9 +76,8 @@ class GameCard(QFrame):
         layout.addWidget(name_lbl)
 
         if len(entries) > 1:
-            count_lbl = QLabel(f"{len(entries)} bản", self)
-            count_lbl.setObjectName("GameCardName")
-            count_lbl.setStyleSheet("color:#888;font-size:11px;")
+            count_lbl = QLabel(f"{len(entries):02d} BẢN", self)
+            count_lbl.setObjectName("GameCardMeta")
             layout.addWidget(count_lbl)
 
         # Action button

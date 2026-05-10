@@ -34,9 +34,14 @@ class TitleBar(QWidget):
         self._icon.setFixedWidth(28)
         layout.addWidget(self._icon)
 
-        self._title = QLabel(APP_TITLE, self)
+        self._title = QLabel(APP_TITLE.upper(), self)
         self._title.setObjectName("TitleBarLabel")
         layout.addWidget(self._title)
+
+        self._subtitle = QLabel("// SYSTEM ONLINE", self)
+        self._subtitle.setObjectName("TitleBarSubtitle")
+        layout.addWidget(self._subtitle)
+
         layout.addStretch(1)
 
         self._btn_min = self._make_button("–", on_click=self.minimize_requested.emit)
