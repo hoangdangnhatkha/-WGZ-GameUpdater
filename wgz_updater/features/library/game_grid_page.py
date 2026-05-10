@@ -4,82 +4,160 @@ import logging
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QFrame, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
 from ...core.config import AppConfig, Game
 from ...resources.strings_vi import ACTION_REFRESH, NAV_LIBRARY
-from .game_card import GameCard
-from .models import InstallRegistry
+from .featured_hero import FeaturedHero
+from .game_row import GameRow
+from .models import InstallRegistry, InstallStatus
 
 log = logging.getLogger(__name__)
-_CARD_W = 210
-_CARD_GAP = 14
 
 
 class GameGridPage(QWidget):
-    game_selected = pyqtSignal(object)   # Game
+    """Library landing — featured hero + dense manifest of games."""
+
+    game_selected = pyqtSignal(object)   # list[Game]
     refresh_requested = pyqtSignal()
 
     def __init__(self, registry: InstallRegistry, parent=None) -> None:
         super().__init__(parent)
         self._registry = registry
-        self._cards: list[GameCard] = []
         self._config: AppConfig | None = None
+        self._rows: list[GameRow] = []
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(28, 18, 28, 18)
-        outer.setSpacing(12)
+        outer.setContentsMargins(28, 16, 28, 14)
+        outer.setSpacing(10)
 
-        # Header row
+        # ── Header row ──────────────────────────────────────────
         header = QHBoxLayout()
-        title = QLabel(NAV_LIBRARY, self)
-        title.setStyleSheet(
-            "font-family:'Bahnschrift','Inter Tight',sans-serif;"
-            "font-size:26px;font-weight:700;letter-spacing:1.2px;"
-        )
-        header.addWidget(title)
-        header.addStretch(1)
+        header.setSpacing(8)
+        title_col = QVBoxLayout()
+        title_col.setSpacing(0)
+
+        title = QLabel(NAV_LIBRARY.upper(), self)
+        title.setObjectName("PageTitle")
+        title_col.addWidget(title)
+
+        self._sub = QLabel("// CATALOG · LOADING…", self)
+        self._sub.setObjectName("PageSub")
+        title_col.addWidget(self._sub)
+
+        header.addLayout(title_col, 1)
+
         self._search = QLineEdit(self)
-        self._search.setPlaceholderText("Tìm kiếm game...")
+        self._search.setPlaceholderText("›  search catalog")
+        self._search.setObjectName("CommandInput")
         self._search.setClearButtonEnabled(True)
-        self._search.setFixedWidth(260)
+        self._search.setFixedWidth(280)
         self._search.textChanged.connect(self._filter)
         header.addWidget(self._search)
-        refresh_btn = QPushButton(ACTION_REFRESH, self)
+
+        refresh_btn = QPushButton(ACTION_REFRESH.upper(), self)
+        refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         refresh_btn.clicked.connect(self.refresh_requested)
         header.addWidget(refresh_btn)
+
         outer.addLayout(header)
 
-        sub = QLabel("// THƯ VIỆN GAME · NHẤN CARD ĐỂ XEM CHI TIẾT", self)
-        sub.setStyleSheet(
-            "font-family:'Cascadia Mono',Consolas,monospace;"
-            "font-size:10px;color:#5e5e62;letter-spacing:1.2px;"
-        )
-        outer.addWidget(sub)
+        # ── Featured hero ───────────────────────────────────────
+        self._hero = FeaturedHero(self._registry, self)
+        self._hero.clicked.connect(self.game_selected)
+        outer.addWidget(self._hero)
 
-        # Scroll area with grid
+        # ── Section divider ─────────────────────────────────────
+        sect_row = QHBoxLayout()
+        sect_row.setContentsMargins(0, 4, 0, 2)
+        sect_row.setSpacing(10)
+        sect = QLabel("// CATALOG", self)
+        sect.setObjectName("PageSection")
+        sect_row.addWidget(sect)
+        rule = QFrame(self)
+        rule.setFrameShape(QFrame.Shape.HLine)
+        rule.setObjectName("SectionRule")
+        rule.setFixedHeight(1)
+        sect_row.addWidget(rule, 1)
+        self._count_lbl = QLabel("00 / 00", self)
+        self._count_lbl.setObjectName("PageSection")
+        sect_row.addWidget(self._count_lbl)
+        outer.addLayout(sect_row)
+
+        # ── Manifest (rows) ─────────────────────────────────────
         self._scroll = QScrollArea(self)
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        self._grid_widget = QWidget()
-        self._grid = QGridLayout(self._grid_widget)
-        self._grid.setSpacing(_CARD_GAP)
-        self._grid.setContentsMargins(0, 0, 4, 4)
-        self._grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        self._scroll.setWidget(self._grid_widget)
+        self._rows_widget = QWidget()
+        self._rows_layout = QVBoxLayout(self._rows_widget)
+        self._rows_layout.setSpacing(2)
+        self._rows_layout.setContentsMargins(0, 0, 6, 4)
+        self._rows_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._scroll.setWidget(self._rows_widget)
         outer.addWidget(self._scroll, 1)
-        self._cur_cols = 1
+
+    # ── public ────────────────────────────────────────────────────
 
     def populate(self, config: AppConfig) -> None:
         self._config = config
-        self._render(config.games)
+        groups = self._group(config.games)
+
+        # Pick a featured group (HOT/UPD/NEW with rich theme art preferred)
+        featured_idx = self._pick_featured(groups, config.themes)
+        if featured_idx >= 0 and groups:
+            key, entries = groups[featured_idx]
+            theme = config.themes.get(key)
+            img = ""
+            if theme:
+                img = theme.slideshow[0] if theme.slideshow else theme.image
+            self._hero.set_game(entries, key, img)
+            groups.pop(featured_idx)
+            self._hero.show()
+        else:
+            self._hero.hide()
+
+        # Clear rows
+        while self._rows_layout.count():
+            item = self._rows_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._rows.clear()
+
+        # Build rows
+        for i, (key, entries) in enumerate(groups, start=1):
+            theme = config.themes.get(key)
+            img = ""
+            if theme:
+                img = theme.slideshow[0] if theme.slideshow else theme.image
+            row = GameRow(
+                entries, self._registry,
+                image_url=img, index=i, parent=self._rows_widget,
+            )
+            row.clicked.connect(self.game_selected)
+            self._rows_layout.addWidget(row)
+            self._rows.append(row)
+
+        # Header counts
+        total = len(config.games)
+        installed = sum(
+            1 for g in config.games
+            if self._registry.status_for(g) == InstallStatus.INSTALLED
+        )
+        self._sub.setText(
+            f"// CATALOG · {total:02d} ENTRIES · {installed:02d} INSTALLED · STREAMING ONLINE"
+        )
+        self._count_lbl.setText(f"{len(self._rows):02d} / {len(self._rows):02d}")
+
+    def refresh_cards(self) -> None:
+        for r in self._rows:
+            r.refresh()
+
+    # ── helpers ───────────────────────────────────────────────────
 
     @staticmethod
     def _group(games: list[Game]) -> list[tuple[str, list[Game]]]:
-        """Group games by canonical key (game.game, falling back to game.name).
-        Preserves first-seen order."""
         order: list[str] = []
         groups: dict[str, list[Game]] = {}
         for g in games:
@@ -90,63 +168,34 @@ class GameGridPage(QWidget):
             groups[key].append(g)
         return [(k, groups[k]) for k in order]
 
-    def _render(self, games: list[Game]) -> None:
-        while self._grid.count():
-            item = self._grid.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        self._cards.clear()
-
-        for key, entries in self._group(games):
-            image_url = ""
-            if self._config:
-                theme = self._config.themes.get(key)
-                if theme is None:
-                    for e in entries:
-                        theme = (
-                            self._config.themes.get(e.game)
-                            or self._config.themes.get(e.name)
-                        )
-                        if theme:
-                            break
-                if theme:
-                    image_url = theme.image or (theme.slideshow[0] if theme.slideshow else "")
-            card = GameCard(
-                entries, self._registry,
-                display_name=key, image_url=image_url, parent=self._grid_widget,
-            )
-            card.clicked.connect(self.game_selected)
-            self._cards.append(card)
-        self._relayout()
-
-    def _columns_for_width(self, width: int) -> int:
-        avail = max(0, width - 8)
-        return max(1, (avail + _CARD_GAP) // (_CARD_W + _CARD_GAP))
-
-    def _relayout(self, *, force: bool = False) -> None:
-        cols = self._columns_for_width(self._scroll.viewport().width())
-        if not force and cols == self._cur_cols and self._grid.count() > 0:
-            return
-        self._cur_cols = cols
-        for i in reversed(range(self._grid.count())):
-            it = self._grid.takeAt(i)
-            if it and it.widget():
-                it.widget().setParent(self._grid_widget)
-        visible = [c for c in self._cards if not c.isHidden()]
-        for idx, card in enumerate(visible):
-            self._grid.addWidget(card, idx // cols, idx % cols)
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._relayout()
+    @staticmethod
+    def _pick_featured(groups, themes) -> int:
+        # 1) hot/new/upd-tagged with rich art
+        for i, (key, entries) in enumerate(groups):
+            tags = {(e.tag or "").upper() for e in entries}
+            if tags & {"HOT", "NEW", "UPD"}:
+                t = themes.get(key)
+                if t and (t.slideshow or t.image):
+                    return i
+        # 2) any tagged
+        for i, (key, entries) in enumerate(groups):
+            if any((e.tag or "").upper() for e in entries):
+                t = themes.get(key)
+                if t and (t.slideshow or t.image):
+                    return i
+        # 3) first with theme art
+        for i, (key, _) in enumerate(groups):
+            t = themes.get(key)
+            if t and (t.slideshow or t.image):
+                return i
+        return 0 if groups else -1
 
     def _filter(self, text: str) -> None:
         q = text.strip().lower()
-        for card in self._cards:
-            card.setVisible(card.matches(q))
-        self._relayout(force=True)
-
-    def refresh_cards(self) -> None:
-        """Refresh all card button states (call after install/update)."""
-        for card in self._cards:
-            card.refresh()
+        visible = 0
+        for row in self._rows:
+            ok = row.matches(q)
+            row.setVisible(ok)
+            if ok:
+                visible += 1
+        self._count_lbl.setText(f"{visible:02d} / {len(self._rows):02d}")

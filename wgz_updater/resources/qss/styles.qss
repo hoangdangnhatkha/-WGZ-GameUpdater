@@ -557,6 +557,160 @@ QSplitter::handle:vertical {
     height: 1px;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════
+   LIBRARY  ·  Editorial layout (hero + manifest)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+QLabel#PageTitle {
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    color: #ecece7;
+    padding: 0;
+}
+
+QLabel#PageSub {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    color: #5e5e62;
+    letter-spacing: 1.4px;
+    padding: 2px 0 0 0;
+}
+
+QLabel#PageSection {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    color: #5e5e62;
+    letter-spacing: 1.5px;
+}
+
+QFrame#SectionRule {
+    background: #24242f;
+    border: none;
+    max-height: 1px;
+}
+
+QLineEdit#CommandInput {
+    background: #07070a;
+    border: 1px solid #24242f;
+    border-radius: 0;
+    padding: 9px 12px;
+    color: #d8ff3a;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.6px;
+    selection-background-color: #d8ff3a;
+    selection-color: #07070a;
+}
+QLineEdit#CommandInput:focus {
+    border: 1px solid #d8ff3a;
+    background: #0a0a0e;
+}
+
+/* ─── FEATURED HERO ────────────────────────────────────────────────── */
+
+QFrame#FeaturedHero {
+    background: #0a0a0e;
+    border: 1px solid #24242f;
+    border-radius: 0;
+}
+
+QLabel#HeroRibbon {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: #d8ff3a;
+    letter-spacing: 2px;
+    padding-bottom: 4px;
+}
+
+QLabel#HeroTag {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    color: #d8ff3a;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+}
+
+QLabel#HeroTitle {
+    font-family: "Bahnschrift", "Inter Tight Condensed", "Inter Tight", sans-serif;
+    font-size: 38px;
+    font-weight: 800;
+    letter-spacing: 0.8px;
+    color: #ffffff;
+    line-height: 1.0;
+}
+
+QLabel#HeroMeta {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    color: #b8b8b3;
+    letter-spacing: 1px;
+    padding-top: 4px;
+}
+
+QPushButton#HeroSecondary {
+    background: transparent;
+    border: 1px solid #d8ff3a;
+    border-radius: 0;
+    color: #d8ff3a;
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    padding: 8px 18px;
+}
+QPushButton#HeroSecondary:hover {
+    background: rgba(216, 255, 58, 0.12);
+}
+
+/* ─── MANIFEST ROW ─────────────────────────────────────────────────── */
+
+QFrame#GameRow {
+    background: #0a0a0e;
+    border: 1px solid transparent;
+    border-left: 2px solid transparent;
+    border-radius: 0;
+}
+QFrame#GameRow:hover {
+    background: #14141a;
+    border: 1px solid #24242f;
+    border-left: 2px solid #d8ff3a;
+}
+
+QLabel#RowThumb {
+    background: #07070a;
+    border: none;
+}
+
+QLabel#RowIndex {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 22px;
+    font-weight: 700;
+    color: #393945;
+    letter-spacing: 1px;
+}
+QFrame#GameRow:hover QLabel#RowIndex {
+    color: #d8ff3a;
+}
+
+QLabel#RowTitle {
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 17px;
+    font-weight: 700;
+    color: #ecece7;
+    letter-spacing: 0.5px;
+    padding: 0;
+}
+
+QLabel#RowMeta {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    color: #5e5e62;
+    letter-spacing: 1px;
+    padding: 0;
+}
+
 /* ─── MENU ──────────────────────────────────────────────────────────── */
 
 QMenu {
