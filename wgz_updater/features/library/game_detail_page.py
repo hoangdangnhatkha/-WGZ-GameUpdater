@@ -5,16 +5,16 @@ import subprocess
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
-    QComboBox, QFileDialog, QHBoxLayout, QLabel,
+    QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget,
 )
 
 from ...core.config import AppConfig, Game
 from ...core.local_config import LocalConfig
 from ...resources.strings_vi import (
-    ACTION_BACK, ACTION_BROWSE, ACTION_DOWNLOAD, ACTION_LAUNCH_GAME,
+    ACTION_BROWSE, ACTION_DOWNLOAD, ACTION_LAUNCH_GAME,
     ACTION_UPDATE, DIALOG_ERROR_TITLE,
 )
 from ...widgets.drop_zone import DropZone
@@ -23,7 +23,154 @@ from .models import InstallRegistry, InstallStatus
 
 log = logging.getLogger(__name__)
 
+_TAG_COLORS: dict[str, str] = {
+    "HOT":  "#ff5b3c",
+    "GOTY": "#ffd700",
+    "NEW":  "#4dffaa",
+    "UPD":  "#4f7cff",
+    "BEST": "#b48bff",
+    "FIX":  "#ffc04d",
+}
 
+
+# ─────────────────────────────────────────────────────────────────────
+# Cinematic full-bleed hero with crop-bracket markers
+# ─────────────────────────────────────────────────────────────────────
+class _DetailHero(QFrame):
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("DetailHero")
+        self.setFixedHeight(260)
+        self._pixmap: QPixmap | None = None
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(36, 24, 36, 26)
+        layout.setSpacing(0)
+
+        # Top row: status pill (right-aligned)
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        top.addStretch(1)
+        self._status_lbl = QLabel(self)
+        self._status_lbl.hide()
+        top.addWidget(self._status_lbl)
+        layout.addLayout(top)
+
+        layout.addStretch(1)
+
+        # Bottom block: tag, title, meta
+        self._tag_lbl = QLabel(self)
+        self._tag_lbl.hide()
+        layout.addWidget(self._tag_lbl)
+
+        self._title_lbl = QLabel(self)
+        self._title_lbl.setObjectName("DetailHeroTitle")
+        self._title_lbl.setWordWrap(True)
+        layout.addWidget(self._title_lbl)
+
+        self._meta_lbl = QLabel(self)
+        self._meta_lbl.setObjectName("HeroMeta")
+        layout.addWidget(self._meta_lbl)
+
+    def set_data(
+        self,
+        title: str,
+        tag: str,
+        meta: str,
+        status: str,
+        status_color: str,
+    ) -> None:
+        self._title_lbl.setText(title.upper())
+        if tag:
+            color = _TAG_COLORS.get(tag, "#d8ff3a")
+            self._tag_lbl.setText(f"[ {tag} ]")
+            self._tag_lbl.setStyleSheet(
+                f"font-family:'Cascadia Mono',Consolas,monospace;"
+                f"color:{color};font-size:11px;font-weight:700;"
+                f"letter-spacing:1.5px;padding-bottom:6px;"
+            )
+            self._tag_lbl.show()
+        else:
+            self._tag_lbl.hide()
+        self._meta_lbl.setText(meta)
+        if status:
+            self._status_lbl.setText(f"●  {status}")
+            self._status_lbl.setStyleSheet(
+                f"font-family:'Cascadia Mono',Consolas,monospace;"
+                f"background:rgba(7,7,10,0.65);"
+                f"color:{status_color};border:1px solid {status_color};"
+                f"padding:5px 12px;font-size:10px;font-weight:700;letter-spacing:1.4px;"
+            )
+            self._status_lbl.show()
+        else:
+            self._status_lbl.hide()
+
+    def set_image(self, pixmap: QPixmap) -> None:
+        self._pixmap = pixmap
+        self.update()
+
+    def clear_image(self) -> None:
+        self._pixmap = None
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = self.rect()
+
+        painter.fillRect(rect, QColor("#0a0a0e"))
+
+        if self._pixmap and not self._pixmap.isNull():
+            scaled = self._pixmap.scaledToWidth(
+                rect.width(), Qt.TransformationMode.SmoothTransformation
+            )
+            img_rect = scaled.rect()
+            img_rect.moveTop(-(scaled.height() - rect.height()) // 2)
+            img_rect.moveLeft(0)
+            painter.drawPixmap(img_rect, scaled)
+
+            # Vertical gradient: lighter top, opaque bottom (for text)
+            grad = QLinearGradient(0, 0, 0, rect.height())
+            grad.setColorAt(0.0, QColor(7, 7, 10, 70))
+            grad.setColorAt(0.35, QColor(7, 7, 10, 95))
+            grad.setColorAt(0.65, QColor(7, 7, 10, 200))
+            grad.setColorAt(1.0, QColor(7, 7, 10, 252))
+            painter.fillRect(rect, grad)
+
+            # Left-side accent fade (extra readability for title)
+            lgrad = QLinearGradient(0, 0, rect.width() * 0.4, 0)
+            lgrad.setColorAt(0.0, QColor(7, 7, 10, 160))
+            lgrad.setColorAt(1.0, QColor(7, 7, 10, 0))
+            painter.fillRect(rect, lgrad)
+
+        # Border
+        painter.setPen(QPen(QColor("#24242f"), 1))
+        painter.drawRect(rect.adjusted(0, 0, -1, -1))
+
+        # Crop-bracket corner marks (lime)
+        painter.setPen(QPen(QColor("#d8ff3a"), 2))
+        L = 28
+        T = 4
+        # top-left
+        painter.drawLine(rect.left() + T, rect.top() + T, rect.left() + T + L, rect.top() + T)
+        painter.drawLine(rect.left() + T, rect.top() + T, rect.left() + T, rect.top() + T + L)
+        # top-right
+        painter.drawLine(rect.right() - T - L, rect.top() + T, rect.right() - T, rect.top() + T)
+        painter.drawLine(rect.right() - T, rect.top() + T, rect.right() - T, rect.top() + T + L)
+        # bottom-left
+        painter.drawLine(rect.left() + T, rect.bottom() - T - L, rect.left() + T, rect.bottom() - T)
+        painter.drawLine(rect.left() + T, rect.bottom() - T, rect.left() + T + L, rect.bottom() - T)
+        # bottom-right
+        painter.drawLine(rect.right() - T - L, rect.bottom() - T, rect.right() - T, rect.bottom() - T)
+        painter.drawLine(rect.right() - T, rect.bottom() - T - L, rect.right() - T, rect.bottom() - T)
+
+        painter.end()
+
+
+# ─────────────────────────────────────────────────────────────────────
+# GameDetailPage — mission briefing layout
+# ─────────────────────────────────────────────────────────────────────
 class GameDetailPage(QWidget):
     download_requested = pyqtSignal(object, str, int)  # Game, install_path, url_index
     back_requested = pyqtSignal()
@@ -40,68 +187,115 @@ class GameDetailPage(QWidget):
         self._slide_timer.setInterval(4000)
         self._slide_timer.timeout.connect(self._advance_slide)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 14, 20, 14)
-        layout.setSpacing(10)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
 
-        # Back button
-        back_btn = QPushButton(ACTION_BACK, self)
+        # ── Top bar (back + entry id) ───────────────────────────
+        topbar = QHBoxLayout()
+        topbar.setContentsMargins(28, 12, 28, 6)
+        back_btn = QPushButton("◄  QUAY LẠI", self)
         back_btn.setObjectName("BackButton")
+        back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         back_btn.clicked.connect(self.back_requested)
-        layout.addWidget(back_btn, alignment=Qt.AlignmentFlag.AlignLeft)
+        topbar.addWidget(back_btn)
+        topbar.addStretch(1)
+        self._entry_lbl = QLabel("// OPS · ENTRY ----", self)
+        self._entry_lbl.setObjectName("PageSection")
+        topbar.addWidget(self._entry_lbl)
+        outer.addLayout(topbar)
 
-        # Hero image
-        self._hero = QLabel(self)
-        self._hero.setFixedSize(460, 215)
-        self._hero.setObjectName("HeroImage")
-        self._hero.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self._hero, alignment=Qt.AlignmentFlag.AlignHCenter)
+        # ── Hero ────────────────────────────────────────────────
+        self._hero = _DetailHero(self)
+        outer.addWidget(self._hero)
 
-        # Title
-        self._title = QLabel(self)
-        self._title.setStyleSheet("font-size:18px;font-weight:600;")
-        layout.addWidget(self._title)
+        # ── Body ────────────────────────────────────────────────
+        body = QWidget(self)
+        body_layout = QVBoxLayout(body)
+        body_layout.setContentsMargins(28, 18, 28, 16)
+        body_layout.setSpacing(12)
 
-        # Mod/variant selector
+        # Two-column control row: VARIANT + INSTALL DIR
+        controls = QHBoxLayout()
+        controls.setSpacing(20)
+
+        # Variant column
+        var_col = QVBoxLayout()
+        var_col.setSpacing(6)
+        var_lbl = QLabel("// VARIANT  ·  BẢN MOD", self)
+        var_lbl.setObjectName("DetailSectionLabel")
+        var_col.addWidget(var_lbl)
         self._mod_combo = QComboBox(self)
+        self._mod_combo.setObjectName("DetailCombo")
+        self._mod_combo.setMinimumHeight(36)
         self._mod_combo.currentIndexChanged.connect(self._on_variant_changed)
-        layout.addWidget(self._mod_combo)
+        var_col.addWidget(self._mod_combo)
+        controls.addLayout(var_col, 1)
 
-        # Path guide
-        self._guide = QPlainTextEdit(self)
-        self._guide.setReadOnly(True)
-        self._guide.setFixedHeight(80)
-        self._guide.setPlaceholderText("Hướng dẫn cài đặt...")
-        layout.addWidget(self._guide)
-
-        # Install path row
-        path_row = QHBoxLayout()
+        # Install path column
+        path_col = QVBoxLayout()
+        path_col.setSpacing(6)
+        path_lbl = QLabel("// INSTALL DIRECTORY  ·  THƯ MỤC CÀI", self)
+        path_lbl.setObjectName("DetailSectionLabel")
+        path_col.addWidget(path_lbl)
+        path_input_row = QHBoxLayout()
+        path_input_row.setSpacing(6)
         self._path_edit = QLineEdit(self)
         self._path_edit.setPlaceholderText("Chọn thư mục cài đặt...")
+        self._path_edit.setMinimumHeight(36)
         self._path_edit.textChanged.connect(self._update_launch_state)
-        path_row.addWidget(self._path_edit, 1)
-        browse_btn = QPushButton(ACTION_BROWSE, self)
+        path_input_row.addWidget(self._path_edit, 1)
+        browse_btn = QPushButton(ACTION_BROWSE.upper(), self)
+        browse_btn.setMinimumHeight(36)
+        browse_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         browse_btn.clicked.connect(self._on_browse)
-        path_row.addWidget(browse_btn)
-        layout.addLayout(path_row)
+        path_input_row.addWidget(browse_btn)
+        path_col.addLayout(path_input_row)
+        controls.addLayout(path_col, 2)
 
-        # DropZone
-        drop = DropZone(parent=self)
+        body_layout.addLayout(controls)
+
+        # Drop zone (slim)
+        drop = DropZone("⊕  KÉO THẢ THƯ MỤC GAME VÀO ĐÂY", parent=self)
+        drop.setMinimumHeight(56)
+        drop.setMaximumHeight(56)
         drop.folder_dropped.connect(self._path_edit.setText)
-        layout.addWidget(drop)
+        body_layout.addWidget(drop)
 
-        # Action buttons
-        btn_row = QHBoxLayout()
-        self._dl_btn = QPushButton(ACTION_DOWNLOAD, self)
+        # Path guide
+        guide_lbl = QLabel("// PATH GUIDE  ·  HƯỚNG DẪN", self)
+        guide_lbl.setObjectName("DetailSectionLabel")
+        body_layout.addWidget(guide_lbl)
+        self._guide = QPlainTextEdit(self)
+        self._guide.setObjectName("DetailGuide")
+        self._guide.setReadOnly(True)
+        self._guide.setMinimumHeight(110)
+        self._guide.setPlaceholderText("// no path guide provided")
+        body_layout.addWidget(self._guide, 1)
+
+        # Action bar
+        actions = QHBoxLayout()
+        actions.setSpacing(10)
+        self._dl_btn = QPushButton("►  " + ACTION_DOWNLOAD.upper(), self)
         self._dl_btn.setObjectName("Accent")
+        self._dl_btn.setMinimumHeight(48)
+        self._dl_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._dl_btn.clicked.connect(self._on_download)
-        btn_row.addWidget(self._dl_btn)
-        self._launch_btn = QPushButton(ACTION_LAUNCH_GAME, self)
+        actions.addWidget(self._dl_btn, 2)
+
+        self._launch_btn = QPushButton("►  " + ACTION_LAUNCH_GAME.upper(), self)
+        self._launch_btn.setObjectName("HeroSecondary")
+        self._launch_btn.setMinimumHeight(48)
+        self._launch_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._launch_btn.setEnabled(False)
         self._launch_btn.clicked.connect(self._on_launch)
-        btn_row.addWidget(self._launch_btn)
-        layout.addLayout(btn_row)
-        layout.addStretch(1)
+        actions.addWidget(self._launch_btn, 1)
+
+        body_layout.addLayout(actions)
+
+        outer.addWidget(body, 1)
+
+    # ── public ────────────────────────────────────────────────────
 
     def show_game(
         self,
@@ -116,11 +310,42 @@ class GameDetailPage(QWidget):
         self._slide_timer.stop()
         self._slideshow_urls = []
         self._slide_idx = 0
-        self._hero.clear()
-        self._hero.setText("...")
+        self._hero.clear_image()
 
         canonical = entries[0].game or entries[0].name
-        self._title.setText(canonical)
+
+        # Aggregate status across variants
+        statuses = [self._registry.status_for(g) for g in entries]
+        if any(s == InstallStatus.INSTALLED for s in statuses):
+            status_word, status_color = "INSTALLED", "#4dffaa"
+        elif any(s == InstallStatus.UPDATE for s in statuses):
+            status_word, status_color = "UPDATE AVAILABLE", "#ffc04d"
+        else:
+            status_word, status_color = "NOT INSTALLED", "#5e5e62"
+
+        # Tag
+        tag_text = ""
+        for e in entries:
+            if e.tag and e.tag.upper() in _TAG_COLORS:
+                tag_text = e.tag.upper()
+                break
+
+        # Meta
+        version = next((e.version for e in entries if e.version), "")
+        types = sorted({(e.type or "zip").upper() for e in entries})
+        meta_parts = [f"{len(entries):02d} BẢN"]
+        if version:
+            meta_parts.append(f"v{version.lstrip('v')}")
+        if types:
+            meta_parts.append("/".join(types))
+        meta_parts.append(f"WGZ-{(entries[0].id or '0000').upper()}")
+        meta_text = "   ·   ".join(meta_parts)
+
+        self._hero.set_data(canonical, tag_text, meta_text, status_word, status_color)
+
+        # Entry ID label in topbar
+        eid = (entries[0].id or "0000").upper().zfill(4)
+        self._entry_lbl.setText(f"// OPS · ENTRY {eid}")
 
         # Hero image / slideshow — look up theme by canonical name
         if config:
@@ -132,27 +357,29 @@ class GameDetailPage(QWidget):
                         break
             if theme:
                 if theme.slideshow:
-                    self._slideshow_urls = theme.slideshow
-                    ImageLoader.instance().request(theme.slideshow[0], self._set_hero)
+                    self._slideshow_urls = list(theme.slideshow)
+                    ImageLoader.instance().request(theme.slideshow[0], self._hero.set_image)
                     if len(theme.slideshow) > 1:
                         self._slide_timer.start()
                 elif theme.image:
-                    ImageLoader.instance().request(theme.image, self._set_hero)
+                    ImageLoader.instance().request(theme.image, self._hero.set_image)
 
-        # Mod/variant combo: each entry is one option; if entry has multiple urls, expand to parts
+        # Variant combo
         self._mod_combo.blockSignals(True)
         self._mod_combo.clear()
         for entry in entries:
             if entry.urls and len(entry.urls) > 1:
                 for i in range(len(entry.urls)):
                     self._mod_combo.addItem(
-                        f"{entry.name} — Phần {i + 1}", userData=(entry, i)
+                        f"{entry.name}  —  PHẦN {i + 1:02d}", userData=(entry, i)
                     )
             else:
                 self._mod_combo.addItem(entry.name, userData=(entry, 0))
         self._mod_combo.blockSignals(False)
         self._mod_combo.setCurrentIndex(0)
         self._apply_variant(0)
+
+    # ── internal ──────────────────────────────────────────────────
 
     def _on_variant_changed(self, index: int) -> None:
         if index >= 0:
@@ -174,23 +401,14 @@ class GameDetailPage(QWidget):
         if not self._slideshow_urls:
             return
         self._slide_idx = (self._slide_idx + 1) % len(self._slideshow_urls)
-        ImageLoader.instance().request(self._slideshow_urls[self._slide_idx], self._set_hero)
-
-    def _set_hero(self, pixmap: QPixmap) -> None:
-        scaled = pixmap.scaled(
-            460, 215,
-            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self._hero.setPixmap(scaled)
+        ImageLoader.instance().request(self._slideshow_urls[self._slide_idx], self._hero.set_image)
 
     def _update_dl_button(self) -> None:
         if not self._game:
             return
         status = self._registry.status_for(self._game)
-        self._dl_btn.setText(
-            ACTION_UPDATE if status == InstallStatus.UPDATE else ACTION_DOWNLOAD
-        )
+        word = ACTION_UPDATE if status == InstallStatus.UPDATE else ACTION_DOWNLOAD
+        self._dl_btn.setText("►  " + word.upper())
 
     def _update_launch_state(self) -> None:
         if not self._game:
