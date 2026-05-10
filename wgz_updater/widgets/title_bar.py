@@ -13,10 +13,15 @@ class TitleBar(QWidget):
     maximize_toggled = pyqtSignal()
     close_requested = pyqtSignal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        show_maximize: bool = True,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("TitleBar")
         self.setFixedHeight(36)
+        self._show_maximize = show_maximize
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(8, 0, 0, 0)
@@ -45,10 +50,14 @@ class TitleBar(QWidget):
         layout.addStretch(1)
 
         self._btn_min = self._make_button("–", on_click=self.minimize_requested.emit)
-        self._btn_max = self._make_button("☐", on_click=self.maximize_toggled.emit)
+        layout.addWidget(self._btn_min)
+        if show_maximize:
+            self._btn_max = self._make_button("☐", on_click=self.maximize_toggled.emit)
+            layout.addWidget(self._btn_max)
+        else:
+            self._btn_max = None
         self._btn_close = self._make_button("✕", on_click=self.close_requested.emit, close=True)
-        for b in (self._btn_min, self._btn_max, self._btn_close):
-            layout.addWidget(b)
+        layout.addWidget(self._btn_close)
 
         self._drag_active = False
 
@@ -65,7 +74,8 @@ class TitleBar(QWidget):
         self._title.setText(text)
 
     def set_maximized(self, maximized: bool) -> None:
-        self._btn_max.setText("❐" if maximized else "☐")
+        if self._btn_max is not None:
+            self._btn_max.setText("❐" if maximized else "☐")
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -78,7 +88,7 @@ class TitleBar(QWidget):
         super().mousePressEvent(event)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
+        if self._show_maximize and event.button() == Qt.MouseButton.LeftButton:
             self.maximize_toggled.emit()
             event.accept()
             return

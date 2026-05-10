@@ -26,8 +26,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle(APP_TITLE)
-        self.resize(1180, 740)
-        self.setMinimumSize(960, 600)
+        self.setFixedSize(1280, 800)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
 
         root = QWidget(self)
@@ -38,9 +37,8 @@ class MainWindow(QMainWindow):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        self.title_bar = TitleBar(self)
+        self.title_bar = TitleBar(self, show_maximize=False)
         self.title_bar.minimize_requested.connect(self.showMinimized)
-        self.title_bar.maximize_toggled.connect(self._toggle_max)
         self.title_bar.close_requested.connect(self.close)
         outer.addWidget(self.title_bar)
 
@@ -95,14 +93,6 @@ class MainWindow(QMainWindow):
         view = self._views.get(key)
         if view is not None:
             self.stack.setCurrentWidget(view)
-
-    def _toggle_max(self) -> None:
-        if self.isMaximized():
-            self.showNormal()
-            self.title_bar.set_maximized(False)
-        else:
-            self.showMaximized()
-            self.title_bar.set_maximized(True)
 
     def showEvent(self, event) -> None:  # noqa: D401
         super().showEvent(event)
