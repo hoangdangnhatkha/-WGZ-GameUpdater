@@ -427,71 +427,152 @@ QToolTip {
     color: #393945;
 }
 
-/* ─── SERVICE CARD (Accounts) ───────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════
+   OPERATIONS PAGE  ·  Active Deployment
+   ═══════════════════════════════════════════════════════════════════════ */
 
-#ServiceCard {
-    background: #0f0f15;
-    border: 1px solid #24242f;
-    border-radius: 0;
-    min-width: 150px;
-}
-#ServiceCard:hover {
-    background: #14141a;
-    border: 1px solid #d8ff3a;
-}
-#ServiceCardName {
-    font-family: "Bahnschrift", "Inter Tight", sans-serif;
-    font-size: 13px;
-    font-weight: 700;
-    letter-spacing: 0.6px;
-    color: #ecece7;
-}
-#ServiceCardCount {
-    font-family: "Cascadia Mono", Consolas, monospace;
-    font-size: 10px;
-    color: #d8ff3a;
-    letter-spacing: 0.8px;
-}
-
-/* ─── DOWNLOAD PROGRESS PAGE ────────────────────────────────────────── */
-
-#ProgressPage {
-    background: transparent;
-}
-#ProgressPage QProgressBar {
-    min-height: 14px;
-    border: 1px solid #24242f;
-    border-radius: 0;
+QWidget#OpsPage {
     background: #07070a;
 }
-#ProgressPage QProgressBar::chunk {
-    background: #d8ff3a;
-}
 
-/* ─── ACCOUNT ROW ───────────────────────────────────────────────────── */
-
-#AccountRow {
-    background: #0f0f15;
-    border: 1px solid #24242f;
-    border-radius: 0;
-    padding: 6px;
-}
-#AccountRow:hover {
-    background: #14141a;
-    border: 1px solid #393945;
-}
-#AccountNickname {
-    font-family: "Bahnschrift", "Inter Tight", sans-serif;
-    font-size: 13px;
-    font-weight: 700;
-    color: #ecece7;
-    letter-spacing: 0.4px;
-}
-#AccountMeta {
+QLabel#OpsOpId {
     font-family: "Cascadia Mono", Consolas, monospace;
     font-size: 10px;
+    color: #393945;
+    letter-spacing: 2px;
+    font-weight: 700;
+}
+
+QLabel#OpsBanner {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: #d8ff3a;
+    letter-spacing: 2.5px;
+}
+
+QFrame#OpsRule {
+    background: #24242f;
+    border: none;
+    max-height: 1px;
+}
+
+QLabel#OpsGameTitle {
+    font-family: "Bahnschrift", "Inter Tight Condensed", "Inter Tight", sans-serif;
+    font-size: 44px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: #ffffff;
+    line-height: 1.0;
+    padding: 4px 0 2px 0;
+}
+
+QLabel#OpsPhaseLabel {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    color: #9d9d9c;
+    letter-spacing: 1.8px;
+}
+
+QFrame#OpsProgressBox {
+    background: #0a0a0e;
+    border: 1px solid #24242f;
+    border-left: 3px solid #d8ff3a;
+    border-radius: 0;
+}
+
+QLabel#OpsProgressHeader {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: #d8ff3a;
+    letter-spacing: 2px;
+}
+
+QProgressBar#OpsBar {
+    background: #07070a;
+    border: 1px solid #1d1d29;
+    border-radius: 0;
+    height: 20px;
+    text-align: center;
+}
+QProgressBar#OpsBar::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+        stop:0 #b8df1a, stop:1 #d8ff3a);
+    border-radius: 0;
+}
+
+QLabel#OpsMetricLabel {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 9px;
     color: #5e5e62;
-    letter-spacing: 0.6px;
+    letter-spacing: 1.5px;
+    font-weight: 700;
+}
+
+QLabel#OpsMetricValue {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 20px;
+    font-weight: 700;
+    color: #ecece7;
+    letter-spacing: 0.5px;
+}
+
+QFrame#OpsMetricSep {
+    background: #24242f;
+    border: none;
+    max-width: 1px;
+}
+
+QLabel#OpsStatusText {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    color: #5e5e62;
+    letter-spacing: 0.5px;
+}
+
+QLabel#OpsLogHeader {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: #d8ff3a;
+    letter-spacing: 2.5px;
+}
+
+QPlainTextEdit#OpsLog {
+    background: #050507;
+    border: 1px solid #1d1d29;
+    border-radius: 0;
+    color: #5e5e62;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    padding: 12px 16px;
+    selection-background-color: #d8ff3a;
+    selection-color: #07070a;
+}
+QPlainTextEdit#OpsLog:focus {
+    border: 1px solid #24242f;
+}
+
+QPushButton#AbortButton {
+    background: transparent;
+    border: 1px solid #ff5b3c;
+    border-radius: 0;
+    color: #ff5b3c;
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 1.2px;
+    padding: 10px 24px;
+}
+QPushButton#AbortButton:hover {
+    background: rgba(255, 91, 60, 0.10);
+    border-color: #ff7a5e;
+    color: #ff7a5e;
+}
+QPushButton#AbortButton:pressed {
+    background: rgba(255, 91, 60, 0.20);
 }
 
 /* ─── BACK BUTTON ───────────────────────────────────────────────────── */
@@ -683,7 +764,7 @@ QLabel#RowThumb {
     border: none;
 }
 
-QLabel#RowIndex {
+QFrame#GameRow QLabel#RowIndex {
     font-family: "Cascadia Mono", Consolas, monospace;
     font-size: 22px;
     font-weight: 700;
@@ -811,3 +892,1140 @@ QMenu::separator {
     background: #24242f;
     margin: 4px 0;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   LOGIN WINDOW  ·  Identity Clearance Gate
+   ═══════════════════════════════════════════════════════════════════════ */
+
+QWidget#LoginRoot {
+    background: #07070a;
+}
+
+QWidget#LoginTitleBar {
+    background: #07070a;
+    border-bottom: 1px solid #24242f;
+}
+
+QLabel#LoginTitleLabel {
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #5e5e62;
+    padding-left: 2px;
+}
+
+QWidget#LoginLeftPanel {
+    background: #0a0a0e;
+}
+
+QWidget#LoginRightPanel {
+    background: #07070a;
+}
+
+QLabel#LoginLogo {
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 80px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    color: #ecece7;
+    padding: 0;
+    line-height: 1.0;
+}
+
+QLabel#LoginLogoSub {
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 4px;
+    color: #5e5e62;
+    padding: 0 0 0 4px;
+}
+
+QFrame#LoginRule {
+    background: #d8ff3a;
+    border: none;
+    max-height: 1px;
+}
+
+QLabel#LoginFeatureHeader {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: #d8ff3a;
+    letter-spacing: 2px;
+}
+
+QLabel#LoginFeatureItem {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 12px;
+    color: #9d9d9c;
+    letter-spacing: 0.8px;
+}
+
+QLabel#LoginFooterNote {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 9px;
+    color: #393945;
+    letter-spacing: 1.5px;
+}
+
+QLabel#LoginSectionHeader {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: #d8ff3a;
+    letter-spacing: 3px;
+}
+
+QLabel#LoginHeading {
+    font-family: "Bahnschrift", "Inter Tight Condensed", "Inter Tight", sans-serif;
+    font-size: 58px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: #ffffff;
+    line-height: 0.95;
+}
+
+QLabel#LoginDesc {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    color: #5e5e62;
+    letter-spacing: 0.6px;
+    line-height: 1.6;
+}
+
+QPushButton#GoogleSignInButton {
+    background: transparent;
+    border: 1px solid #d8ff3a;
+    border-radius: 0;
+    color: #d8ff3a;
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 1.5px;
+    padding: 0 24px;
+    text-align: left;
+}
+QPushButton#GoogleSignInButton:hover {
+    background: rgba(216, 255, 58, 0.08);
+    border-color: #ecff7a;
+    color: #ecff7a;
+}
+QPushButton#GoogleSignInButton:pressed {
+    background: rgba(216, 255, 58, 0.15);
+}
+QPushButton#GoogleSignInButton:disabled {
+    border-color: #393945;
+    color: #393945;
+}
+
+QLabel#LoginStatus {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    color: #5e5e62;
+    letter-spacing: 1px;
+}
+
+QLabel#LoginCursor {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    color: #d8ff3a;
+}
+
+QLabel#LoginError {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    color: #ff5b3c;
+    letter-spacing: 0.5px;
+    background: rgba(255, 91, 60, 0.06);
+    border-left: 2px solid #ff5b3c;
+    padding: 8px 12px;
+}
+
+/* ─── SIDEBAR USER PANEL ────────────────────────────────────────────── */
+
+QFrame#SidebarUserSep {
+    background: #1d1d29;
+    border: none;
+    max-height: 1px;
+}
+
+QWidget#UserBadge {
+    background: #0a0a0e;
+}
+
+QLabel#UserAvatar {
+    background: #d8ff3a;
+    color: #07070a;
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 16px;
+    font-weight: 800;
+    border-radius: 17px;
+}
+
+QLabel#UserName {
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: #ecece7;
+    letter-spacing: 0.3px;
+}
+
+QLabel#UserEmail {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 9px;
+    color: #5e5e62;
+    letter-spacing: 0.3px;
+}
+
+QPushButton#LogoutButton {
+    background: transparent;
+    border: 1px solid #24242f;
+    border-radius: 0;
+    color: #5e5e62;
+    font-size: 14px;
+    padding: 0;
+}
+QPushButton#LogoutButton:hover {
+    border-color: #ff5b3c;
+    color: #ff5b3c;
+    background: rgba(255, 91, 60, 0.08);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   ACCOUNTS · ASSET VAULT
+   ─────────────────────────────────────────────────────────────────────
+   Single-page master/detail console:
+     KPI strip + toolbar  →  TheaterRail (left)  ·  AssetPanel (right)
+   Underground Operations aesthetic — acid-lime accents, mono metadata,
+   industrial sharp corners (no border-radius).
+   ═══════════════════════════════════════════════════════════════════════ */
+
+QWidget#AccountsVault {
+    background: #07070a;
+}
+
+QWidget#AccountsVault QLabel#PageTitle {
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    color: #ecece7;
+}
+QWidget#AccountsVault QLabel#PageSub {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    color: #5e5e62;
+    letter-spacing: 1.4px;
+    padding: 2px 0 0 0;
+}
+
+/* ─── KPI tiles ─────────────────────────────────────────────────────── */
+
+QFrame#KpiTile {
+    background: #0a0a0e;
+    border: 1px solid #1d1d29;
+    border-radius: 0;
+    min-width: 110px;
+}
+QLabel#KpiLabel {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 9px;
+    font-weight: 700;
+    color: #5e5e62;
+    letter-spacing: 1.6px;
+}
+QLabel#KpiValue {
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 22px;
+    font-weight: 800;
+    color: #ecece7;
+    letter-spacing: 1px;
+}
+QLabel#KpiValueSmall {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    color: #ecece7;
+    letter-spacing: 1.2px;
+}
+
+/* Sync dot states */
+QLabel#SyncDot {
+    border-radius: 0;
+    border: 1px solid #1d1d29;
+    background: #393945;
+}
+QLabel#SyncDot[state="idle"] { background: #393945; border: 1px solid #393945; }
+QLabel#SyncDot[state="sync"] { background: #4f7cff; border: 1px solid #4f7cff; }
+QLabel#SyncDot[state="ok"]   { background: #d8ff3a; border: 1px solid #d8ff3a; }
+QLabel#SyncDot[state="err"]  { background: #ff5b3c; border: 1px solid #ff5b3c; }
+
+/* ─── Vault toolbar buttons ─────────────────────────────────────────── */
+
+QPushButton#VaultToolBtn {
+    background: transparent;
+    border: 1px solid #24242f;
+    border-radius: 0;
+    color: #ecece7;
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    padding: 9px 18px;
+}
+QPushButton#VaultToolBtn:hover {
+    border-color: #393945;
+    background: #0f0f15;
+}
+QPushButton#VaultToolBtn:pressed { background: #07070a; }
+QPushButton#VaultToolBtn:disabled {
+    color: #393945;
+    border-color: #1d1d29;
+    background: #0a0a0e;
+}
+
+QPushButton#VaultPrimaryBtn {
+    background: #d8ff3a;
+    border: 1px solid #d8ff3a;
+    border-radius: 0;
+    color: #07070a;
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 1.4px;
+    padding: 9px 20px;
+}
+QPushButton#VaultPrimaryBtn:hover {
+    background: #ecff7a;
+    border: 1px solid #ecff7a;
+}
+QPushButton#VaultPrimaryBtn:pressed { background: #b8df1a; }
+QPushButton#VaultPrimaryBtn:disabled {
+    background: #14141a;
+    border: 1px solid #1d1d29;
+    color: #393945;
+}
+
+/* ─── Splitter / frames ─────────────────────────────────────────────── */
+
+QSplitter#VaultSplit::handle {
+    background: #14141a;
+}
+
+QFrame#RailFrame {
+    background: #0a0a0e;
+    border: 1px solid #1d1d29;
+    border-right: none;
+}
+QFrame#PanelFrame {
+    background: #0a0a0e;
+    border: 1px solid #1d1d29;
+}
+
+/* ─── Theater Rail ──────────────────────────────────────────────────── */
+
+QWidget#TheaterRail {
+    background: transparent;
+}
+
+QFrame#RailHeader {
+    background: #07070a;
+    border: none;
+    border-bottom: 1px solid #1d1d29;
+}
+QLabel#RailTitle {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: #d8ff3a;
+    letter-spacing: 2.4px;
+}
+
+QWidget#RailList {
+    background: transparent;
+}
+
+QLabel#RailEmpty {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    color: #393945;
+    letter-spacing: 1.4px;
+    padding: 32px 14px;
+}
+
+/* Theater entries */
+
+QFrame#TheaterEntry {
+    background: transparent;
+    border: none;
+    border-left: 3px solid transparent;
+    border-bottom: 1px solid #14141a;
+}
+QFrame#TheaterEntry:hover {
+    background: #0f0f15;
+}
+QFrame#TheaterEntry[active="true"] {
+    background: #0f0f15;
+    border-left: 3px solid #d8ff3a;
+}
+
+QLabel#TheaterThumb {
+    background: #050507;
+    border: 1px solid #1d1d29;
+    color: #24242f;
+}
+
+QLabel#TheaterName {
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    color: #ecece7;
+    letter-spacing: 0.5px;
+}
+QFrame#TheaterEntry[active="true"] QLabel#TheaterName {
+    color: #d8ff3a;
+}
+
+QLabel#TheaterServices {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 9px;
+    color: #5e5e62;
+    letter-spacing: 1.1px;
+}
+
+QLabel#TheaterCount {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 13px;
+    font-weight: 800;
+    color: #5e5e62;
+    letter-spacing: 0.5px;
+    background: transparent;
+    border: 1px solid #1d1d29;
+    padding: 2px 0;
+}
+QFrame#TheaterEntry[active="true"] QLabel#TheaterCount {
+    color: #07070a;
+    background: #d8ff3a;
+    border: 1px solid #d8ff3a;
+}
+QFrame#TheaterEntry:hover QLabel#TheaterCount {
+    color: #ecece7;
+    border: 1px solid #393945;
+}
+
+/* ─── Asset Panel ───────────────────────────────────────────────────── */
+
+QWidget#AssetPanel {
+    background: transparent;
+}
+
+QFrame#PanelHeader {
+    background: #07070a;
+    border: none;
+    border-bottom: 1px solid #1d1d29;
+}
+QLabel#PanelTitle {
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 18px;
+    font-weight: 800;
+    color: #ecece7;
+    letter-spacing: 1.5px;
+}
+QLabel#PanelMeta {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    color: #d8ff3a;
+    letter-spacing: 1.4px;
+}
+
+QPushButton#PanelAddBtn {
+    background: transparent;
+    border: 1px solid #d8ff3a;
+    border-radius: 0;
+    color: #d8ff3a;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    padding: 7px 16px;
+}
+QPushButton#PanelAddBtn:hover {
+    background: rgba(216, 255, 58, 0.10);
+    color: #ecff7a;
+    border-color: #ecff7a;
+}
+QPushButton#PanelAddBtn:disabled {
+    border-color: #1d1d29;
+    color: #393945;
+    background: transparent;
+}
+
+QWidget#PanelBody {
+    background: transparent;
+}
+
+QLabel#PanelEmpty {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    color: #393945;
+    letter-spacing: 1.4px;
+    padding: 32px 24px;
+    line-height: 1.8;
+}
+
+/* Asset rows */
+
+QFrame#AssetRow {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #14141a;
+    border-left: 2px solid transparent;
+}
+QFrame#AssetRow:hover {
+    background: #07070a;
+    border-left: 2px solid #d8ff3a;
+}
+
+QLabel#AssetIndex {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 16px;
+    font-weight: 800;
+    color: #393945;
+    letter-spacing: 0.5px;
+}
+QFrame#AssetRow:hover QLabel#AssetIndex {
+    color: #d8ff3a;
+}
+
+QLabel#AssetNick {
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: #ecece7;
+    letter-spacing: 0.4px;
+}
+
+QLabel#AssetFieldLabel {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 9px;
+    font-weight: 700;
+    color: #393945;
+    letter-spacing: 1.5px;
+}
+
+QLabel#AssetFieldValue {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: #b8b8b3;
+    letter-spacing: 0.4px;
+}
+
+/* Service tags — colored per provider */
+
+QLabel#AssetSvcSteam,
+QLabel#AssetSvcRiot,
+QLabel#AssetSvcOther {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    padding: 2px 8px;
+    border-radius: 0;
+}
+QLabel#AssetSvcSteam {
+    background: rgba(79, 124, 255, 0.12);
+    color: #6e90ff;
+    border: 1px solid rgba(79, 124, 255, 0.32);
+}
+QLabel#AssetSvcRiot {
+    background: rgba(255, 91, 60, 0.12);
+    color: #ff7a5e;
+    border: 1px solid rgba(255, 91, 60, 0.32);
+}
+QLabel#AssetSvcOther {
+    background: #14141a;
+    color: #9d9d9c;
+    border: 1px solid #1d1d29;
+}
+
+/* Asset row buttons */
+
+QPushButton#AssetMicroBtn {
+    background: transparent;
+    border: 1px solid #1d1d29;
+    border-radius: 0;
+    color: #5e5e62;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 5px 6px;
+    min-height: 24px;
+}
+QPushButton#AssetMicroBtn:hover {
+    border-color: #d8ff3a;
+    color: #d8ff3a;
+    background: rgba(216, 255, 58, 0.05);
+}
+QPushButton#AssetMicroBtn:pressed {
+    background: rgba(216, 255, 58, 0.12);
+}
+
+QPushButton#AssetLoginBtn {
+    background: #d8ff3a;
+    border: 1px solid #d8ff3a;
+    border-radius: 0;
+    color: #07070a;
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1.3px;
+    padding: 0 14px;
+    min-height: 28px;
+}
+QPushButton#AssetLoginBtn:hover {
+    background: #ecff7a;
+    border: 1px solid #ecff7a;
+}
+QPushButton#AssetLoginBtn:pressed {
+    background: #b8df1a;
+}
+
+QPushButton#AssetDeleteBtn {
+    background: transparent;
+    border: 1px solid #1d1d29;
+    border-radius: 0;
+    color: #5e5e62;
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 16px;
+    font-weight: 800;
+    padding: 0;
+    min-height: 24px;
+}
+QPushButton#AssetDeleteBtn:hover {
+    border-color: #ff5b3c;
+    color: #ff5b3c;
+    background: rgba(255, 91, 60, 0.10);
+}
+QPushButton#AssetDeleteBtn:pressed {
+    background: rgba(255, 91, 60, 0.22);
+}
+
+/* ─── Riot Login Progress Dialog ─────────────────────────────────── */
+
+QDialog#RiotLoginDialog {
+    background: #07070a;
+    border: 1px solid #1d1d29;
+}
+
+QFrame#RiotLoginHeader {
+    background: #0a0a0d;
+    border: none;
+    border-bottom: 1px solid #1d1d29;
+}
+QLabel#RiotLoginTitle {
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-size: 18px;
+    font-weight: 800;
+    color: #ecece7;
+    letter-spacing: 1.5px;
+}
+QLabel#RiotLoginSub {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    color: #d8ff3a;
+    letter-spacing: 1.4px;
+}
+
+QFrame#RiotLoginTimerFrame {
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #14141a;
+}
+QLabel#RiotLoginClockLabel {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: #5e5e62;
+    letter-spacing: 1.5px;
+}
+QLabel#RiotLoginClock {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 22px;
+    font-weight: 800;
+    color: #ecece7;
+    letter-spacing: 1.2px;
+}
+QLabel#RiotLoginStateChip {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 800;
+    color: #07070a;
+    background: #d8ff3a;
+    border: 1px solid #d8ff3a;
+    padding: 4px 10px;
+    letter-spacing: 1.5px;
+}
+QLabel#RiotLoginStateChip[state="ok"] {
+    color: #07070a;
+    background: #b6ff62;
+    border: 1px solid #b6ff62;
+}
+QLabel#RiotLoginStateChip[state="err"] {
+    color: #ecece7;
+    background: #ff5b3c;
+    border: 1px solid #ff5b3c;
+}
+
+QFrame#RiotLoginLogWrap {
+    background: transparent;
+    border: none;
+}
+QLabel#RiotLoginLogCaption {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 9px;
+    font-weight: 700;
+    color: #393945;
+    letter-spacing: 1.5px;
+}
+QPlainTextEdit#RiotLoginLog {
+    background: #0a0a0d;
+    border: 1px solid #1d1d29;
+    border-radius: 0;
+    color: #b8b8b3;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    padding: 8px 10px;
+    selection-background-color: #d8ff3a;
+    selection-color: #07070a;
+}
+
+QFrame#RiotLoginFooter {
+    background: #0a0a0d;
+    border: none;
+    border-top: 1px solid #1d1d29;
+}
+QPushButton#RiotLoginCancelBtn {
+    background: transparent;
+    border: 1px solid #ff5b3c;
+    border-radius: 0;
+    color: #ff5b3c;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    padding: 6px 18px;
+}
+QPushButton#RiotLoginCancelBtn:hover {
+    background: rgba(255, 91, 60, 0.12);
+    color: #ff8068;
+    border-color: #ff8068;
+}
+QPushButton#RiotLoginCancelBtn:pressed {
+    background: rgba(255, 91, 60, 0.22);
+}
+QPushButton#RiotLoginCancelBtn:disabled {
+    border-color: #393945;
+    color: #393945;
+    background: transparent;
+}
+
+/* ─── MANAGER (Tab 4) ──────────────────────────────────────────────── */
+
+QWidget#MgrView { background: #07070a; }
+
+/* Header */
+QFrame#MgrHeader { background: transparent; border: none; }
+QLabel#MgrTitle {
+    font-family: "Bahnschrift", "Inter Tight", "Segoe UI Variable Display", sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #ecece7;
+}
+QLabel#MgrSubtitle {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    color: #5e5e62;
+    letter-spacing: 1px;
+    padding-left: 4px;
+}
+
+QLabel#MgrStatusChip {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    padding: 5px 10px;
+    border: 1px solid #393945;
+    color: #5e5e62;
+    background: transparent;
+}
+QLabel#MgrStatusChip[state="clean"] {
+    color: #d8ff3a;
+    border-color: rgba(216, 255, 58, 0.4);
+    background: rgba(216, 255, 58, 0.05);
+}
+QLabel#MgrStatusChip[state="dirty"] {
+    color: #ffb84a;
+    border-color: rgba(255, 184, 74, 0.5);
+    background: rgba(255, 184, 74, 0.07);
+}
+QLabel#MgrStatusChip[state="pushing"] {
+    color: #4f7cff;
+    border-color: rgba(79, 124, 255, 0.55);
+    background: rgba(79, 124, 255, 0.08);
+}
+QLabel#MgrStatusChip[state="error"] {
+    color: #ff5b3c;
+    border-color: rgba(255, 91, 60, 0.55);
+    background: rgba(255, 91, 60, 0.08);
+}
+QLabel#MgrStatusChip[state="loading"] {
+    color: #9d9d9c;
+    border-color: #393945;
+}
+
+QPushButton#MgrPushBtn {
+    background: #d8ff3a;
+    border: 1px solid #d8ff3a;
+    border-radius: 0;
+    color: #07070a;
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 1.4px;
+    padding: 8px 18px;
+    min-height: 28px;
+}
+QPushButton#MgrPushBtn:hover { background: #e3ff6b; border-color: #e3ff6b; }
+QPushButton#MgrPushBtn:pressed { background: #c4e62d; }
+QPushButton#MgrPushBtn:disabled {
+    background: transparent;
+    color: #393945;
+    border-color: #24242f;
+}
+
+QPushButton#MgrSecondaryBtn {
+    background: transparent;
+    border: 1px solid #393945;
+    border-radius: 0;
+    color: #9d9d9c;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    padding: 7px 14px;
+    min-height: 28px;
+}
+QPushButton#MgrSecondaryBtn:hover {
+    border-color: #d8ff3a;
+    color: #d8ff3a;
+    background: rgba(216, 255, 58, 0.05);
+}
+QPushButton#MgrSecondaryBtn:pressed { background: rgba(216, 255, 58, 0.12); }
+QPushButton#MgrSecondaryBtn:disabled {
+    border-color: #1d1d29;
+    color: #393945;
+}
+
+/* Tab strip */
+QFrame#MgrTabStrip { background: transparent; border: none; border-bottom: 1px solid #24242f; }
+QPushButton#MgrTabBtn {
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #5e5e62;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    padding: 10px 22px;
+}
+QPushButton#MgrTabBtn:hover { color: #9d9d9c; }
+QPushButton#MgrTabBtn:checked {
+    color: #d8ff3a;
+    border-bottom: 2px solid #d8ff3a;
+    background: rgba(216, 255, 58, 0.03);
+}
+
+/* Editor frame */
+QFrame#MgrLeftRail {
+    background: #0a0a0e;
+    border: 1px solid #1d1d29;
+    border-right: none;
+}
+QFrame#MgrRightHost {
+    background: #0f0f15;
+    border: 1px solid #1d1d29;
+}
+QFrame#MgrEditHeader {
+    background: #16161f;
+    border-bottom: 1px solid #24242f;
+}
+QLabel#MgrEditTitle {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 12px;
+    font-weight: 700;
+    color: #ecece7;
+    letter-spacing: 1px;
+}
+
+/* Section caption */
+QLabel#MgrSectionCaption {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: #5e5e62;
+    letter-spacing: 1.6px;
+}
+
+/* Inventory list */
+QListWidget#MgrList {
+    background: transparent;
+    border: 1px solid #1d1d29;
+    border-radius: 0;
+    color: #ecece7;
+    outline: none;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 12px;
+    padding: 2px;
+}
+QListWidget#MgrList::item {
+    padding: 8px 6px;
+    border-bottom: 1px solid #16161f;
+}
+QListWidget#MgrList::item:hover { background: #16161f; }
+QListWidget#MgrList::item:selected {
+    background: rgba(216, 255, 58, 0.08);
+    color: #d8ff3a;
+    border-left: 2px solid #d8ff3a;
+}
+
+/* Inventory tree (grouped by `game` field) */
+QTreeWidget#MgrTree {
+    background: transparent;
+    border: 1px solid #1d1d29;
+    border-radius: 0;
+    color: #ecece7;
+    outline: none;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 12px;
+    padding: 0;
+    show-decoration-selected: 0;
+}
+QTreeWidget#MgrTree::item { border: none; padding: 0; }
+QTreeWidget#MgrTree::item:selected,
+QTreeWidget#MgrTree::item:focus { background: transparent; outline: none; }
+QTreeWidget#MgrTree::branch { background: transparent; }
+
+/* Group header row */
+QFrame#MgrGroupHeader {
+    background: #0c0c12;
+    border-bottom: 1px solid #1d1d29;
+}
+QFrame#MgrGroupHeader:hover { background: #14141c; }
+QLabel#MgrGroupChevron {
+    color: #5e5e62;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+}
+QLabel#MgrGroupName {
+    color: #d8ff3a;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.6px;
+}
+QLabel#MgrGroupCount {
+    color: #5e5e62;
+    background: #16161f;
+    padding: 1px 6px;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 2px;
+}
+QPushButton#MgrGroupAction {
+    background: transparent;
+    border: 1px solid #24242f;
+    color: #9d9d9c;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 0;
+    border-radius: 0;
+}
+QPushButton#MgrGroupAction:hover {
+    border-color: #d8ff3a;
+    color: #d8ff3a;
+}
+
+/* Game child row */
+QFrame#MgrChild {
+    background: transparent;
+    border-bottom: 1px solid #16161f;
+    border-left: 2px solid transparent;
+}
+QFrame#MgrChild:hover { background: #16161f; }
+QFrame#MgrChild[selected="true"] {
+    background: rgba(216, 255, 58, 0.08);
+    border-left: 2px solid #d8ff3a;
+}
+QLabel#MgrChildIndex {
+    color: #5e5e62;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+}
+QLabel#MgrChildName {
+    color: #ecece7;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 12px;
+}
+QFrame#MgrChild[selected="true"] QLabel#MgrChildName { color: #d8ff3a; }
+QLabel#MgrPartsChip {
+    color: #d8ff3a;
+    background: rgba(216, 255, 58, 0.10);
+    border: 1px solid rgba(216, 255, 58, 0.25);
+    padding: 0px 6px;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    border-radius: 2px;
+}
+
+/* Form scroll */
+QScrollArea#MgrScroll {
+    background: #0f0f15;
+    border: none;
+}
+QWidget#MgrFormWrap { background: #0f0f15; }
+
+QLabel#MgrFieldLabel {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: #9d9d9c;
+    letter-spacing: 1.4px;
+}
+QLabel#MgrFieldHint {
+    font-family: "Segoe UI Variable", sans-serif;
+    font-size: 10px;
+    color: #5e5e62;
+}
+
+QLineEdit#MgrInput {
+    background: #07070a;
+    border: 1px solid #24242f;
+    border-radius: 0;
+    color: #ecece7;
+    padding: 7px 9px;
+    selection-background-color: #d8ff3a;
+    selection-color: #07070a;
+}
+QLineEdit#MgrInput:hover { border-color: #393945; }
+QLineEdit#MgrInput:focus { border-color: #d8ff3a; }
+QLineEdit#MgrInput:disabled { color: #393945; background: #0a0a0d; border-color: #16161f; }
+
+QPlainTextEdit#MgrTextArea {
+    background: #07070a;
+    border: 1px solid #24242f;
+    border-radius: 0;
+    color: #ecece7;
+    font-family: "Segoe UI Variable", sans-serif;
+    padding: 6px 8px;
+    selection-background-color: #d8ff3a;
+    selection-color: #07070a;
+}
+QPlainTextEdit#MgrTextArea:hover { border-color: #393945; }
+QPlainTextEdit#MgrTextArea:focus { border-color: #d8ff3a; }
+
+QComboBox#MgrCombo {
+    background: #07070a;
+    border: 1px solid #24242f;
+    border-radius: 0;
+    color: #ecece7;
+    padding: 6px 9px;
+    min-height: 22px;
+}
+QComboBox#MgrCombo:hover { border-color: #393945; }
+QComboBox#MgrCombo:focus { border-color: #d8ff3a; }
+QComboBox#MgrCombo::drop-down { width: 22px; border-left: 1px solid #24242f; }
+QComboBox#MgrCombo QAbstractItemView {
+    background: #0f0f15;
+    color: #ecece7;
+    border: 1px solid #393945;
+    selection-background-color: rgba(216, 255, 58, 0.15);
+    selection-color: #d8ff3a;
+    outline: none;
+}
+
+/* Add / remove */
+QPushButton#MgrAddBtn {
+    background: transparent;
+    border: 1px solid #393945;
+    border-radius: 0;
+    color: #9d9d9c;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.2px;
+    padding: 4px 10px;
+    min-height: 22px;
+}
+QPushButton#MgrAddBtn:hover {
+    border-color: #d8ff3a;
+    color: #d8ff3a;
+    background: rgba(216, 255, 58, 0.05);
+}
+QPushButton#MgrAddBtn:pressed { background: rgba(216, 255, 58, 0.12); }
+
+QPushButton#MgrRemoveBtn {
+    background: transparent;
+    border: 1px solid #24242f;
+    border-radius: 0;
+    color: #5e5e62;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 12px;
+    font-weight: 700;
+    min-height: 26px;
+}
+QPushButton#MgrRemoveBtn:hover {
+    border-color: #ff5b3c;
+    color: #ff5b3c;
+    background: rgba(255, 91, 60, 0.06);
+}
+QPushButton#MgrRemoveBtn:pressed { background: rgba(255, 91, 60, 0.14); }
+
+QPushButton#MgrDangerBtn {
+    background: transparent;
+    border: 1px solid #ff5b3c;
+    border-radius: 0;
+    color: #ff5b3c;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+    padding: 6px 12px;
+    min-height: 26px;
+}
+QPushButton#MgrDangerBtn:hover { background: rgba(255, 91, 60, 0.12); color: #ff8068; border-color: #ff8068; }
+QPushButton#MgrDangerBtn:pressed { background: rgba(255, 91, 60, 0.22); }
+QPushButton#MgrDangerBtn:disabled { border-color: #24242f; color: #393945; }
+
+/* URL row index */
+QLabel#MgrUrlIndex {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 10px;
+    color: #5e5e62;
+    border: 1px solid #1d1d29;
+    background: #0a0a0d;
+    padding: 4px 0;
+}
+QFrame#MgrUrlListWrap { background: transparent; }
+QFrame#MgrUrlRowsHost { background: transparent; }
+QFrame#MgrUrlRow { background: transparent; }
+

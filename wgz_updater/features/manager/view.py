@@ -14,7 +14,7 @@ import json
 import logging
 from typing import Any
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QPoint, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QIntValidator
 from PyQt6.QtWidgets import (
     QButtonGroup,
@@ -26,11 +26,14 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QStackedWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -43,6 +46,7 @@ from ...core.paths import (
     GITHUB_THEMES_URL,
     THEMES_BUNDLED_CANDIDATES,
     THEMES_LOCAL,
+    USER_DATA_DIR,
 )
 from .github_writer import PushConfigWorker
 
@@ -195,11 +199,137 @@ class _UrlListEditor(QFrame):
 
 
 # ════════════════════════════════════════════════════════════════════
+# Inventory tree rows
+# ════════════════════════════════════════════════════════════════════
+
+class _GroupHeaderRow(QFrame):
+    """Top-level row in the inventory tree: chevron + label + count + hover actions."""
+
+    toggle_requested = pyqtSignal()
+    add_requested = pyqtSignal()
+    menu_requested = pyqtSignal(QPoint)  # global position for the menu
+
+    def __init__(self, label: str, count: int, expanded: bool, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("MgrGroupHeader")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(8, 0, 6, 0)
+        lay.setSpacing(8)
+
+        self._chev = QLabel("▾" if expanded else "▸", self)
+        self._chev.setObjectName("MgrGroupChevron")
+        self._chev.setFixedWidth(12)
+        lay.addWidget(self._chev)
+
+        self._name = QLabel(label, self)
+        self._name.setObjectName("MgrGroupName")
+        lay.addWidget(self._name, 1)
+
+        self._count = QLabel(str(count), self)
+        self._count.setObjectName("MgrGroupCount")
+        self._count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._count.setMinimumWidth(22)
+        lay.addWidget(self._count)
+
+        self._add_btn = QPushButton("+", self)
+        self._add_btn.setObjectName("MgrGroupAction")
+        self._add_btn.setFixedSize(18, 18)
+        self._add_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._add_btn.setToolTip("Thêm entry vào nhóm này")
+        self._add_btn.clicked.connect(self.add_requested.emit)
+        self._add_btn.setVisible(False)
+        lay.addWidget(self._add_btn)
+
+        self._menu_btn = QPushButton("⋮", self)
+        self._menu_btn.setObjectName("MgrGroupAction")
+        self._menu_btn.setFixedSize(18, 18)
+        self._menu_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._menu_btn.setToolTip("Tác vụ nhóm")
+        self._menu_btn.clicked.connect(self._emit_menu)
+        self._menu_btn.setVisible(False)
+        lay.addWidget(self._menu_btn)
+
+    def _emit_menu(self) -> None:
+        self.menu_requested.emit(
+            self._menu_btn.mapToGlobal(QPoint(0, self._menu_btn.height()))
+        )
+
+    def set_expanded(self, expanded: bool) -> None:
+        self._chev.setText("▾" if expanded else "▸")
+
+    def set_count(self, count: int) -> None:
+        self._count.setText(str(count))
+
+    def enterEvent(self, event):  # noqa: N802 - Qt API
+        self._add_btn.setVisible(True)
+        self._menu_btn.setVisible(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):  # noqa: N802 - Qt API
+        self._add_btn.setVisible(False)
+        self._menu_btn.setVisible(False)
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event):  # noqa: N802 - Qt API
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.toggle_requested.emit()
+        super().mousePressEvent(event)
+
+
+class _GameRow(QFrame):
+    """Child row in the inventory tree: index + name + parts-count chip."""
+
+    def __init__(self, index: int, name: str, parts: int, parent=None) -> None:
+        super().__init__(parent)
+        self.setObjectName("MgrChild")
+        self.setProperty("selected", "false")
+
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(22, 0, 8, 0)
+        lay.setSpacing(8)
+
+        self._idx = QLabel(f"{index:02d}", self)
+        self._idx.setObjectName("MgrChildIndex")
+        self._idx.setFixedWidth(20)
+        lay.addWidget(self._idx)
+
+        self._name = QLabel(name, self)
+        self._name.setObjectName("MgrChildName")
+        self._name.setMinimumWidth(0)
+        lay.addWidget(self._name, 1)
+
+        self._chip = QLabel(str(parts), self)
+        self._chip.setObjectName("MgrPartsChip")
+        self._chip.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._chip.setMinimumWidth(22)
+        self._chip.setVisible(parts > 0)
+        lay.addWidget(self._chip)
+
+    def set_index(self, index: int) -> None:
+        self._idx.setText(f"{index:02d}")
+
+    def set_name(self, name: str) -> None:
+        self._name.setText(name)
+
+    def set_parts(self, parts: int) -> None:
+        self._chip.setText(str(parts))
+        self._chip.setVisible(parts > 0)
+
+    def set_selected(self, selected: bool) -> None:
+        self.setProperty("selected", "true" if selected else "false")
+        # Repolish so the QSS attribute selector picks up the new value.
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+
+# ════════════════════════════════════════════════════════════════════
 # Games editor
 # ════════════════════════════════════════════════════════════════════
 
 class _GamesEditor(QWidget):
-    """Left: game inventory list + add/remove. Right: full-schema editor."""
+    """Left: grouped inventory tree + add/remove. Right: full-schema editor."""
 
     changed = pyqtSignal()
 
@@ -209,6 +339,15 @@ class _GamesEditor(QWidget):
         self._order: list[str] = []            # ordered IDs (preserves JSON order)
         self._current_id: str | None = None
         self._suppress = False
+
+        # Grouping state
+        self._groups: dict[str, list[str]] = {}            # group_key -> ordered gids
+        self._collapsed: set[str] = self._load_collapsed()  # group keys collapsed by user
+        self._focused_group: str | None = None              # last group the user touched
+        self._group_items: dict[str, QTreeWidgetItem] = {}
+        self._group_widgets: dict[str, _GroupHeaderRow] = {}
+        self._game_items: dict[str, QTreeWidgetItem] = {}
+        self._game_widgets: dict[str, _GameRow] = {}
 
         root = QHBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -239,10 +378,16 @@ class _GamesEditor(QWidget):
         head.addWidget(add)
         lay.addLayout(head)
 
-        self._list = QListWidget(rail)
-        self._list.setObjectName("MgrList")
-        self._list.currentItemChanged.connect(self._on_select)
-        lay.addWidget(self._list, 1)
+        self._tree = QTreeWidget(rail)
+        self._tree.setObjectName("MgrTree")
+        self._tree.setHeaderHidden(True)
+        self._tree.setRootIsDecorated(False)
+        self._tree.setIndentation(0)
+        self._tree.setItemsExpandable(False)
+        self._tree.setExpandsOnDoubleClick(False)
+        self._tree.setUniformRowHeights(False)
+        self._tree.currentItemChanged.connect(self._on_select)
+        lay.addWidget(self._tree, 1)
 
         return rail
 
@@ -294,6 +439,7 @@ class _GamesEditor(QWidget):
         form.addLayout(self._labeled("TÊN", self._field_name))
 
         self._field_game = self._mk_input("vd: Elden Ring Nightreign")
+        self._field_game.editingFinished.connect(self._on_game_field_committed)
         form.addLayout(self._labeled("GAME", self._field_game,
                                      hint="Khớp với key trong Themes để dùng chung hero image."))
 
@@ -370,6 +516,7 @@ class _GamesEditor(QWidget):
         """Accepts the FULL raw dict (including `updater`) and extracts games."""
         self._games = {}
         self._order = []
+        self._current_id = None
         for key, value in games_raw.items():
             if key in _RESERVED_GAME_KEYS or not isinstance(value, dict):
                 continue
@@ -377,7 +524,9 @@ class _GamesEditor(QWidget):
             self._order.append(str(key))
         self._refresh_list()
         if self._order:
-            self._list.setCurrentRow(0)
+            first_gid = self._order[0]
+            if first_gid in self._game_items:
+                self._tree.setCurrentItem(self._game_items[first_gid])
         else:
             self._clear_form()
 
@@ -393,69 +542,114 @@ class _GamesEditor(QWidget):
 
     def _refresh_list(self) -> None:
         self._suppress = True
-        self._list.clear()
-        for i, gid in enumerate(self._order, start=1):
-            name = self._games[gid].get("name") or "(không tên)"
-            # Enhanced: Show download parts information with tooltips
-            urls = self._games[gid].get("urls", [])
-            download_count = len(urls)
-            if download_count > 0:
-                # Show count and preview of first 2 URLs
-                preview_urls = urls[:2]
-                preview_names = []
-                for url in preview_urls:
-                    filename = url.split("/")[-1]
-                    filename = filename.split("?")[0].split("#")[0]
-                    if not filename:
-                        filename = "unknown"
-                    preview_names.append(filename)
-                preview_text = ", ".join(preview_names)
-                if download_count > 2:
-                    preview_text += f" (+{download_count - 2} more)"
-                # Limit total length to prevent overly wide items
-                if len(preview_text) > 50:
-                    preview_text = preview_text[:47] + "..."
-                item_text = f"  {i:02d}    {name}  [{download_count} parts: {preview_text}]"
+        self._tree.clear()
+        self._group_items.clear()
+        self._group_widgets.clear()
+        self._game_items.clear()
+        self._game_widgets.clear()
 
-                # Create tooltip with full URL information
-                tooltip_lines = [f"Game: {name}", f"Download Parts ({download_count}):"]
-                for j, url in enumerate(urls, 1):
-                    tooltip_lines.append(f"  {j:02d}. {url}")
-                tooltip = "\n".join(tooltip_lines)
-            else:
-                item_text = f"  {i:02d}    {name}  [No download parts]"
-                tooltip = f"Game: {name}\nNo download parts configured"
+        # Build groups dict (preserve first-appearance order)
+        self._groups = {}
+        for gid in self._order:
+            key = (self._games[gid].get("game") or "").strip()
+            self._groups.setdefault(key, []).append(gid)
 
-            item = QListWidgetItem(item_text)
-            item.setData(Qt.ItemDataRole.UserRole, gid)
-            item.setToolTip(tooltip)
-            self._list.addItem(item)
+        # Render in first-appearance order; empty-key bucket always last
+        ordered_keys = [k for k in self._groups if k != ""]
+        if "" in self._groups:
+            ordered_keys.append("")
+
+        for key in ordered_keys:
+            gids = self._groups[key]
+            label = key.upper() if key else "(CHƯA NHÓM)"
+            expanded = key not in self._collapsed
+
+            g_item = QTreeWidgetItem(self._tree)
+            g_item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "group", "key": key})
+            g_item.setFlags(Qt.ItemFlag.ItemIsEnabled)  # not editable-selectable
+            g_item.setSizeHint(0, QSize(0, 32))
+            g_widget = _GroupHeaderRow(label, len(gids), expanded, self._tree)
+            g_widget.toggle_requested.connect(lambda k=key: self._on_group_toggle(k))
+            g_widget.add_requested.connect(lambda k=key: self._on_group_add(k))
+            g_widget.menu_requested.connect(
+                lambda pos, k=key: self._on_group_menu(k, pos)
+            )
+            self._tree.setItemWidget(g_item, 0, g_widget)
+            self._group_items[key] = g_item
+            self._group_widgets[key] = g_widget
+
+            for idx, gid in enumerate(gids, start=1):
+                c_item = QTreeWidgetItem(g_item)
+                c_item.setData(0, Qt.ItemDataRole.UserRole, {"kind": "game", "gid": gid})
+                c_item.setSizeHint(0, QSize(0, 28))
+                urls = list(self._games[gid].get("urls") or [])
+                name = self._games[gid].get("name") or "(không tên)"
+                c_widget = _GameRow(idx, name, len(urls), self._tree)
+                c_widget.setToolTip(self._build_tooltip(name, urls))
+                self._tree.setItemWidget(c_item, 0, c_widget)
+                self._game_items[gid] = c_item
+                self._game_widgets[gid] = c_widget
+
+            g_item.setExpanded(expanded)
+
+        # Reapply visual selection if a game is still current
+        if self._current_id and self._current_id in self._game_widgets:
+            self._game_widgets[self._current_id].set_selected(True)
+
         self._suppress = False
 
-    def _on_select(self, current: QListWidgetItem | None, _prev) -> None:
-        if self._suppress or current is None:
+    def _on_select(self, current, previous) -> None:
+        if self._suppress:
             return
-        # Flush pending edits on previous selection
+        # Flush pending edits before switching context
         self._flush_form()
-        gid = current.data(Qt.ItemDataRole.UserRole)
-        self._current_id = gid
-        self._populate_form(self._games[gid])
-        self._set_editor_enabled(True)
-        self._del_btn.setEnabled(True)
+
+        # Clear visual on previous game row
+        if previous is not None:
+            prev_data = previous.data(0, Qt.ItemDataRole.UserRole)
+            if isinstance(prev_data, dict) and prev_data.get("kind") == "game":
+                prev_gid = prev_data.get("gid")
+                if prev_gid in self._game_widgets:
+                    self._game_widgets[prev_gid].set_selected(False)
+
+        if current is None:
+            return
+        data = current.data(0, Qt.ItemDataRole.UserRole)
+        if not isinstance(data, dict):
+            return
+
+        if data.get("kind") == "group":
+            # Group rows aren't selectable for editing, but track focus for "+"
+            self._focused_group = data.get("key") or ""
+            return
+
+        if data.get("kind") == "game":
+            gid = data.get("gid")
+            if gid not in self._games:
+                return
+            self._current_id = gid
+            self._focused_group = (self._games[gid].get("game") or "").strip()
+            self._populate_form(self._games[gid])
+            self._set_editor_enabled(True)
+            self._del_btn.setEnabled(True)
+            if gid in self._game_widgets:
+                self._game_widgets[gid].set_selected(True)
 
     def _on_add_game(self) -> None:
-        # Next free numeric ID
+        self._add_new_entry(self._focused_group)
+
+    def _add_new_entry(self, group_key: str | None) -> None:
         used = {int(g) for g in self._order if g.isdigit()}
-        new_id = "1"
         n = 1
         while n in used:
             n += 1
         new_id = str(n)
+        target = (group_key or "").strip()
         self._games[new_id] = {
             "name": "Game mới",
             "url": "",
             "version": "",
-            "game": "",
+            "game": target,
             "type": "zip",
             "password": None,
             "delete_before_extract": [],
@@ -464,12 +658,13 @@ class _GamesEditor(QWidget):
             "urls": [],
         }
         self._order.append(new_id)
+        # Ensure the target group is expanded so the user sees the new row
+        self._collapsed.discard(target)
+        self._save_collapsed()
         self._refresh_list()
-        # Select the new one
-        for i in range(self._list.count()):
-            if self._list.item(i).data(Qt.ItemDataRole.UserRole) == new_id:
-                self._list.setCurrentRow(i)
-                break
+        self._focused_group = target
+        if new_id in self._game_items:
+            self._tree.setCurrentItem(self._game_items[new_id])
         self.changed.emit()
 
     def _on_delete_game(self) -> None:
@@ -490,7 +685,9 @@ class _GamesEditor(QWidget):
         self._current_id = None
         self._refresh_list()
         if self._order:
-            self._list.setCurrentRow(0)
+            first_gid = self._order[0]
+            if first_gid in self._game_items:
+                self._tree.setCurrentItem(self._game_items[first_gid])
         else:
             self._clear_form()
         self.changed.emit()
@@ -556,12 +753,14 @@ class _GamesEditor(QWidget):
         self._sync_list_row_for(self._current_id)
 
     def _sync_list_row_for(self, gid: str) -> None:
-        for i in range(self._list.count()):
-            it = self._list.item(i)
-            if it.data(Qt.ItemDataRole.UserRole) == gid:
-                name = self._games[gid].get("name") or "(không tên)"
-                it.setText(f"  {i + 1:02d}    {name}")
-                return
+        widget = self._game_widgets.get(gid)
+        if widget is None:
+            return
+        name = self._games[gid].get("name") or "(không tên)"
+        urls = list(self._games[gid].get("urls") or [])
+        widget.set_name(name)
+        widget.set_parts(len(urls))
+        widget.setToolTip(self._build_tooltip(name, urls))
 
     def _on_id_changed(self) -> None:
         if self._suppress or not self._current_id:
@@ -579,11 +778,18 @@ class _GamesEditor(QWidget):
         self._order[i] = new_id
         self._current_id = new_id
         self._refresh_list()
-        for j in range(self._list.count()):
-            if self._list.item(j).data(Qt.ItemDataRole.UserRole) == new_id:
-                self._list.setCurrentRow(j)
-                break
+        if new_id in self._game_items:
+            self._tree.setCurrentItem(self._game_items[new_id])
         self.changed.emit()
+
+    def _on_game_field_committed(self) -> None:
+        """When user finishes editing the `game` field, regroup the tree."""
+        if self._suppress or not self._current_id:
+            return
+        gid = self._current_id
+        self._refresh_list()
+        if gid in self._game_items:
+            self._tree.setCurrentItem(self._game_items[gid])
 
     def _mark_changed(self, *_args) -> None:
         if self._suppress:
@@ -615,6 +821,114 @@ class _GamesEditor(QWidget):
                   self._field_path_guide, self._field_delete_before,
                   self._field_urls):
             w.setEnabled(enabled)
+
+    # ── Group operations ────────────────────────────────────────────
+
+    def _build_tooltip(self, name: str, urls: list[str]) -> str:
+        if not urls:
+            return f"Game: {name}\nNo download parts configured"
+        lines = [f"Game: {name}", f"Download Parts ({len(urls)}):"]
+        for j, url in enumerate(urls, 1):
+            lines.append(f"  {j:02d}. {url}")
+        return "\n".join(lines)
+
+    def _on_group_toggle(self, key: str) -> None:
+        item = self._group_items.get(key)
+        widget = self._group_widgets.get(key)
+        if item is None or widget is None:
+            return
+        expanded = not item.isExpanded()
+        item.setExpanded(expanded)
+        widget.set_expanded(expanded)
+        if expanded:
+            self._collapsed.discard(key)
+        else:
+            self._collapsed.add(key)
+        self._focused_group = key
+        self._save_collapsed()
+
+    def _on_group_add(self, key: str) -> None:
+        self._add_new_entry(key)
+
+    def _on_group_menu(self, key: str, global_pos: QPoint) -> None:
+        menu = QMenu(self)
+        menu.addAction("Đổi tên nhóm…", lambda: self._on_rename_group(key))
+        menu.addAction("Thêm vào nhóm này", lambda: self._on_group_add(key))
+        menu.addSeparator()
+        menu.addAction("Thu gọn nhóm khác", lambda: self._on_collapse_others(key))
+        menu.exec(global_pos)
+
+    def _on_rename_group(self, key: str) -> None:
+        new_key, ok = QInputDialog.getText(
+            self, "Đổi tên nhóm",
+            "Tên nhóm mới (ghi vào trường `game` của mọi entry trong nhóm).\n"
+            "Mẹo: trùng với key trong game_themes.json để dùng chung hero image.",
+            QLineEdit.EchoMode.Normal,
+            key,
+        )
+        if not ok:
+            return
+        new_key = (new_key or "").strip()
+        if new_key == key:
+            return
+        for gid in self._groups.get(key, []):
+            self._games[gid]["game"] = new_key
+        if key in self._collapsed:
+            self._collapsed.discard(key)
+            if new_key:
+                self._collapsed.add(new_key)
+            self._save_collapsed()
+        self._focused_group = new_key
+        self._refresh_list()
+        # Re-populate the form so the visible "game" field reflects the new key
+        if self._current_id and self._current_id in self._games:
+            self._populate_form(self._games[self._current_id])
+            if self._current_id in self._game_items:
+                self._tree.setCurrentItem(self._game_items[self._current_id])
+        self.changed.emit()
+
+    def _on_collapse_others(self, key: str) -> None:
+        for k, item in self._group_items.items():
+            widget = self._group_widgets.get(k)
+            if k == key:
+                item.setExpanded(True)
+                if widget is not None:
+                    widget.set_expanded(True)
+                self._collapsed.discard(k)
+            else:
+                item.setExpanded(False)
+                if widget is not None:
+                    widget.set_expanded(False)
+                self._collapsed.add(k)
+        self._focused_group = key
+        self._save_collapsed()
+
+    # ── Collapse-state persistence ──────────────────────────────────
+
+    def _collapsed_path(self):
+        return USER_DATA_DIR / "manager_groups.json"
+
+    def _load_collapsed(self) -> set[str]:
+        p = self._collapsed_path()
+        if not p.exists():
+            return set()
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            return {str(x) for x in data.get("collapsed", []) if isinstance(x, str)}
+        except Exception:
+            log.exception("Read collapsed groups state failed")
+            return set()
+
+    def _save_collapsed(self) -> None:
+        try:
+            p = self._collapsed_path()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(
+                json.dumps({"collapsed": sorted(self._collapsed)}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception:
+            log.exception("Save collapsed groups state failed")
 
 
 # ════════════════════════════════════════════════════════════════════
