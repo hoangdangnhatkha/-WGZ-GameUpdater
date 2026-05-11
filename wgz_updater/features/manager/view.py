@@ -396,19 +396,16 @@ class _GamesEditor(QWidget):
         self._list.clear()
         for i, gid in enumerate(self._order, start=1):
             name = self._games[gid].get("name") or "(không tên)"
-            # Enhanced: Show download parts information with better handling
+            # Enhanced: Show download parts information with tooltips
             urls = self._games[gid].get("urls", [])
             download_count = len(urls)
             if download_count > 0:
-                # Show count and preview of first 2 URLs with better filename extraction
+                # Show count and preview of first 2 URLs
                 preview_urls = urls[:2]
                 preview_names = []
                 for url in preview_urls:
-                    # Extract filename from URL, handling various cases
                     filename = url.split("/")[-1]
-                    # Remove query parameters and fragments
                     filename = filename.split("?")[0].split("#")[0]
-                    # If filename is empty, use a placeholder
                     if not filename:
                         filename = "unknown"
                     preview_names.append(filename)
@@ -419,10 +416,19 @@ class _GamesEditor(QWidget):
                 if len(preview_text) > 50:
                     preview_text = preview_text[:47] + "..."
                 item_text = f"  {i:02d}    {name}  [{download_count} parts: {preview_text}]"
+
+                # Create tooltip with full URL information
+                tooltip_lines = [f"Game: {name}", f"Download Parts ({download_count}):"]
+                for j, url in enumerate(urls, 1):
+                    tooltip_lines.append(f"  {j:02d}. {url}")
+                tooltip = "\n".join(tooltip_lines)
             else:
                 item_text = f"  {i:02d}    {name}  [No download parts]"
+                tooltip = f"Game: {name}\nNo download parts configured"
+
             item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, gid)
+            item.setToolTip(tooltip)
             self._list.addItem(item)
         self._suppress = False
 
