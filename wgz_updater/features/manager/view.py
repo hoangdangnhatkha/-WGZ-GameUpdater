@@ -396,20 +396,32 @@ class _GamesEditor(QWidget):
         self._list.clear()
         for i, gid in enumerate(self._order, start=1):
             name = self._games[gid].get("name") or "(không tên)"
-            # Enhanced: Show download parts information
+            # Enhanced: Show download parts information with better handling
             urls = self._games[gid].get("urls", [])
             download_count = len(urls)
             if download_count > 0:
-                # Show count and preview of first 2 URLs
+                # Show count and preview of first 2 URLs with better filename extraction
                 preview_urls = urls[:2]
-                preview_names = [url.split("/")[-1].split("?")[0] for url in preview_urls]  # Get filename without query params
+                preview_names = []
+                for url in preview_urls:
+                    # Extract filename from URL, handling various cases
+                    filename = url.split("/")[-1]
+                    # Remove query parameters and fragments
+                    filename = filename.split("?")[0].split("#")[0]
+                    # If filename is empty, use a placeholder
+                    if not filename:
+                        filename = "unknown"
+                    preview_names.append(filename)
                 preview_text = ", ".join(preview_names)
                 if download_count > 2:
                     preview_text += f" (+{download_count - 2} more)"
+                # Limit total length to prevent overly wide items
+                if len(preview_text) > 50:
+                    preview_text = preview_text[:47] + "..."
                 item_text = f"  {i:02d}    {name}  [{download_count} parts: {preview_text}]"
             else:
                 item_text = f"  {i:02d}    {name}  [No download parts]"
-            item = QListWidgetItem(f"  {i:02d}    {name}")
+            item = QListWidgetItem(item_text)
             item.setData(Qt.ItemDataRole.UserRole, gid)
             self._list.addItem(item)
         self._suppress = False
