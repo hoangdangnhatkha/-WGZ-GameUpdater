@@ -1,6 +1,6 @@
 {
   "updater": {
-    "latest_version": "1.4.3",
+    "latest_version": "1.4.4",
     "release_notes": "- Thêm Chia Sẻ Acccount\n- Thêm nút Chạy Game cho từng game",
     "download_url": "https://drive.google.com/uc?export=download&id=1xLitheCe9ygKSajQl9LbwxYskikYSG1J",
     "base_url": "https://drive.google.com/uc?export=download&id=1d61kOCYYuVEoPSpB5C7Culx7JF9HDxBK"
@@ -74,7 +74,9 @@
     "launch_file": null,
     "tag": null,
     "path_guide": "Thư mục gốc của game ROR2",
-    "delete_before_extract": ["BepInEx"],
+    "delete_before_extract": [
+      "BepInEx"
+    ],
     "url": "https://drive.google.com/uc?id=1OUQoR6Ox1iEnEOIYtGoXoQewj-ydlzrV"
   },
   "7": {
@@ -148,7 +150,9 @@
     "launch_file": "Phasmophobia/Launcher.exe",
     "tag": null,
     "path_guide": "Cài bất cứ đâu",
-    "delete_before_extract": ["Phasmophobia"],
+    "delete_before_extract": [
+      "Phasmophobia"
+    ],
     "url": "https://drive.google.com/uc?id=1CgOyBy5u2E_8Rfjb9t2FS2l2SmimzNjF"
   },
   "13": {
