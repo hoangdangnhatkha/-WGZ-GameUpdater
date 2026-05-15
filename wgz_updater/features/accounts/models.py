@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass
@@ -42,10 +42,3 @@ class AccountRecord:
             game=data.get("game", ""),
         )
 
-
-@dataclass
-class ServiceEntry:
-    key: str
-    label: str
-    trailer_url: str = ""
-    riot_window_titles: list[str] = field(default_factory=list)

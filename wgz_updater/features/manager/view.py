@@ -438,10 +438,14 @@ class _GamesEditor(QWidget):
         self._field_name = self._mk_input("Tên hiển thị")
         form.addLayout(self._labeled("TÊN", self._field_name))
 
-        self._field_game = self._mk_input("vd: Elden Ring Nightreign")
-        self._field_game.editingFinished.connect(self._on_game_field_committed)
+        self._field_game = QComboBox(form_wrap)
+        self._field_game.setObjectName("MgrCombo")
+        self._field_game.setEditable(True)
+        self._field_game.lineEdit().setPlaceholderText("Chọn game từ Themes hoặc gõ tự do")
+        self._field_game.lineEdit().editingFinished.connect(self._on_game_field_committed)
+        self._field_game.activated.connect(lambda _i: self._on_game_field_committed())
         form.addLayout(self._labeled("GAME", self._field_game,
-                                     hint="Khớp với key trong Themes để dùng chung hero image."))
+                                     hint="Chọn key trong Themes (dùng chung hero image) hoặc gõ tự do."))
 
         self._field_version = self._mk_input("vd: v1.4.0")
         form.addLayout(self._labeled("VERSION", self._field_version))
@@ -699,7 +703,7 @@ class _GamesEditor(QWidget):
         try:
             self._field_id.setText(str(self._current_id or ""))
             self._field_name.setText(str(game.get("name") or ""))
-            self._field_game.setText(str(game.get("game") or ""))
+            self._set_game_combo_text(str(game.get("game") or ""))
             self._field_version.setText(str(game.get("version") or ""))
             tp = str(game.get("type") or "zip")
             idx = self._field_type.findText(tp)
@@ -733,7 +737,7 @@ class _GamesEditor(QWidget):
         if game is None:
             return
         game["name"] = self._field_name.text().strip()
-        game["game"] = self._field_game.text().strip()
+        game["game"] = self._field_game.currentText().strip()
         game["version"] = self._field_version.text().strip()
         game["type"] = self._field_type.currentText().strip() or "zip"
         tag = self._field_tag.text().strip()
@@ -800,10 +804,11 @@ class _GamesEditor(QWidget):
     def _clear_form(self) -> None:
         self._suppress = True
         try:
-            for f in (self._field_id, self._field_name, self._field_game,
+            for f in (self._field_id, self._field_name,
                       self._field_version, self._field_tag, self._field_password,
                       self._field_launch):
                 f.clear()
+            self._set_game_combo_text("")
             self._field_type.setCurrentIndex(0)
             self._field_path_guide.clear()
             self._field_delete_before.clear()
@@ -821,6 +826,45 @@ class _GamesEditor(QWidget):
                   self._field_path_guide, self._field_delete_before,
                   self._field_urls):
             w.setEnabled(enabled)
+
+    # ── Game-field dropdown ─────────────────────────────────────────
+
+    def _set_game_combo_text(self, value: str) -> None:
+        """Set the GAME combo's current text; works for items in or out of the list."""
+        idx = self._field_game.findText(value)
+        if idx >= 0:
+            self._field_game.setCurrentIndex(idx)
+        else:
+            self._field_game.setEditText(value)
+
+    def set_game_choices(self, keys: list[str]) -> None:
+        """Refresh the GAME-field dropdown options. Preserves the current selection.
+
+        `keys` are the theme keys (from the Themes tab). Any `game` values already
+        present in existing games but missing from `keys` are appended so users
+        can still see them, keeping the field useful even when themes lag.
+        """
+        was_suppress = self._suppress
+        self._suppress = True
+        try:
+            current = self._field_game.currentText()
+            self._field_game.clear()
+            self._field_game.addItem("")  # "(unassigned)" — leave blank to drop game into (CHƯA NHÓM)
+            seen: set[str] = {""}
+            for k in keys:
+                k = (k or "").strip()
+                if k and k not in seen:
+                    self._field_game.addItem(k)
+                    seen.add(k)
+            # Preserve any legacy `game` values not yet covered by themes
+            for gid in self._order:
+                v = (self._games.get(gid, {}).get("game") or "").strip()
+                if v and v not in seen:
+                    self._field_game.addItem(v)
+                    seen.add(v)
+            self._set_game_combo_text(current)
+        finally:
+            self._suppress = was_suppress
 
     # ── Group operations ────────────────────────────────────────────
 
@@ -939,6 +983,7 @@ class _ThemesEditor(QWidget):
     """Same list+form pattern; themes are keyed by string (usually game name)."""
 
     changed = pyqtSignal()
+    keys_changed = pyqtSignal()  # emitted when the set of theme keys changes (add/delete/rename/load)
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -1076,6 +1121,11 @@ class _ThemesEditor(QWidget):
             self._list.setCurrentRow(0)
         else:
             self._clear_form()
+        self.keys_changed.emit()
+
+    def keys(self) -> list[str]:
+        """Return current ordered list of theme keys (for the Games-tab dropdown)."""
+        return list(self._order)
 
     def dump(self) -> dict:
         out: dict[str, Any] = {}
@@ -1125,6 +1175,7 @@ class _ThemesEditor(QWidget):
                 self._list.setCurrentRow(i)
                 break
         self.changed.emit()
+        self.keys_changed.emit()
 
     def _on_delete_theme(self) -> None:
         if not self._current_key:
@@ -1144,6 +1195,7 @@ class _ThemesEditor(QWidget):
         else:
             self._clear_form()
         self.changed.emit()
+        self.keys_changed.emit()
 
     def _populate_form(self, theme: dict) -> None:
         self._suppress = True
@@ -1189,6 +1241,7 @@ class _ThemesEditor(QWidget):
                 self._list.setCurrentRow(j)
                 break
         self.changed.emit()
+        self.keys_changed.emit()
 
     def _mark_changed(self, *_args) -> None:
         if self._suppress:
@@ -1248,8 +1301,12 @@ class ManagerView(QWidget):
 
         self._games_editor.changed.connect(self._mark_dirty)
         self._themes_editor.changed.connect(self._mark_dirty)
+        self._themes_editor.keys_changed.connect(self._sync_game_choices)
 
         QTimer.singleShot(0, lambda: self._reload(prefer_remote=True))
+
+    def _sync_game_choices(self) -> None:
+        self._games_editor.set_game_choices(self._themes_editor.keys())
 
     # ── Header (status + actions) ───────────────────────────────────
 

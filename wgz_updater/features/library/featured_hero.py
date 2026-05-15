@@ -144,8 +144,11 @@ class FeaturedHero(QFrame):
     # ── paint ─────────────────────────────────────────────────────
 
     def _set_image(self, pixmap: QPixmap) -> None:
-        self._pixmap = pixmap
-        self.update()
+        try:
+            self._pixmap = pixmap
+            self.update()
+        except RuntimeError:
+            pass
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)

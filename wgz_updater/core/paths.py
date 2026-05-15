@@ -38,6 +38,7 @@ THEMES_BUNDLED_CANDIDATES = (
 
 CREDENTIALS_FILE = APP_DIR / "credentials.json"
 TOKEN_FILE = APP_DIR / "token.json"
+USER_TOKEN_FILE = APP_DIR / "user_token.json"
 GITHUB_TOKEN_FILE = APP_DIR / "github_token.txt"
 
 GITHUB_JSON_URL = (
@@ -60,6 +61,16 @@ SINGLETON_MUTEX_NAME = "WGZ_GameUpdater_Singleton"
 def ensure_user_dirs() -> None:
     for d in (INSTALL_ROOT, APP_DIR, LOG_DIR, USER_DATA_DIR):
         d.mkdir(parents=True, exist_ok=True)
+
+
+def find_credentials() -> "Path | None":
+    """Return credentials.json: prefer APP_DIR, fall back to the bundled copy."""
+    if CREDENTIALS_FILE.exists():
+        return CREDENTIALS_FILE
+    bundled = PACKAGE_ROOT / "credentials.json"
+    if bundled.exists():
+        return bundled
+    return None
 
 
 def resource(*parts: str) -> Path:

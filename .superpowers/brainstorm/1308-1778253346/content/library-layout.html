@@ -1,0 +1,91 @@
+<h2>Tab Thư Viện — Game bày theo kiểu nào?</h2>
+<p class="subtitle">Chọn bố cục cho danh sách game ở Tab 1</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="grid" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#1a1a2e;border-radius:6px;padding:12px;font-family:monospace;font-size:11px;color:#aaa;line-height:1.8">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:4px">
+          <div style="background:#252545;border-radius:4px;padding:8px;text-align:center">
+            <div style="background:#333;height:40px;border-radius:3px;margin-bottom:6px;position:relative">
+              <span style="position:absolute;top:3px;right:3px;background:#e74c3c;color:#fff;font-size:8px;padding:1px 4px;border-radius:2px">HOT</span>
+            </div>
+            <div style="font-size:9px;color:#ccc">Night Reign Mod</div>
+            <div style="font-size:8px;color:#0078d4;margin-top:2px">v2.1</div>
+            <div style="background:#0078d4;border-radius:3px;padding:2px;font-size:8px;color:#fff;margin-top:4px">Cập nhật</div>
+          </div>
+          <div style="background:#252545;border-radius:4px;padding:8px;text-align:center">
+            <div style="background:#333;height:40px;border-radius:3px;margin-bottom:6px;position:relative">
+              <span style="position:absolute;top:3px;right:3px;background:#27ae60;color:#fff;font-size:8px;padding:1px 4px;border-radius:2px">NEW</span>
+            </div>
+            <div style="font-size:9px;color:#ccc">Risk of Rain 2</div>
+            <div style="font-size:8px;color:#888;margin-top:2px">v1.0</div>
+            <div style="background:#444;border-radius:3px;padding:2px;font-size:8px;color:#fff;margin-top:4px">Tải về</div>
+          </div>
+          <div style="background:#252545;border-radius:4px;padding:8px;text-align:center">
+            <div style="background:#333;height:40px;border-radius:3px;margin-bottom:6px"></div>
+            <div style="font-size:9px;color:#ccc">Baldur's Gate 3</div>
+            <div style="font-size:8px;color:#27ae60;margin-top:2px">✓ Đã cài</div>
+            <div style="background:#27ae60;border-radius:3px;padding:2px;font-size:8px;color:#fff;margin-top:4px">🚀 Chạy Game</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px;align-items:center">
+          <input style="background:#1a1a2e;border:1px solid #444;border-radius:3px;padding:3px 6px;font-size:9px;color:#aaa;width:100px" placeholder="🔍 Tìm kiếm..." />
+          <span style="font-size:9px;color:#666">← Lưới 3 cột · click để xem chi tiết</span>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Lưới thẻ (giống bản gốc)</h3>
+      <p>Game hiện dưới dạng thẻ ảnh + badge HOT/NEW/UPD. Nhấp thẻ → chuyển sang trang chi tiết + tải về. Giữ nguyên luồng 3 màn hình như bản cũ.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="table" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#1a1a2e;border-radius:6px;padding:12px;font-family:monospace;font-size:11px;color:#aaa;line-height:1.8">
+        <div style="display:flex;gap:8px">
+          <div style="flex:3">
+            <div style="background:#252545;border-radius:4px;overflow:hidden">
+              <div style="display:grid;grid-template-columns:30px 1fr 60px 70px 80px;background:#1e1e3a;padding:4px 6px;font-size:8px;color:#888">
+                <span></span><span>Tên</span><span>Game</span><span>Phiên bản</span><span>Trạng thái</span>
+              </div>
+              <div style="display:grid;grid-template-columns:30px 1fr 60px 70px 80px;padding:4px 6px;font-size:8px;color:#ccc;background:#0078d415;border-left:2px solid #0078d4">
+                <div style="background:#333;width:20px;height:20px;border-radius:3px"></div>
+                <span>Night Reign Mod</span><span>Elden Ring</span><span>v2.1</span>
+                <span style="background:#e74c3c22;color:#e74c3c;border-radius:3px;padding:1px 4px;font-size:7px">Cần cập nhật</span>
+              </div>
+              <div style="display:grid;grid-template-columns:30px 1fr 60px 70px 80px;padding:4px 6px;font-size:8px;color:#ccc">
+                <div style="background:#333;width:20px;height:20px;border-radius:3px"></div>
+                <span>Risk of Rain 2</span><span>Standalone</span><span>v1.0</span>
+                <span style="background:#27ae6022;color:#27ae60;border-radius:3px;padding:1px 4px;font-size:7px">Đã cài</span>
+              </div>
+              <div style="display:grid;grid-template-columns:30px 1fr 60px 70px 80px;padding:4px 6px;font-size:8px;color:#888">
+                <div style="background:#333;width:20px;height:20px;border-radius:3px"></div>
+                <span>Baldur's Gate 3</span><span>Standalone</span><span>—</span>
+                <span style="background:#44444422;color:#888;border-radius:3px;padding:1px 4px;font-size:7px">Chưa cài</span>
+              </div>
+            </div>
+          </div>
+          <div style="flex:2;background:#252545;border-radius:4px;padding:8px">
+            <div style="background:#333;height:36px;border-radius:3px;margin-bottom:6px"></div>
+            <div style="font-size:9px;color:#ddd">Night Reign Mod</div>
+            <div style="font-size:8px;color:#888;margin-top:2px">Elden Ring · v2.1</div>
+            <div style="background:#0078d4;border-radius:3px;padding:3px;font-size:8px;color:#fff;margin-top:8px;text-align:center">Cập nhật ngay</div>
+          </div>
+        </div>
+        <div style="font-size:9px;color:#666;margin-top:6px">← Danh sách + bảng điều khiển bên phải (hiện tại)</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Bảng danh sách (bản PyQt6 hiện tại)</h3>
+      <p>Bảng hàng compact, chọn game → chi tiết hiện bên phải. Hiện đại, dễ sắp xếp/lọc. Thiếu ảnh bìa lớn và badge tag.</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top:16px;font-size:12px;color:#888">
+  💡 Chọn A để giữ luồng dùng giống bản gốc. Chọn B nếu muốn giữ bảng nhưng bổ sung các tính năng còn thiếu.
+</div>

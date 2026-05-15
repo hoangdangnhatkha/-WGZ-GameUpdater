@@ -1,0 +1,95 @@
+<h2>Luồng điều hướng Tab Thư Viện</h2>
+<p class="subtitle">Sau khi chọn lưới thẻ — người dùng điều hướng giữa các màn hình như thế nào?</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="multipage" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#1a1a2e;border-radius:6px;padding:10px;font-family:monospace;font-size:10px;color:#aaa">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <div style="background:#252545;padding:4px 10px;border-radius:3px;font-size:9px;color:#0078d4;border:1px solid #0078d4">🔲 Lưới Game</div>
+          <span style="color:#555">→</span>
+          <div style="background:#252545;padding:4px 10px;border-radius:3px;font-size:9px;color:#888">📄 Chi tiết</div>
+          <span style="color:#555">→</span>
+          <div style="background:#252545;padding:4px 10px;border-radius:3px;font-size:9px;color:#888">⬇ Tải về</div>
+        </div>
+        <div style="background:#252545;border-radius:4px;padding:8px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px">
+            <div style="background:#1e1e3a;border-radius:3px;padding:5px;text-align:center">
+              <div style="background:#333;height:28px;border-radius:2px;margin-bottom:4px"></div>
+              <div style="font-size:8px;color:#ccc">Night Reign</div>
+              <div style="background:#0078d4;border-radius:2px;padding:1px;font-size:7px;color:#fff;margin-top:3px">Cập nhật</div>
+            </div>
+            <div style="background:#1e1e3a;border-radius:3px;padding:5px;text-align:center">
+              <div style="background:#333;height:28px;border-radius:2px;margin-bottom:4px"></div>
+              <div style="font-size:8px;color:#ccc">Risk of Rain 2</div>
+              <div style="background:#444;border-radius:2px;padding:1px;font-size:7px;color:#fff;margin-top:3px">Tải về</div>
+            </div>
+            <div style="background:#1e1e3a;border-radius:3px;padding:5px;text-align:center">
+              <div style="background:#333;height:28px;border-radius:2px;margin-bottom:4px"></div>
+              <div style="font-size:8px;color:#ccc">BG3</div>
+              <div style="background:#27ae60;border-radius:2px;padding:1px;font-size:7px;color:#fff;margin-top:3px">🚀 Chạy</div>
+            </div>
+          </div>
+          <div style="font-size:8px;color:#555;margin-top:6px;text-align:center">Nhấp thẻ game → chuyển sang trang chi tiết</div>
+        </div>
+        <div style="margin-top:6px;font-size:8px;color:#27ae60">→ Trang chi tiết: ← Quay lại | ảnh lớn | chọn mod | nút tải</div>
+        <div style="font-size:8px;color:#27ae60">→ Trang tải về: thanh tiến trình toàn màn hình + Hủy</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — 3 trang riêng biệt (giống bản gốc)</h3>
+      <p>Lưới → nhấp thẻ → trang chi tiết (ảnh lớn, chọn mod, hướng dẫn cài) → nhấn Tải → trang tiến trình đầy màn hình. Nút "← Quay lại" ở mỗi trang.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="stacked" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#1a1a2e;border-radius:6px;padding:10px;font-family:monospace;font-size:10px;color:#aaa">
+        <div style="display:flex;gap:6px;height:90px">
+          <div style="flex:3;background:#252545;border-radius:4px;padding:6px;overflow:hidden">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px">
+              <div style="background:#1e1e3a;border-radius:3px;padding:4px;text-align:center">
+                <div style="background:#333;height:20px;border-radius:2px;margin-bottom:3px"></div>
+                <div style="font-size:7px;color:#ccc">Night Reign</div>
+              </div>
+              <div style="background:#0078d420;border:1px solid #0078d4;border-radius:3px;padding:4px;text-align:center">
+                <div style="background:#333;height:20px;border-radius:2px;margin-bottom:3px"></div>
+                <div style="font-size:7px;color:#0078d4">Risk of Rain 2</div>
+              </div>
+              <div style="background:#1e1e3a;border-radius:3px;padding:4px;text-align:center">
+                <div style="background:#333;height:20px;border-radius:2px;margin-bottom:3px"></div>
+                <div style="font-size:7px;color:#ccc">BG3</div>
+              </div>
+              <div style="background:#1e1e3a;border-radius:3px;padding:4px;text-align:center">
+                <div style="background:#333;height:20px;border-radius:2px;margin-bottom:3px"></div>
+                <div style="font-size:7px;color:#ccc">Sifu</div>
+              </div>
+            </div>
+          </div>
+          <div style="flex:2;background:#252545;border-radius:4px;padding:6px">
+            <div style="background:#333;height:30px;border-radius:2px;margin-bottom:4px"></div>
+            <div style="font-size:8px;color:#ddd">Risk of Rain 2</div>
+            <div style="font-size:7px;color:#888">Standalone · v1.0</div>
+            <div style="background:#0078d4;border-radius:2px;padding:2px 4px;font-size:7px;color:#fff;margin-top:5px;text-align:center">Tải về</div>
+          </div>
+        </div>
+        <div style="margin-top:5px;background:#1e1e3a;border-radius:3px;padding:4px;display:flex;align-items:center;gap:6px">
+          <div style="background:#0078d4;height:6px;border-radius:3px;flex:2"></div>
+          <div style="background:#333;height:6px;border-radius:3px;flex:3"></div>
+          <span style="font-size:7px;color:#888">45% · 2.3 MB/s</span>
+        </div>
+        <div style="font-size:8px;color:#555;margin-top:3px">Tiến trình hiện ở dải dưới cùng — không rời lưới</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Lưới + panel phải + dải tiến trình</h3>
+      <p>Nhấp thẻ → panel chi tiết hiện bên phải (không rời trang). Tải về → thanh tiến trình dưới cùng. Ít click hơn, không cần nút Quay lại.</p>
+    </div>
+  </div>
+
+</div>
+
+<div class="section" style="margin-top:14px;font-size:12px;color:#888">
+  💡 A giữ nguyên luồng bản gốc (3 màn hình). B hiện đại hơn nhưng khác luồng gốc.
+</div>

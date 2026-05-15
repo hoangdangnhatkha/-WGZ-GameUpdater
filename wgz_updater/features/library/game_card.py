@@ -113,12 +113,15 @@ class GameCard(QFrame):
         self._btn.style().polish(self._btn)
 
     def _set_image(self, pixmap: QPixmap) -> None:
-        scaled = pixmap.scaled(
-            194, 90,
-            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self._img_label.setPixmap(scaled)
+        try:
+            scaled = pixmap.scaled(
+                194, 90,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self._img_label.setPixmap(scaled)
+        except RuntimeError:
+            pass
 
     def refresh(self) -> None:
         self._refresh_button()

@@ -90,6 +90,8 @@ class ImageLoader(QObject):
         for cb in self._callbacks.pop(url, []):
             try:
                 cb(pixmap)
+            except RuntimeError:
+                pass  # widget deleted before image arrived — harmless
             except Exception:
                 log.exception("Image callback error for %s", url)
         self._pending_signals.pop(url, None)

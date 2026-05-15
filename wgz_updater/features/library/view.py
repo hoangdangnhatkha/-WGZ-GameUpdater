@@ -79,7 +79,13 @@ class LibraryView(QWidget):
 
     def _on_download_requested(self, game, install_path: str, url_idx: int) -> None:
         self._stack.setCurrentIndex(_PAGE_PROGRESS)
-        self._progress_page.start(game, install_path, url_idx)
+        image_url = ""
+        if self._config:
+            canonical = (game.game or game.name or "").strip()
+            theme = self._config.themes.get(canonical)
+            if theme:
+                image_url = theme.slideshow[0] if theme.slideshow else theme.image
+        self._progress_page.start(game, install_path, url_idx, image_url=image_url)
 
     def _on_download_finished(self, game, install_path: str) -> None:
         self._grid_page.refresh_cards()

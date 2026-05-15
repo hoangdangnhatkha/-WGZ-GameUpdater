@@ -28,12 +28,17 @@ def _find_steam_registry() -> str | None:
 
 def _find_riot_path() -> str | None:
     import os
-    default = Path(
-        os.environ.get("LOCALAPPDATA", ""),
-        "Riot Games", "Riot Client", "RiotClientServices.exe",
-    )
-    if default.exists():
-        return str(default)
+
+    candidates = [
+        # Default per-user install (most common)
+        Path(os.environ.get("LOCALAPPDATA", ""),
+             "Riot Games", "Riot Client", "RiotClientServices.exe"),
+        # Default system-drive install
+        Path("C:/Riot Games/Riot Client/RiotClientServices.exe"),
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
 
     try:
         import winreg

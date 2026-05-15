@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(powershell *)",
+      "Bash(dir \"C:\\\\Users\\\\Dang\\\\Desktop\\\\Exe File\\\\[WGZ]GameUpdaterProject\\\\WGZGameUpdater\" -Attributes !Directory)",
+      "Bash(python *)",
+      "Bash(New-Item *)",
+      "PowerShell(python -m pip install pytest 2>&1 | Select-Object -Last 5)",
+      "Bash(python3 -c \"from wgz_updater.core.config import Game; g = Game\\(id='1', name='Test', path_guide=None\\); print\\('path_guide OK:', repr\\(g.path_guide\\)\\)\")",
+      "Bash(py -c \"from wgz_updater.core.config import Game; g = Game\\(id='1', name='Test', path_guide=None\\); print\\('path_guide OK:', repr\\(g.path_guide\\)\\)\")",
+      "PowerShell(git *)",
+      "PowerShell(python -c \"from wgz_updater.features.accounts.view import AccountsView; from wgz_updater.features.accounts.theater_rail import TheaterRail; from wgz_updater.features.accounts.asset_panel import AssetPanel; print\\('OK', AccountsView.__name__, TheaterRail.__name__, AssetPanel.__name__\\)\")",
+      "PowerShell(python _smoke_accounts.py)",
+      "PowerShell(\\(Get-Content \"C:\\\\Users\\\\Dang\\\\Desktop\\\\ExeFile\\\\WGZGameUpdaterProject\\\\WGZGameUpdater\\\\wgz_updater\\\\resources\\\\qss\\\\styles.qss\" | Measure-Object -Line\\).Lines)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(dir *)",
+      "Bash(wgz_updater\\\\build\\\\build_all.bat *)",
+      "PowerShell(& \"wgz_updater\\\\build\\\\build_all.bat\")",
+      "PowerShell(Write-Output \\(\"cwd=\" + \\(Get-Location\\).Path\\); Write-Output \\(\"exists=\" + \\(Test-Path \"wgz_updater\\\\build\\\\build_all.bat\"\\)\\))",
+      "PowerShell(Get-ChildItem -Path \"wgz_updater\\\\build\\\\\" | ForEach-Object { $_.Name })"
+    ]
+  }
+}

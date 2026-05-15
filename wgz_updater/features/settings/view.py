@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ... import __version__
+from ...core.local_config import LocalConfig
 from ...core.paths import GITHUB_TOKEN_FILE, INSTALL_ROOT, LOG_DIR, ensure_user_dirs
 from ...core.updater import get_local_version
 from ...resources.strings_vi import (
@@ -58,6 +59,34 @@ class SettingsView(QWidget):
         open_btn.clicked.connect(self._open_install)
         path_row.addWidget(open_btn)
         form.addRow(QLabel(SETTINGS_INSTALL_PATH, self), self._wrap(path_row))
+
+        self._local = LocalConfig()
+
+        riot_row = QHBoxLayout()
+        self._riot_field = QLineEdit(self._local.riot_path or "", self)
+        self._riot_field.setReadOnly(True)
+        self._riot_field.setPlaceholderText("Chưa thiết lập")
+        riot_row.addWidget(self._riot_field, 1)
+        riot_browse = QPushButton("Chọn...", self)
+        riot_browse.clicked.connect(self._browse_riot)
+        riot_row.addWidget(riot_browse)
+        riot_auto = QPushButton("Tự dò", self)
+        riot_auto.clicked.connect(self._auto_detect_riot)
+        riot_row.addWidget(riot_auto)
+        form.addRow(QLabel("Riot Client", self), self._wrap(riot_row))
+
+        steam_row = QHBoxLayout()
+        self._steam_field = QLineEdit(self._local.steam_path or "", self)
+        self._steam_field.setReadOnly(True)
+        self._steam_field.setPlaceholderText("Chưa thiết lập")
+        steam_row.addWidget(self._steam_field, 1)
+        steam_browse = QPushButton("Chọn...", self)
+        steam_browse.clicked.connect(self._browse_steam)
+        steam_row.addWidget(steam_browse)
+        steam_auto = QPushButton("Tự dò", self)
+        steam_auto.clicked.connect(self._auto_detect_steam)
+        steam_row.addWidget(steam_auto)
+        form.addRow(QLabel("Steam", self), self._wrap(steam_row))
 
         self._token_field = QLineEdit(self)
         self._token_field.setEchoMode(QLineEdit.EchoMode.Password)
@@ -130,6 +159,60 @@ class SettingsView(QWidget):
                 QMessageBox.information(self, "Đã xóa", "Đã xóa cache cấu hình.")
             except Exception as exc:
                 QMessageBox.critical(self, "Lỗi", str(exc))
+
+    def _browse_riot(self) -> None:
+        start_dir = self._local.riot_path or self._local.last_used_folder or ""
+        if start_dir and Path(start_dir).is_file():
+            start_dir = str(Path(start_dir).parent)
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Chọn RiotClientServices.exe",
+            start_dir,
+            "Riot Client (RiotClientServices.exe);;Tệp thực thi (*.exe)",
+        )
+        if not path:
+            return
+        self._local.riot_path = path
+        self._local.last_used_folder = str(Path(path).parent)
+        self._local.save()
+        self._riot_field.setText(path)
+
+    def _browse_steam(self) -> None:
+        start_dir = self._local.steam_path or self._local.last_used_folder or ""
+        if start_dir and Path(start_dir).is_file():
+            start_dir = str(Path(start_dir).parent)
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Chọn steam.exe",
+            start_dir,
+            "Steam (steam.exe);;Tệp thực thi (*.exe)",
+        )
+        if not path:
+            return
+        self._local.steam_path = path
+        self._local.last_used_folder = str(Path(path).parent)
+        self._local.save()
+        self._steam_field.setText(path)
+
+    def _auto_detect_riot(self) -> None:
+        from ...core.auto_path import _find_riot_path
+        path = _find_riot_path()
+        if not path:
+            QMessageBox.warning(self, "Không tìm thấy", "Không tự dò được Riot Client.")
+            return
+        self._local.riot_path = path
+        self._local.save()
+        self._riot_field.setText(path)
+
+    def _auto_detect_steam(self) -> None:
+        from ...core.auto_path import _find_steam_registry
+        path = _find_steam_registry()
+        if not path:
+            QMessageBox.warning(self, "Không tìm thấy", "Không tự dò được Steam.")
+            return
+        self._local.steam_path = path
+        self._local.save()
+        self._steam_field.setText(path)
 
     def _check_update(self) -> None:
         from ...core.config import load_config

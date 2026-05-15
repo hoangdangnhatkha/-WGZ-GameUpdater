@@ -144,12 +144,15 @@ class GameRow(QFrame):
     # ── helpers ───────────────────────────────────────────────────
 
     def _set_thumb(self, pixmap: QPixmap) -> None:
-        scaled = pixmap.scaled(
-            140, 80,
-            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self._thumb.setPixmap(scaled)
+        try:
+            scaled = pixmap.scaled(
+                140, 80,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self._thumb.setPixmap(scaled)
+        except RuntimeError:
+            pass
 
     def _refresh_status(self) -> None:
         statuses = [self._registry.status_for(g) for g in self._entries]

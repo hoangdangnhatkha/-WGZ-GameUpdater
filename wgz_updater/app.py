@@ -11,7 +11,6 @@ from PyQt6.QtWidgets import QApplication, QMessageBox
 from .core.logging_setup import configure_logging
 from .core.paths import QSS_DIR, icon as icon_path
 from .core.single_instance import SingleInstance
-from .main_window import MainWindow
 from .resources.strings_vi import APP_TITLE, DIALOG_ERROR_TITLE
 
 log = logging.getLogger(__name__)
@@ -47,20 +46,65 @@ def _install_app_icon(app: QApplication) -> None:
         app.setWindowIcon(QIcon(str(png)))
 
 
+def _launch_main(app: QApplication, profile) -> "MainWindow":
+    """Create and show the main window with all views installed.
+
+    Returns the window so the caller MUST hold a reference — if it goes out of
+    scope the Python wrapper is GC'd while the Qt C++ object is still alive,
+    causing a crash when Qt later calls virtual methods (paintEvent etc.).
+    """
+    from .main_window import MainWindow
+
+    window = MainWindow(user_profile=profile)
+    window.show()
+
+    try:
+        from .features.library.view import LibraryView
+        window.install_view("library", LibraryView(window))
+    except Exception:
+        log.exception("Library view failed to load")
+
+    try:
+        from .features.accounts.view import AccountsView
+        window.install_view("accounts", AccountsView(window))
+    except Exception:
+        log.exception("Accounts view failed to load")
+
+    try:
+        from .features.manager.view import ManagerView
+        window.install_view("manager", ManagerView(window))
+    except Exception:
+        log.exception("Manager view failed to load")
+
+    try:
+        from .features.settings.view import SettingsView
+        window.install_view("settings", SettingsView(window))
+    except Exception:
+        log.exception("Settings view failed to load")
+
+    try:
+        from .widgets.status_strip import StatusStrip
+        window.install_status_strip(StatusStrip(window))
+    except Exception:
+        log.exception("Status strip failed to load")
+
+    try:
+        from .core.auto_path import AutoPathWorker
+        auto = AutoPathWorker(app)
+        auto.steam_found.connect(lambda p: log.info("Steam path set: %s", p))
+        auto.riot_found.connect(lambda p: log.info("Riot path set: %s", p))
+        auto.start()
+    except Exception:
+        log.exception("AutoPathWorker failed to start")
+
+    return window
+
+
 def main() -> int:
     from .core.local_config import LocalConfig
-    from .core.win32_utils import elevate_and_relaunch, is_admin
-
-    # Admin elevation — must happen before QApplication
-    if not is_admin():
-        launched = elevate_and_relaunch(["-m", "wgz_updater"] + sys.argv[1:])
-        if launched:
-            return 0
 
     configure_logging()
     _install_excepthook()
-
-    # Load persisted settings
     LocalConfig().load()
 
     QApplication.setHighDpiScaleFactorRoundingPolicy(
@@ -80,42 +124,37 @@ def main() -> int:
     _install_app_icon(app)
     _load_qss(app)
 
-    window = MainWindow()
-    window.show()
+    # ── Authentication gate ───────────────────────────────────────
+    from .features.auth.google_auth import fetch_user_profile, load_credentials
+    from .features.auth.session import AuthSession
 
-    try:
-        from .features.library.view import LibraryView
-        window.install_view("library", LibraryView(window))
-    except Exception:
-        log.exception("Library view failed to load")
+    creds = load_credentials()
+    profile = None
+    if creds:
+        try:
+            profile = fetch_user_profile(creds)
+            AuthSession.set(profile, creds)
+        except Exception:
+            log.warning("Profile fetch failed — forcing re-auth")
+            creds = None
 
-    try:
-        from .features.accounts.view import AccountsView
-        window.install_view("accounts", AccountsView(window))
-    except Exception:
-        log.exception("Accounts view failed to load")
+    _main_window = None  # must stay alive through app.exec()
 
-    try:
-        from .features.settings.view import SettingsView
-        window.install_view("settings", SettingsView(window))
-    except Exception:
-        log.exception("Settings view failed to load")
+    if creds and profile:
+        # Already authenticated — show main window directly
+        _main_window = _launch_main(app, profile)
+    else:
+        # Need login — show gate window first
+        from .features.auth.login_page import LoginWindow
+        login = LoginWindow()
 
-    try:
-        from .widgets.status_strip import StatusStrip
-        window.install_status_strip(StatusStrip(window))
-    except Exception:
-        log.exception("Status strip failed to load")
+        def _on_auth(prof, credentials) -> None:
+            nonlocal _main_window
+            AuthSession.set(prof, credentials)
+            _main_window = _launch_main(app, prof)
 
-    # Background: auto-detect Steam/Riot paths
-    try:
-        from .core.auto_path import AutoPathWorker
-        auto = AutoPathWorker(app)
-        auto.steam_found.connect(lambda p: log.info("Steam path set: %s", p))
-        auto.riot_found.connect(lambda p: log.info("Riot path set: %s", p))
-        auto.start()
-    except Exception:
-        log.exception("AutoPathWorker failed to start")
+        login.authenticated.connect(_on_auth)
+        login.show()
 
     rc = app.exec()
     instance.release()

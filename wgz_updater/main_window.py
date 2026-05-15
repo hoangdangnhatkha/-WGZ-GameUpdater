@@ -13,17 +13,23 @@ from PyQt6.QtWidgets import (
 )
 
 from .core.win32_utils import enable_mica
-from .resources.strings_vi import APP_TITLE, NAV_ACCOUNTS, NAV_LIBRARY, NAV_SETTINGS
+from .resources.strings_vi import (
+    APP_TITLE,
+    NAV_ACCOUNTS,
+    NAV_LIBRARY,
+    NAV_MANAGER,
+    NAV_SETTINGS,
+)
 from .widgets.sidebar import NavItem, Sidebar
 from .widgets.title_bar import TitleBar
 
 log = logging.getLogger(__name__)
 
-NAV_KEYS = ("library", "accounts", "settings")
+NAV_KEYS = ("library", "accounts", "manager", "settings")
 
 
 class MainWindow(QMainWindow):
-    def __init__(self) -> None:
+    def __init__(self, user_profile=None) -> None:
         super().__init__()
         self.setWindowTitle(APP_TITLE)
         self.setFixedSize(1280, 800)
@@ -50,11 +56,14 @@ class MainWindow(QMainWindow):
             [
                 NavItem("library", NAV_LIBRARY, "▣"),
                 NavItem("accounts", NAV_ACCOUNTS, "◉"),
+                NavItem("manager", NAV_MANAGER, "▤"),
                 NavItem("settings", NAV_SETTINGS, "⚙"),
             ],
             self,
+            user_profile=user_profile,
         )
         self.sidebar.nav_changed.connect(self._on_nav)
+        self.sidebar.logout_requested.connect(self._on_logout)
         body.addWidget(self.sidebar)
 
         self.stack = QStackedWidget(self)
@@ -101,6 +110,24 @@ class MainWindow(QMainWindow):
             enable_mica(hwnd, dark=True)
         except Exception:
             log.exception("Failed to enable Mica")
+
+    def _on_logout(self) -> None:
+        from .features.auth.login_page import LoginWindow
+        from PyQt6.QtWidgets import QApplication
+        login = LoginWindow()
+
+        def _on_auth(profile, credentials) -> None:
+            from .features.auth.session import AuthSession
+            AuthSession.set(profile, credentials)
+            self.close()
+            from wgz_updater.app import _launch_main
+            # Store the new window as a property of the old window (or globally)
+            # to prevent GC until the new window is fully operational.
+            self._next_window = _launch_main(QApplication.instance(), profile)
+
+        login.authenticated.connect(_on_auth)
+        login.show()
+        self.hide()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         log.info("Main window closing")

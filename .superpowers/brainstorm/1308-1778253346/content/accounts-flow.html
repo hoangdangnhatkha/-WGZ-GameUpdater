@@ -1,0 +1,86 @@
+<h2>Tab Tài Khoản — Luồng điều hướng</h2>
+<p class="subtitle">Bản gốc có lưới game → danh sách tài khoản theo game. Bản PyQt6 hiện chỉ có bảng phẳng. Chọn luồng cho tab này:</p>
+
+<div class="cards">
+
+  <div class="card" data-choice="hierarchy" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#1a1a2e;border-radius:6px;padding:10px;font-family:monospace;font-size:10px;color:#aaa">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <div style="background:#252545;padding:3px 8px;border-radius:3px;font-size:8px;color:#0078d4;border:1px solid #0078d4">🎮 Lưới Game</div>
+          <span style="color:#555">→</span>
+          <div style="background:#252545;padding:3px 8px;border-radius:3px;font-size:8px;color:#888">👥 DS Tài khoản</div>
+        </div>
+        <div style="background:#252545;border-radius:4px;padding:8px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:4px">
+            <div style="background:#1e1e3a;border-radius:3px;padding:5px;text-align:center">
+              <div style="background:#333;width:24px;height:24px;border-radius:50%;margin:0 auto 3px"></div>
+              <div style="font-size:7px;color:#ccc">Steam</div>
+              <div style="font-size:7px;color:#888">3 acc</div>
+            </div>
+            <div style="background:#1e1e3a;border-radius:3px;padding:5px;text-align:center">
+              <div style="background:#e74c3c;width:24px;height:24px;border-radius:50%;margin:0 auto 3px"></div>
+              <div style="font-size:7px;color:#ccc">Riot</div>
+              <div style="font-size:7px;color:#888">2 acc</div>
+            </div>
+            <div style="background:#1e1e3a;border-radius:3px;padding:5px;text-align:center">
+              <div style="background:#333;width:24px;height:24px;border-radius:50%;margin:0 auto 3px"></div>
+              <div style="font-size:7px;color:#ccc">Night Reign</div>
+              <div style="font-size:7px;color:#888">1 acc</div>
+            </div>
+            <div style="background:#1e1e3a;border-radius:3px;padding:5px;text-align:center">
+              <div style="background:#333;width:24px;height:24px;border-radius:50%;margin:0 auto 3px"></div>
+              <div style="font-size:7px;color:#ccc">Risk of Rain</div>
+              <div style="font-size:7px;color:#888">0 acc</div>
+            </div>
+          </div>
+          <div style="font-size:8px;color:#555;margin-top:5px;text-align:center">Nhấp icon game → danh sách acc của game đó</div>
+        </div>
+        <div style="margin-top:5px;font-size:8px;color:#27ae60">→ Trang DS: ← Quay lại | Thêm | Xóa | Sửa | Copy PW | Đăng nhập tự động</div>
+        <div style="font-size:8px;color:#27ae60">→ Google Drive sync + GitHub backup có nút riêng</div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — 2 cấp như bản gốc</h3>
+      <p>Lưới icon game/dịch vụ → nhấp → trang danh sách tài khoản của dịch vụ đó. Có nút Quay lại, Google Drive sync, trailer video bên phải.</p>
+    </div>
+  </div>
+
+  <div class="card" data-choice="flat" onclick="toggleSelect(this)">
+    <div class="card-image">
+      <div style="background:#1a1a2e;border-radius:6px;padding:10px;font-family:monospace;font-size:10px;color:#aaa">
+        <div style="background:#252545;border-radius:4px;padding:8px">
+          <div style="display:flex;gap:6px;margin-bottom:6px">
+            <div style="background:#1e1e3a;padding:3px 8px;border-radius:3px;font-size:8px;color:#0078d4;border:1px solid #0078d4">Steam</div>
+            <div style="background:#1e1e3a;padding:3px 8px;border-radius:3px;font-size:8px;color:#888">Riot</div>
+            <div style="background:#1e1e3a;padding:3px 8px;border-radius:3px;font-size:8px;color:#888">Tất cả</div>
+          </div>
+          <div style="background:#1e1e3a;border-radius:3px;overflow:hidden">
+            <div style="display:grid;grid-template-columns:70px 1fr 1fr;padding:3px 6px;font-size:7px;color:#666;background:#16162a">
+              <span>Dịch vụ</span><span>Username</span><span>Mật khẩu</span>
+            </div>
+            <div style="display:grid;grid-template-columns:70px 1fr 1fr;padding:3px 6px;font-size:7px;color:#ccc;background:#0078d415">
+              <span>Steam</span><span>user123</span><span>••••••••</span>
+            </div>
+            <div style="display:grid;grid-template-columns:70px 1fr 1fr;padding:3px 6px;font-size:7px;color:#ccc">
+              <span>Steam</span><span>gamer99</span><span>••••••••</span>
+            </div>
+            <div style="display:grid;grid-template-columns:70px 1fr 1fr;padding:3px 6px;font-size:7px;color:#ccc">
+              <span>Riot</span><span>player1</span><span>••••••••</span>
+            </div>
+          </div>
+          <div style="display:flex;gap:4px;margin-top:5px">
+            <div style="background:#0078d4;padding:2px 6px;border-radius:2px;font-size:7px;color:#fff">Thêm</div>
+            <div style="background:#444;padding:2px 6px;border-radius:2px;font-size:7px;color:#fff">Xóa</div>
+            <div style="background:#27ae60;padding:2px 6px;border-radius:2px;font-size:7px;color:#fff">Đăng nhập</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Bảng phẳng + filter tab</h3>
+      <p>Tất cả tài khoản trong một bảng, lọc bằng tab dịch vụ ở trên. Đơn giản hơn nhưng khác luồng bản gốc. Không có lưới game.</p>
+    </div>
+  </div>
+
+</div>

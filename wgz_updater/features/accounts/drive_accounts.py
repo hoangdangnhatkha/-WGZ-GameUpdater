@@ -4,7 +4,7 @@ import io
 import json
 import logging
 
-from ...core.paths import CREDENTIALS_FILE, TOKEN_FILE
+from ...core.paths import CREDENTIALS_FILE, TOKEN_FILE, find_credentials
 
 log = logging.getLogger(__name__)
 
@@ -57,9 +57,10 @@ class DriveAccountsService:
                     log.exception("Refreshing token")
                     creds = None
             if not creds:
-                if not CREDENTIALS_FILE.exists():
+                creds_path = find_credentials()
+                if creds_path is None:
                     raise FileNotFoundError(f"Missing {CREDENTIALS_FILE}")
-                flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), SCOPES)
+                flow = InstalledAppFlow.from_client_secrets_file(str(creds_path), SCOPES)
                 creds = flow.run_local_server(port=0)
             try:
                 TOKEN_FILE.write_text(creds.to_json(), encoding="utf-8")
