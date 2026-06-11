@@ -1,6 +1,6 @@
 {
   "updater": {
-    "latest_version": "1.4.4",
+    "latest_version": "1.4.8",
     "release_notes": "- Thêm Chia Sẻ Acccount\n- Thêm nút Chạy Game cho từng game",
     "download_url": "https://drive.google.com/uc?export=download&id=1xLitheCe9ygKSajQl9LbwxYskikYSG1J",
     "base_url": "https://drive.google.com/uc?export=download&id=1d61kOCYYuVEoPSpB5C7Culx7JF9HDxBK"
@@ -10,9 +10,9 @@
     "mention": ""
   },
   "1": {
-    "name": "Cập Nhật Mod",
-    "url": "https://drive.google.com/uc?id=1f9rT20EHRoF4dfc19IcC3ykhwNmUPis_",
-    "version": "v1.4.0",
+    "name": "Tải/Cập Nhật ELDEN VINS NIGHTREIGN",
+    "url": "https://drive.google.com/uc?id=1nPoAG3X3zFeY7S6b9zm9UGk3BWSHl1YJ",
+    "version": "v1.5.0",
     "game": "Elden Ring Nightreign",
     "type": "zip",
     "password": null,
