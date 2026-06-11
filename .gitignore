@@ -191,3 +191,5 @@ GameTranslator.exe
 build_all.bat
 key_secrets.py
 gemini_cookie.txt
+service_account.json
+service_account.json.bak
