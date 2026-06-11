@@ -158,32 +158,78 @@ class GameGridPage(QWidget):
 
     @staticmethod
     def _group(games: list[Game]) -> list[tuple[str, list[Game]]]:
-        order: list[str] = []
+        """Group mods by their canonical game name, ordered newest-first.
+
+        The server hands mods back ordered by `position` ascending — newly
+        added mods land at the highest position. Sorting groups by the max
+        position they contain (descending) puts the most recently added game
+        at the top of the catalog. We fall back to `updated_at` / `created_at`
+        when the position number is unparseable so the ordering still degrades
+        gracefully on legacy entries.
+        """
         groups: dict[str, list[Game]] = {}
         for g in games:
             key = (g.game or g.name or "").strip() or g.id
-            if key not in groups:
-                groups[key] = []
-                order.append(key)
-            groups[key].append(g)
-        return [(k, groups[k]) for k in order]
+            groups.setdefault(key, []).append(g)
+
+        def _sort_key(item: tuple[str, list[Game]]) -> tuple:
+            _name, entries = item
+            best_pos = -1
+            best_ts = ""
+            for e in entries:
+                try:
+                    p = int(e.id)
+                    if p > best_pos:
+                        best_pos = p
+                except (TypeError, ValueError):
+                    pass
+                ts = getattr(e, "updated_at", None) or getattr(e, "created_at", None) or ""
+                if ts > best_ts:
+                    best_ts = ts
+            return (best_pos, best_ts)
+
+        return sorted(groups.items(), key=_sort_key, reverse=True)
 
     @staticmethod
     def _pick_featured(groups, themes) -> int:
-        # 1) hot/new/upd-tagged with rich art
+        """Pick which game row goes on the hero card.
+
+        Priority:
+          1. Group containing the mod with the most recent `updated_at`
+             (server-supplied ISO-8601 timestamp). Theme art preferred but
+             not required — if the newest upload has no art we still feature
+             it so editorial intent wins over visuals.
+          2. Tagged HOT / NEW / UPD with art.
+          3. Any tagged with art.
+          4. First group with art.
+          5. First group at all.
+        """
+        # 1) newest mod by updated_at (with created_at as fallback).
+        best_idx = -1
+        best_ts = ""
+        for i, (_key, entries) in enumerate(groups):
+            for e in entries:
+                ts = getattr(e, "updated_at", None) or getattr(e, "created_at", None) or ""
+                if ts and ts > best_ts:
+                    best_ts = ts
+                    best_idx = i
+        if best_idx >= 0:
+            return best_idx
+
+        # 2) hot/new/upd-tagged with rich art
         for i, (key, entries) in enumerate(groups):
             tags = {(e.tag or "").upper() for e in entries}
             if tags & {"HOT", "NEW", "UPD"}:
                 t = themes.get(key)
                 if t and (t.slideshow or t.image):
                     return i
-        # 2) any tagged
+        # 3) any tagged
         for i, (key, entries) in enumerate(groups):
             if any((e.tag or "").upper() for e in entries):
                 t = themes.get(key)
                 if t and (t.slideshow or t.image):
                     return i
-        # 3) first with theme art
+        # 4) first with theme art
         for i, (key, _) in enumerate(groups):
             t = themes.get(key)
             if t and (t.slideshow or t.image):

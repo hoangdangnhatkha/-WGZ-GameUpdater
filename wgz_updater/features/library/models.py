@@ -8,6 +8,7 @@ from typing import Iterable
 
 from packaging import version as pkg_version
 
+from ...core import api_client
 from ...core.config import Game
 from ...core.paths import USER_DATA_DIR, ensure_user_dirs
 
@@ -40,8 +41,25 @@ def _save_registry(data: dict[str, dict]) -> None:
 
 
 class InstallRegistry:
+    """Per-user install state. Local JSON cache + wgz-api sync.
+
+    Strategy:
+    * Constructor pulls the latest state from the API once; if the call fails
+      (offline, no auth), the local JSON cache is used as the authoritative copy.
+    * Every `record_install`/`clear` writes locally AND fires the API call.
+      Local cache stays authoritative if the API call fails so the UI still
+      reflects the install.
+    """
+
     def __init__(self) -> None:
         self._data = _load_registry()
+        try:
+            server = api_client.get_installs()
+            if isinstance(server, dict) and server:
+                self._data = server
+                _save_registry(self._data)
+        except Exception as exc:
+            log.warning("Install sync from API failed; using local cache (%s)", exc)
 
     def install_path(self, game_id: str) -> Path | None:
         entry = self._data.get(game_id)
@@ -56,10 +74,18 @@ class InstallRegistry:
     def record_install(self, game_id: str, path: Path, version: str) -> None:
         self._data[game_id] = {"path": str(path), "version": version}
         _save_registry(self._data)
+        try:
+            api_client.put_install(int(game_id), str(path), version)
+        except Exception:
+            log.warning("Mirroring install to API failed", exc_info=True)
 
     def clear(self, game_id: str) -> None:
         self._data.pop(game_id, None)
         _save_registry(self._data)
+        try:
+            api_client.delete_install(int(game_id))
+        except Exception:
+            log.warning("Mirroring install delete to API failed", exc_info=True)
 
     def status_for(self, game: Game) -> InstallStatus:
         installed = self.installed_version(game.id)

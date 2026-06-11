@@ -23,6 +23,7 @@ from ...resources.strings_vi import (
     NAV_ACCOUNTS,
 )
 from ...widgets.dialogs import wgz_error, wgz_info
+from ...widgets.loading_dialog import LoadingDialog
 from .asset_panel import AssetPanel
 from .models import AccountRecord
 from .theater_rail import TheaterRail
@@ -151,6 +152,7 @@ class AccountsView(QWidget):
         self._save_in_progress = False
         self._dirty = False
         self._auto_load_done = False
+        self._loading_dlg: LoadingDialog | None = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(28, 18, 28, 16)
@@ -344,9 +346,21 @@ class AccountsView(QWidget):
         worker.finished_ok.connect(lambda grouped: self._on_loaded(grouped, show_notification))
         worker.failed.connect(self._on_load_failed)
         self._load_worker = worker
-        worker.start()
+        if show_notification:
+            self._loading_dlg = LoadingDialog(self)
+            worker.start()
+            self._loading_dlg.exec()
+            self._loading_dlg = None
+        else:
+            worker.start()
+
+    def _dismiss_loading(self) -> None:
+        if self._loading_dlg is not None:
+            self._loading_dlg.hide()
+            self._loading_dlg.accept()
 
     def _on_load_failed(self, msg: str) -> None:
+        self._dismiss_loading()
         self._load_in_progress = False
         self._load_btn.setEnabled(True)
         self._sync_dot.set_state("err")
@@ -354,6 +368,7 @@ class AccountsView(QWidget):
         wgz_error(self, DIALOG_ERROR_TITLE, MSG_DRIVE_ERROR.format(error=msg))
 
     def _on_loaded(self, grouped: dict, show_notification: bool = True) -> None:
+        self._dismiss_loading()
         self._load_in_progress = False
         self._load_btn.setEnabled(True)
         self._accounts = {k: list(v) for k, v in grouped.items()}
@@ -372,7 +387,7 @@ class AccountsView(QWidget):
             self._panel.show_theater(active, self._accounts.get(active, []))
         self._set_dirty(False)
         if show_notification:
-            wgz_info(self, "Drive", MSG_ACCOUNTS_LOADED)
+            wgz_info(self, "Server", MSG_ACCOUNTS_LOADED)
 
     # ── Drive save ──
 
@@ -387,14 +402,19 @@ class AccountsView(QWidget):
         worker.finished_ok.connect(self._on_save_done)
         worker.failed.connect(self._on_save_failed)
         self._save_worker = worker
+        self._loading_dlg = LoadingDialog(self)
         worker.start()
+        self._loading_dlg.exec()
+        self._loading_dlg = None
 
     def _on_save_done(self) -> None:
+        self._dismiss_loading()
         self._save_in_progress = False
         self._set_dirty(False)
-        wgz_info(self, "Drive", MSG_ACCOUNTS_SAVED)
+        wgz_info(self, "Server", MSG_ACCOUNTS_SAVED)
 
     def _on_save_failed(self, msg: str) -> None:
+        self._dismiss_loading()
         self._save_in_progress = False
         self._save_btn.setEnabled(True)
         self._sync_dot.set_state("err")

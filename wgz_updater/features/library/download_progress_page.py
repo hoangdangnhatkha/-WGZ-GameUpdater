@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import datetime
 from pathlib import Path
@@ -8,9 +9,45 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QPlainTextEdit,
+    QFrame, QHBoxLayout, QLabel, QMessageBox, QPlainTextEdit,
     QProgressBar, QPushButton, QVBoxLayout, QWidget,
 )
+
+
+# Patterns for multi-part archive sequence numbering. The capture group is the
+# 1-based part index. Sorting by that index gives `[part1, part2, …]`.
+_PART_PATTERNS = (
+    re.compile(r"\.part(\d+)\.rar$", re.IGNORECASE),
+    re.compile(r"\.zip\.(\d{3})$", re.IGNORECASE),
+    re.compile(r"\.z(\d{2})$", re.IGNORECASE),
+)
+
+
+def _detect_existing_parts(dest_dir: Path) -> dict[int, Path]:
+    """Return existing multi-part archive files keyed by 1-based part index.
+
+    Recognises common naming conventions (`*.partN.rar`, `*.zip.NNN`, `*.zNN`).
+    Files that don't match any pattern are ignored — extracted game folders,
+    READMEs, etc. shouldn't interfere with the resume decision. The dict
+    layout (part_num → path) lets callers detect gaps like {2, 3} without
+    part1 and re-fetch only the missing slots.
+    """
+    if not dest_dir.exists():
+        return {}
+    indexed: dict[int, Path] = {}
+    for entry in dest_dir.iterdir():
+        if not entry.is_file():
+            continue
+        name = entry.name
+        for pat in _PART_PATTERNS:
+            m = pat.search(name)
+            if m:
+                try:
+                    indexed[int(m.group(1))] = entry
+                except ValueError:
+                    pass
+                break
+    return indexed
 
 from ...core.config import Game
 from ...core.win32_utils import prevent_sleep
@@ -41,6 +78,7 @@ class DownloadProgressPage(QWidget):
         self._install_path: Path | None = None
         self._url_list: list[str] = []
         self._url_idx = 0
+        self._download_queue: list[int] = []
         self._archive_paths: list[str] = []
         self._download_worker: DownloadWorker | None = None
         self._extract_worker: ExtractWorker | None = None
@@ -288,10 +326,20 @@ class DownloadProgressPage(QWidget):
         else:
             self._url_list = []
 
-        if len(self._url_list) > 1:
-            self._url_idx = 0
+        # Queue-based scheduling: every URL slot gets a placeholder in
+        # `_archive_paths` (indexed by url_list position), and the queue
+        # tracks which slots still need fetching. `_handle_existing_parts`
+        # can mark non-contiguous slots as done (e.g. parts {2, 3} present
+        # but part1 missing) and the next download still picks part1.
+        total_urls = len(self._url_list)
+        if total_urls > 1:
+            self._download_queue = list(range(total_urls))
+        elif total_urls == 1:
+            self._download_queue = [url_idx if 0 <= url_idx < total_urls else 0]
         else:
-            self._url_idx = url_idx
+            self._download_queue = []
+        self._archive_paths = [""] * total_urls
+        self._url_idx = self._download_queue[0] if self._download_queue else 0
 
         self._name_lbl.setText((game.game or game.name or "").upper())
         self._bar.setValue(0)
@@ -305,6 +353,13 @@ class DownloadProgressPage(QWidget):
             self._sleep_ctx = None
 
         self._log_entry("Khởi động tiến trình...")
+
+        # Resume gate: when the install folder already contains downloaded
+        # parts from a previous run, ask the user whether to redo them or
+        # pick up from where we left off.
+        if not self._handle_existing_parts():
+            return
+
         self._start_next_download()
 
     # ── internals ────────────────────────────────────────────────
@@ -331,11 +386,91 @@ class DownloadProgressPage(QWidget):
     def _set_status(self, msg: str) -> None:
         self._status_lbl.setText(msg)
 
+    def _handle_existing_parts(self) -> bool:
+        """Prompt the user when partial downloads exist in the install folder.
+
+        Returns True to proceed with `_start_next_download`, False when the
+        user aborts. Handles arbitrary part subsets — e.g. user has parts
+        {2, 3} but not part1; "Tiếp tục" will still queue part1 (+ 4, 5)
+        for download instead of blindly skipping the first N url slots.
+        """
+        if self._install_path is None or not self._url_list:
+            return True
+
+        existing = _detect_existing_parts(self._install_path)
+        if not existing:
+            return True
+
+        total = len(self._url_list)
+        present = sorted(existing)              # 1-based part numbers
+        missing = [n for n in range(1, total + 1) if n not in existing]
+
+        present_str = ", ".join(str(n) for n in present)
+        missing_str = ", ".join(str(n) for n in missing) if missing else "(không thiếu)"
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setWindowTitle("File đã tồn tại")
+        box.setText(
+            f"Phát hiện <b>{len(present)}</b> phần đã tải: <b>{present_str}</b>."
+            f"<br/>Còn thiếu: <b>{missing_str}</b>.<br/><br/>"
+            "Tải lại từ đầu hay tải tiếp các phần còn thiếu?"
+        )
+        redo_btn = box.addButton(
+            "Tải lại từ đầu", QMessageBox.ButtonRole.DestructiveRole,
+        )
+        cont_btn = box.addButton(
+            "Tải các phần còn thiếu" if missing else "Bỏ qua tải, giải nén luôn",
+            QMessageBox.ButtonRole.AcceptRole,
+        )
+        cancel_btn = box.addButton("Hủy", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(cont_btn)
+        box.exec()
+        clicked = box.clickedButton()
+
+        if clicked is cancel_btn:
+            self._log_entry("Người dùng hủy.")
+            self.cancelled.emit()
+            return False
+
+        if clicked is redo_btn:
+            removed = 0
+            for f in existing.values():
+                try:
+                    f.unlink()
+                    removed += 1
+                except Exception:
+                    log.warning("Could not delete %s", f, exc_info=True)
+            self._log_entry(f"Đã xóa {removed} file cũ, tải lại từ phần 1.")
+            return True
+
+        # Continue: drop existing parts from the download queue and seed
+        # their `_archive_paths` slots. Missing parts (including a missing
+        # part1) stay in the queue and will be fetched.
+        for part_num, path in existing.items():
+            url_idx = part_num - 1
+            if 0 <= url_idx < total:
+                self._archive_paths[url_idx] = str(path)
+                if url_idx in self._download_queue:
+                    self._download_queue.remove(url_idx)
+
+        if not self._download_queue:
+            self._log_entry(f"Đã có đủ {total} phần, bỏ qua tải.")
+        else:
+            self._log_entry(
+                f"Bỏ qua {len(present)} phần đã có ({present_str}); "
+                f"sẽ tải phần {missing_str}."
+            )
+        return True
+
     def _start_next_download(self) -> None:
-        if self._url_idx >= len(self._url_list):
+        if not self._download_queue:
             self._start_extraction()
             return
 
+        # Pop the next slot index from the queue. Slots are 0-based against
+        # `_url_list`; the displayed part number is 1-based.
+        self._url_idx = self._download_queue.pop(0)
         url = self._url_list[self._url_idx]
         total = len(self._url_list)
         if total > 1:
@@ -375,14 +510,23 @@ class DownloadProgressPage(QWidget):
         self._log_entry(msg)
 
     def _on_part_done(self, archive_path: str) -> None:
-        self._archive_paths.append(archive_path)
+        if 0 <= self._url_idx < len(self._archive_paths):
+            self._archive_paths[self._url_idx] = archive_path
+        else:
+            self._archive_paths.append(archive_path)
         self._log_entry(f"✓  {Path(archive_path).name}")
-        self._url_idx += 1
         self._start_next_download()
 
     def _start_extraction(self) -> None:
-        if not self._archive_paths or not self._game or not self._install_path:
+        if not self._game or not self._install_path:
             return
+        # Slot list may contain empty strings if the user picked "Bỏ qua tải"
+        # for an unexpected case; filter them out. Index 0 is part1, which
+        # is the entry point the extractor needs.
+        archives = [p for p in self._archive_paths if p]
+        if not archives:
+            return
+        self._archive_paths = archives
         self._set_phase("PHASE  02/02  ·  EXTRACTING")
         self._set_status("Đang giải nén...")
         self._log_entry("Bắt đầu giải nén...")
@@ -420,6 +564,7 @@ class DownloadProgressPage(QWidget):
         self._cancel_btn.setVisible(False)
         self._elapsed_timer.stop()
         self._log_entry("✓  Hoàn thành! Triển khai thành công.")
+        self._cleanup_archives()
         self.worker_finished.emit()
         self._release_sleep()
 
@@ -429,6 +574,34 @@ class DownloadProgressPage(QWidget):
             )
         if self._game and self._install_path:
             self.finished.emit(self._game, str(self._install_path))
+
+    def _cleanup_archives(self) -> None:
+        """Delete the downloaded archive files after a successful extraction.
+
+        Only runs for compressed types — `exe` installers stay on disk so the
+        user can re-run them. Multi-part siblings on disk are removed by name
+        (`_archive_paths` is the slot-indexed list maintained by the resume
+        gate, so it includes parts that were already present before this run).
+        """
+        if not self._game:
+            return
+        if (self._game.type or "").lower() not in {"zip", "rar", "7z"}:
+            return
+
+        deleted = 0
+        for entry in self._archive_paths:
+            if not entry:
+                continue
+            path = Path(entry)
+            try:
+                path.unlink()
+                deleted += 1
+            except FileNotFoundError:
+                pass
+            except Exception:
+                log.warning("Could not delete archive %s", path, exc_info=True)
+        if deleted:
+            self._log_entry(f"Đã xóa {deleted} file nén sau giải nén.")
 
     def _on_download_failed(self, error: str) -> None:
         self._set_phase("OPERATION FAILED  ·  DOWNLOAD ERROR")

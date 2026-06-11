@@ -7,13 +7,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from .http import get_json
+from . import api_client
 from .paths import (
     APP_DIR,
     CONFIG_BUNDLED,
     CONFIG_LOCAL,
-    GITHUB_JSON_URL,
-    GITHUB_THEMES_URL,
     THEMES_BUNDLED_CANDIDATES,
     THEMES_LOCAL,
     ensure_user_dirs,
@@ -52,6 +50,11 @@ class Game(BaseModel):
     path_guide: str = ""
     launch_file: str | None = None
     tag: str | None = None
+    # ISO-8601 timestamps populated by /api/config (server-side). Used by the
+    # Library landing page to surface the most recently uploaded mod as the
+    # featured hero.
+    created_at: str | None = None
+    updated_at: str | None = None
 
     @field_validator("path_guide", mode="before")
     @classmethod
@@ -76,14 +79,22 @@ class Game(BaseModel):
         return None
 
 
+class SupportConfig(BaseModel):
+    discord_webhook: str = ""
+    mention: str = ""  # optional `<@&ROLE_ID>` injected before payload
+
+
 class AppConfig(BaseModel):
     updater: UpdaterInfo = Field(default_factory=UpdaterInfo)
     games: list[Game] = Field(default_factory=list)
     themes: dict[str, GameTheme] = Field(default_factory=dict)
+    support: SupportConfig = Field(default_factory=SupportConfig)
 
     @classmethod
     def from_raw(cls, raw: dict) -> "AppConfig":
         updater = UpdaterInfo(**raw.get("updater", {}))
+        support_raw = raw.get("support", {})
+        support = SupportConfig(**support_raw) if isinstance(support_raw, dict) else SupportConfig()
 
         # Parse game themes
         themes: dict[str, GameTheme] = {}
@@ -101,13 +112,13 @@ class AppConfig(BaseModel):
 
         games: list[Game] = []
         for key, value in raw.items():
-            if key in ("updater", "game_themes.json") or not isinstance(value, dict):
+            if key in ("updater", "game_themes.json", "support") or not isinstance(value, dict):
                 continue
             try:
                 games.append(Game(id=str(key), **value))
             except Exception as exc:
                 log.warning("Skipping invalid game entry %s: %s", key, exc)
-        return cls(updater=updater, games=games, themes=themes)
+        return cls(updater=updater, games=games, themes=themes, support=support)
 
 
 def _read_local() -> dict | None:
@@ -147,29 +158,34 @@ def _write_themes_cache(raw: dict) -> None:
 
 
 def load_config(*, prefer_remote: bool = True) -> AppConfig:
+    """Load the games catalog.
+
+    Source priority:
+      1. wgz-api `/api/config` (preferred; returns one merged JSON containing
+         updater, games, and themes folded under the legacy "game_themes.json" key)
+      2. local cache at CONFIG_LOCAL / THEMES_LOCAL
+      3. bundled defaults
+
+    The legacy GitHub raw URLs (GITHUB_JSON_URL, GITHUB_THEMES_URL) are no
+    longer fetched; they remain in `paths.py` only for migration tooling.
+    """
     raw: dict | None = None
     if prefer_remote:
         try:
-            raw = get_json(GITHUB_JSON_URL, cachebust=True)
+            raw = api_client.get_config()
             _write_cache(raw)
-            log.info("Loaded remote config")
+            # Mirror themes into THEMES_LOCAL too so the manager view still has a snapshot.
+            themes_blob = raw.get("game_themes.json") if isinstance(raw, dict) else None
+            if isinstance(themes_blob, dict):
+                _write_themes_cache(themes_blob)
+            log.info("Loaded config from wgz-api")
         except Exception:
-            log.warning("Remote config fetch failed; falling back to local")
+            log.warning("API config fetch failed; falling back to local cache", exc_info=True)
+
     if raw is None:
         raw = _read_local() or {}
-
-    themes_raw: dict | None = None
-    if prefer_remote:
-        try:
-            themes_raw = get_json(GITHUB_THEMES_URL, cachebust=True)
-            _write_themes_cache(themes_raw)
-            log.info("Loaded remote themes")
-        except Exception:
-            log.warning("Remote themes fetch failed; falling back to local")
-    if themes_raw is None:
         themes_raw = _read_local_themes() or {}
-
-    if isinstance(themes_raw, dict) and themes_raw:
-        raw.setdefault("game_themes.json", {}).update(themes_raw)
+        if isinstance(themes_raw, dict) and themes_raw and "game_themes.json" not in raw:
+            raw["game_themes.json"] = themes_raw
 
     return AppConfig.from_raw(raw)

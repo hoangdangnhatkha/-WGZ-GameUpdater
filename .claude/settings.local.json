@@ -18,7 +18,28 @@
       "Bash(wgz_updater\\\\build\\\\build_all.bat *)",
       "PowerShell(& \"wgz_updater\\\\build\\\\build_all.bat\")",
       "PowerShell(Write-Output \\(\"cwd=\" + \\(Get-Location\\).Path\\); Write-Output \\(\"exists=\" + \\(Test-Path \"wgz_updater\\\\build\\\\build_all.bat\"\\)\\))",
-      "PowerShell(Get-ChildItem -Path \"wgz_updater\\\\build\\\\\" | ForEach-Object { $_.Name })"
+      "PowerShell(Get-ChildItem -Path \"wgz_updater\\\\build\\\\\" | ForEach-Object { $_.Name })",
+      "Skill(superpowers:brainstorming)",
+      "Bash(ssh *)",
+      "Bash(pip install *)",
+      "PowerShell(ssh -o ConnectTimeout=10 -o BatchMode=yes OracleVPS \"ss -tlnp 2>/dev/null | grep -E ':3000|:80|:443' ; echo '---' ; curl -sI -m 5 http://localhost:3000/api/config ; echo '---' ; sudo ufw status 2>/dev/null || iptables -L -n 2>/dev/null | head -30\")",
+      "PowerShell(curl.exe -sI -m 5 http://140.245.84.43/api/config ; echo '---'; curl.exe -sI -m 5 http://140.245.84.43:3000/api/config)",
+      "PowerShell(Test-NetConnection *)",
+      "PowerShell(curl.exe -sI -m 5 http://140.245.84.43/wgz-api/api/config ; echo '---' ; curl.exe -sI -m 5 http://140.245.84.43/api/config)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(Test-Path \"D:\\\\EpicGames\\\\ssh-key-2026-04-26.key\"; ssh -o BatchMode=yes -o ConnectTimeout=8 OracleVPS \"echo OK; uname -a; node -v 2>$null; npx -v 2>$null\")",
+      "PowerShell(ssh -o BatchMode=yes -o ConnectTimeout=8 OracleVPS \"echo OK && uname -a && \\(node -v || true\\) && \\(npx -v || true\\)\")",
+      "PowerShell(Get-Command *)",
+      "PowerShell(Get-Process *)",
+      "Bash('C:\\\\Program Files\\\\RustDesk\\\\RustDesk.exe' --get-temporary-password)",
+      "Bash('C:\\\\Program Files\\\\RustDesk\\\\RustDesk.exe' --get-password)",
+      "Bash('C:\\\\Program Files\\\\RustDesk\\\\RustDesk.exe' --password)",
+      "Bash('C:\\\\Program Files\\\\RustDesk\\\\RustDesk.exe' --get-temp)",
+      "Bash('C:\\\\Program Files\\\\RustDesk\\\\RustDesk.exe' --import-config foo)",
+      "Bash('C:\\\\Program Files\\\\RustDesk\\\\RustDesk.exe' --option password)",
+      "Bash('C:\\\\Program Files\\\\RustDesk\\\\RustDesk.exe' --option temporary-password)",
+      "Bash('C:\\\\Program Files\\\\RustDesk\\\\RustDesk.exe' --get-option password)",
+      "Bash('C:\\\\Program Files\\\\RustDesk\\\\RustDesk.exe' --get-option temporary-password)"
     ]
   }
 }

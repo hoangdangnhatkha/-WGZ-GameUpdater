@@ -1,10 +1,32 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 import traceback
 
-from PyQt6.QtCore import Qt
+# QtWebEngine compatibility flags — must be set BEFORE QApplication / any
+# QtWebEngine import so the embedded Chromium picks them up. Keeps the
+# trailer popup working on machines with stale GPU drivers, in VMs, or
+# under restrictive sandbox policies.
+os.environ.setdefault(
+    "QTWEBENGINE_CHROMIUM_FLAGS",
+    "--disable-gpu-driver-bug-workarounds --disable-features=UseChromeOSDirectVideoDecoder",
+)
+# Ensure QtWebEngineProcess.exe is found inside the PyInstaller bundle.
+if getattr(sys, "frozen", False):
+    _qt_bin = os.path.join(sys._MEIPASS, "PyQt6", "Qt6", "bin")
+    _qt_proc = os.path.join(_qt_bin, "QtWebEngineProcess.exe")
+    if os.path.exists(_qt_proc):
+        os.environ.setdefault("QTWEBENGINEPROCESS_PATH", _qt_proc)
+    _qt_resources = os.path.join(sys._MEIPASS, "PyQt6", "Qt6", "resources")
+    if os.path.isdir(_qt_resources):
+        os.environ.setdefault("QTWEBENGINE_RESOURCES_PATH", _qt_resources)
+    _qt_locales = os.path.join(sys._MEIPASS, "PyQt6", "Qt6", "translations", "qtwebengine_locales")
+    if os.path.isdir(_qt_locales):
+        os.environ.setdefault("QTWEBENGINE_LOCALES_PATH", _qt_locales)
+
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
@@ -12,6 +34,30 @@ from .core.logging_setup import configure_logging
 from .core.paths import QSS_DIR, icon as icon_path
 from .core.single_instance import SingleInstance
 from .resources.strings_vi import APP_TITLE, DIALOG_ERROR_TITLE
+from .widgets.loading_dialog import LoadingDialog
+
+
+class _StartupWorker(QThread):
+    """Resolve auth credentials + user profile off the GUI thread."""
+
+    done = pyqtSignal(object, object)  # profile_or_None, creds_or_None
+
+    def run(self) -> None:
+        from .features.auth.google_auth import fetch_user_profile, load_credentials
+
+        try:
+            creds = load_credentials()
+        except Exception:
+            creds = None
+        profile = None
+        if creds:
+            try:
+                profile = fetch_user_profile(creds)
+            except Exception:
+                log.warning("Profile fetch failed — forcing re-auth")
+                creds = None
+        self.done.emit(profile, creds)
+
 
 log = logging.getLogger(__name__)
 
@@ -46,60 +92,6 @@ def _install_app_icon(app: QApplication) -> None:
         app.setWindowIcon(QIcon(str(png)))
 
 
-def _launch_main(app: QApplication, profile) -> "MainWindow":
-    """Create and show the main window with all views installed.
-
-    Returns the window so the caller MUST hold a reference — if it goes out of
-    scope the Python wrapper is GC'd while the Qt C++ object is still alive,
-    causing a crash when Qt later calls virtual methods (paintEvent etc.).
-    """
-    from .main_window import MainWindow
-
-    window = MainWindow(user_profile=profile)
-    window.show()
-
-    try:
-        from .features.library.view import LibraryView
-        window.install_view("library", LibraryView(window))
-    except Exception:
-        log.exception("Library view failed to load")
-
-    try:
-        from .features.accounts.view import AccountsView
-        window.install_view("accounts", AccountsView(window))
-    except Exception:
-        log.exception("Accounts view failed to load")
-
-    try:
-        from .features.manager.view import ManagerView
-        window.install_view("manager", ManagerView(window))
-    except Exception:
-        log.exception("Manager view failed to load")
-
-    try:
-        from .features.settings.view import SettingsView
-        window.install_view("settings", SettingsView(window))
-    except Exception:
-        log.exception("Settings view failed to load")
-
-    try:
-        from .widgets.status_strip import StatusStrip
-        window.install_status_strip(StatusStrip(window))
-    except Exception:
-        log.exception("Status strip failed to load")
-
-    try:
-        from .core.auto_path import AutoPathWorker
-        auto = AutoPathWorker(app)
-        auto.steam_found.connect(lambda p: log.info("Steam path set: %s", p))
-        auto.riot_found.connect(lambda p: log.info("Riot path set: %s", p))
-        auto.start()
-    except Exception:
-        log.exception("AutoPathWorker failed to start")
-
-    return window
-
-
 def main() -> int:
     from .core.local_config import LocalConfig
 
@@ -110,6 +102,9 @@ def main() -> int:
     QApplication.setHighDpiScaleFactorRoundingPolicy(
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
     )
+    # QtWebEngine (trailer popup) requires shared OpenGL contexts; must be
+    # set BEFORE QApplication construction or QWebEngineView creation fails.
+    QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
     app = QApplication(sys.argv)
     app.setApplicationName(APP_TITLE)
     app.setOrganizationName("WGZ")
@@ -124,37 +119,38 @@ def main() -> int:
     _install_app_icon(app)
     _load_qss(app)
 
-    # ── Authentication gate ───────────────────────────────────────
-    from .features.auth.google_auth import fetch_user_profile, load_credentials
+    # ── Resolve credentials before showing the window ─────────────
     from .features.auth.session import AuthSession
 
-    creds = load_credentials()
-    profile = None
-    if creds:
-        try:
-            profile = fetch_user_profile(creds)
-            AuthSession.set(profile, creds)
-        except Exception:
-            log.warning("Profile fetch failed — forcing re-auth")
-            creds = None
+    splash = LoadingDialog(None)
+    startup = _StartupWorker()
+    startup_result: dict = {"profile": None, "creds": None}
 
-    _main_window = None  # must stay alive through app.exec()
+    def _on_startup_done(profile, creds) -> None:
+        startup_result["profile"] = profile
+        startup_result["creds"] = creds
+        splash.hide()
+        splash.accept()
+
+    startup.done.connect(_on_startup_done)
+    startup.start()
+    splash.exec()
+    startup.wait()
+
+    profile = startup_result["profile"]
+    creds = startup_result["creds"]
+    if profile and creds:
+        AuthSession.set(profile, creds)
+
+    # ── Single window, dual-page (login + shell) ─────────────────
+    from .main_window import MainWindow
+    window = MainWindow()
+    window.show()
 
     if creds and profile:
-        # Already authenticated — show main window directly
-        _main_window = _launch_main(app, profile)
+        window.show_shell(profile)
     else:
-        # Need login — show gate window first
-        from .features.auth.login_page import LoginWindow
-        login = LoginWindow()
-
-        def _on_auth(prof, credentials) -> None:
-            nonlocal _main_window
-            AuthSession.set(prof, credentials)
-            _main_window = _launch_main(app, prof)
-
-        login.authenticated.connect(_on_auth)
-        login.show()
+        window.show_login()
 
     rc = app.exec()
     instance.release()

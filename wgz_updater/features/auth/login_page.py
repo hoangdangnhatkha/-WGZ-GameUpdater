@@ -2,34 +2,28 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import QPoint, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPainter, QPen
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QColor, QPainter, QPen
 from PyQt6.QtWidgets import (
-    QApplication, QFrame, QHBoxLayout, QLabel,
+    QFrame, QHBoxLayout, QLabel,
     QPushButton, QVBoxLayout, QWidget,
 )
 
 from .google_auth import GoogleAuthWorker
-from .session import AuthSession
 
 log = logging.getLogger(__name__)
 
 _PANEL_W = 560   # left panel width
 
 
-class LoginWindow(QWidget):
-    """Full-screen pre-auth gate — shown before MainWindow."""
+class LoginPage(QWidget):
+    """Embedded pre-auth gate page. Sits inside MainWindow's outer stack."""
 
     authenticated = pyqtSignal(object, object)  # UserProfile, Credentials
 
-    def __init__(self) -> None:
-        super().__init__()
-        self.setFixedSize(1280, 800)
-        self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window
-        )
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
         self.setObjectName("LoginRoot")
-        self._drag_pos: QPoint | None = None
         self._worker: GoogleAuthWorker | None = None
         self._blink_on = True
 
@@ -39,43 +33,13 @@ class LoginWindow(QWidget):
         self._blink.timeout.connect(self._tick_blink)
         self._blink.start()
 
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-
-        outer.addWidget(self._build_title_bar())
-
-        body = QHBoxLayout()
+        body = QHBoxLayout(self)
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(0)
         body.addWidget(self._build_left_panel())
         body.addWidget(self._build_right_panel(), 1)
-        outer.addLayout(body, 1)
 
     # ── Panel builders ────────────────────────────────────────────
-
-    def _build_title_bar(self) -> QWidget:
-        bar = QWidget(self)
-        bar.setObjectName("LoginTitleBar")
-        bar.setFixedHeight(40)
-        bar.mousePressEvent = self._tb_press
-        bar.mouseMoveEvent = self._tb_move
-
-        row = QHBoxLayout(bar)
-        row.setContentsMargins(20, 0, 0, 0)
-        row.setSpacing(0)
-
-        lbl = QLabel("WGZ  //  GAME UPDATER", bar)
-        lbl.setObjectName("LoginTitleLabel")
-        row.addWidget(lbl)
-        row.addStretch(1)
-
-        close = QPushButton("×", bar)
-        close.setObjectName("TitleBarClose")
-        close.setFixedSize(46, 40)
-        close.clicked.connect(self.close)
-        row.addWidget(close)
-        return bar
 
     def _build_left_panel(self) -> QWidget:
         panel = QWidget(self)
@@ -210,24 +174,21 @@ class LoginWindow(QWidget):
         painter.fillRect(0, 0, _PANEL_W, rect.height(), QColor("#0a0a0e"))
 
         # Vertical divider
-        painter.fillRect(_PANEL_W, 40, 1, rect.height() - 40, QColor("#24242f"))
+        painter.fillRect(_PANEL_W, 0, 1, rect.height(), QColor("#24242f"))
 
-        # Scan lines (full width, below title bar)
+        # Scan lines (full width)
         pen = QPen(QColor(15, 15, 21, 38), 1)
         painter.setPen(pen)
-        for y in range(40, rect.height(), 3):
+        for y in range(0, rect.height(), 3):
             painter.drawLine(0, y, rect.width(), y)
 
         # Lime top accent bar
         painter.fillRect(0, 0, rect.width(), 2, QColor("#d8ff3a"))
 
-        # Title-bar bottom separator
-        painter.fillRect(0, 40, rect.width(), 1, QColor("#24242f"))
-
         # Corner bracket — top-left (inside left panel)
         painter.setPen(QPen(QColor("#d8ff3a"), 1))
-        painter.drawLine(22, 46, 22, 76)
-        painter.drawLine(22, 46, 52, 46)
+        painter.drawLine(22, 6, 22, 36)
+        painter.drawLine(22, 6, 52, 6)
 
         # Corner bracket — bottom-right (inside right panel)
         r = rect
@@ -237,19 +198,9 @@ class LoginWindow(QWidget):
         # Subtle diagonal texture in left panel (very faint)
         painter.setPen(QPen(QColor(216, 255, 58, 8), 1))
         for i in range(-800, 600, 44):
-            painter.drawLine(i, 40, i + rect.height(), rect.height())
+            painter.drawLine(i, 0, i + rect.height(), rect.height())
 
         painter.end()
-
-    # ── Drag ──────────────────────────────────────────────────────
-
-    def _tb_press(self, event) -> None:
-        if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-
-    def _tb_move(self, event) -> None:
-        if event.buttons() == Qt.MouseButton.LeftButton and self._drag_pos is not None:
-            self.move(event.globalPosition().toPoint() - self._drag_pos)
 
     # ── Auth flow ─────────────────────────────────────────────────
 
@@ -274,7 +225,6 @@ class LoginWindow(QWidget):
         self._cursor_lbl.setText("■")
         self._cursor_lbl.setStyleSheet("color:#d8ff3a;")
         self.authenticated.emit(profile, credentials)
-        QTimer.singleShot(600, self.close)
 
     def _on_auth_fail(self, error: str) -> None:
         self._auth_btn.setEnabled(True)
@@ -287,11 +237,18 @@ class LoginWindow(QWidget):
         self._blink_on = not self._blink_on
         self._cursor_lbl.setVisible(self._blink_on)
 
-    # ── Lifecycle ─────────────────────────────────────────────────
-
-    def closeEvent(self, event) -> None:
-        if self._worker and self._worker.isRunning():
+    def reset(self) -> None:
+        """Restore initial UI state — used when re-entering after logout."""
+        if self._worker is not None and self._worker.isRunning():
             self._worker.quit()
-        if not AuthSession.is_authenticated():
-            QApplication.quit()
-        event.accept()
+            self._worker.wait(2000)
+        self._worker = None
+        self._auth_btn.setEnabled(True)
+        self._auth_btn.setText("  G   ĐĂNG NHẬP VỚI GOOGLE  →")
+        self._set_status("AWAITING AUTHENTICATION")
+        self._error_lbl.hide()
+        self._error_lbl.clear()
+        self._cursor_lbl.setText("█")
+        self._cursor_lbl.setStyleSheet("")
+        if not self._blink.isActive():
+            self._blink.start()

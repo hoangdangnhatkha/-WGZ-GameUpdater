@@ -5,7 +5,7 @@ import os
 import subprocess
 from pathlib import Path
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtWidgets import (
     QFileDialog,
     QFormLayout,
@@ -18,9 +18,25 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from ...widgets.loading_dialog import run_blocking
+
+
+class _CheckUpdateWorker(QThread):
+    finished_ok = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def run(self) -> None:
+        try:
+            from ...core.config import load_config
+            cfg = load_config(prefer_remote=True)
+            self.finished_ok.emit(cfg)
+        except Exception as exc:
+            log.exception("Check update failed")
+            self.failed.emit(str(exc))
+
 from ... import __version__
 from ...core.local_config import LocalConfig
-from ...core.paths import GITHUB_TOKEN_FILE, INSTALL_ROOT, LOG_DIR, ensure_user_dirs
+from ...core.paths import GITHUB_TOKEN_FILE, INSTALL_ROOT, LOG_DIR, ensure_user_dirs, find_github_token
 from ...core.updater import get_local_version
 from ...resources.strings_vi import (
     NAV_SETTINGS,
@@ -128,9 +144,10 @@ class SettingsView(QWidget):
         return w
 
     def _read_token(self) -> str:
-        if GITHUB_TOKEN_FILE.exists():
+        path = find_github_token()
+        if path is not None:
             try:
-                return GITHUB_TOKEN_FILE.read_text(encoding="utf-8").strip()
+                return path.read_text(encoding="utf-8").strip()
             except Exception:
                 log.exception("Reading github token")
         return ""
@@ -215,13 +232,23 @@ class SettingsView(QWidget):
         self._steam_field.setText(path)
 
     def _check_update(self) -> None:
-        from ...core.config import load_config
-        try:
-            cfg = load_config(prefer_remote=True)
-            QMessageBox.information(
-                self,
-                "Phiên bản",
-                f"Phiên bản mới nhất: {cfg.updater.latest_version}\n\n{cfg.updater.release_notes}",
-            )
-        except Exception as exc:
-            QMessageBox.critical(self, "Lỗi", str(exc))
+        worker = _CheckUpdateWorker(self)
+        run_blocking(
+            self,
+            worker,
+            message="Đang tải dữ liệu...",
+            slots={
+                "finished_ok": self._on_check_update_ok,
+                "failed": self._on_check_update_failed,
+            },
+        )
+
+    def _on_check_update_ok(self, cfg) -> None:
+        QMessageBox.information(
+            self,
+            "Phiên bản",
+            f"Phiên bản mới nhất: {cfg.updater.latest_version}\n\n{cfg.updater.release_notes}",
+        )
+
+    def _on_check_update_failed(self, msg: str) -> None:
+        QMessageBox.critical(self, "Lỗi", msg)

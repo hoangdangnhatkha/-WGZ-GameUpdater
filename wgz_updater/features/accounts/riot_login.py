@@ -132,7 +132,11 @@ class RiotLoginWorker(QThread):
     def _kill_riot_processes(self) -> None:
         for proc in _RIOT_PROCESSES:
             try:
-                subprocess.run(["taskkill", "/f", "/im", proc], capture_output=True)
+                subprocess.run(
+                    ["taskkill", "/f", "/im", proc],
+                    capture_output=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
             except Exception:
                 pass
         # Poll until all Riot processes are confirmed dead
@@ -150,6 +154,7 @@ class RiotLoginWorker(QThread):
                 ["tasklist", "/fi", "IMAGENAME eq RiotClientServices.exe",
                  "/fo", "csv", "/nh"],
                 capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             return "RiotClientServices.exe" in result.stdout
         except Exception:
@@ -172,6 +177,7 @@ class RiotLoginWorker(QThread):
                 ["tasklist", "/fi", "IMAGENAME eq RiotClientServices.exe",
                  "/fo", "csv", "/nh"],
                 capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             pids: list[int] = []
             for line in result.stdout.strip().splitlines():

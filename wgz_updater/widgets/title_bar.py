@@ -5,13 +5,14 @@ from PyQt6.QtGui import QIcon, QMouseEvent, QPixmap
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
 
 from ..core.paths import icon as icon_path
-from ..resources.strings_vi import APP_TITLE
+from ..resources.strings_vi import APP_TITLE, SUPPORT_TOOLTIP
 
 
 class TitleBar(QWidget):
     minimize_requested = pyqtSignal()
     maximize_toggled = pyqtSignal()
     close_requested = pyqtSignal()
+    support_requested = pyqtSignal()
 
     def __init__(
         self,
@@ -49,6 +50,13 @@ class TitleBar(QWidget):
 
         layout.addStretch(1)
 
+        self._btn_support = self._make_button(
+            "☎",
+            on_click=self.support_requested.emit,
+            tooltip=SUPPORT_TOOLTIP,
+        )
+        layout.addWidget(self._btn_support)
+
         self._btn_min = self._make_button("–", on_click=self.minimize_requested.emit)
         layout.addWidget(self._btn_min)
         if show_maximize:
@@ -61,12 +69,20 @@ class TitleBar(QWidget):
 
         self._drag_active = False
 
-    def _make_button(self, label: str, on_click, close: bool = False) -> QPushButton:
+    def _make_button(
+        self,
+        label: str,
+        on_click,
+        close: bool = False,
+        tooltip: str = "",
+    ) -> QPushButton:
         b = QPushButton(label, self)
         b.setObjectName("TitleBarClose" if close else "TitleBarButton")
         b.setFlat(True)
         b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         b.setFixedSize(QSize(46, 32))
+        if tooltip:
+            b.setToolTip(tooltip)
         b.clicked.connect(on_click)
         return b
 

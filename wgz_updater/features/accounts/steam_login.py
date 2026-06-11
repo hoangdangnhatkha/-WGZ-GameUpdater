@@ -101,6 +101,7 @@ class SteamLoginWorker(QThread):
                 subprocess.run(
                     ["taskkill", "/f", "/t", "/im", proc],
                     capture_output=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
                 )
             except Exception:
                 pass
@@ -121,6 +122,7 @@ class SteamLoginWorker(QThread):
                 ["tasklist", "/fi", "IMAGENAME eq steam.exe",
                  "/fo", "csv", "/nh"],
                 capture_output=True, text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW,
             )
             return "steam.exe" in result.stdout.lower()
         except Exception:
