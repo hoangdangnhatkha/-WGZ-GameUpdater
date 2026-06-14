@@ -53,7 +53,7 @@ GITHUB_THEMES_URL = (
 # REST API backend (overrides GitHub/Drive fetches when set).
 # Override at runtime with the WGZ_API_URL env var; falls back to APP_DIR/api_url.txt.
 API_URL_FILE = APP_DIR / "api_url.txt"
-DEFAULT_API_URL = "http://140.245.84.43/wgz-api"
+DEFAULT_API_URL = "https://chiatien.holao.online/wgz-api"
 
 
 def get_api_base_url() -> str:

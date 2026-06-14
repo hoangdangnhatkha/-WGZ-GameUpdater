@@ -128,7 +128,13 @@ def _request(method: str, path: str, *, json: Any = None, params: dict | None = 
             raise ApiError(f"{method} {path} → {resp.status_code}: {last_detail}")
         if resp.status_code == 204 or not resp.content:
             return None
-        return resp.json()
+        try:
+            return resp.json()
+        except ValueError as exc:
+            snippet = (resp.text or "")[:200].replace("\n", " ")
+            raise ApiError(
+                f"{method} {path} → {resp.status_code} non-JSON body: {snippet!r} ({exc})"
+            ) from None
     raise ApiError(f"{method} {path} → 401 (refresh failed)")
 
 

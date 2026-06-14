@@ -1,0 +1,46 @@
+<VirtualHost *:80>
+    ServerName chiatien.holao.online
+    Redirect permanent / https://chiatien.holao.online/
+</VirtualHost>
+
+<IfModule mod_ssl.c>
+<VirtualHost *:443>
+    ServerAdmin webmaster@holao.online
+    ServerName chiatien.holao.online
+
+    # ── wgz-api backend (Node on :5000) ──────────────────────────────
+    # Must come BEFORE DocumentRoot + FallbackResource so Apache
+    # routes /wgz-api/* to Node instead of serving the SPA index.
+    ProxyPreserveHost On
+    ProxyRequests Off
+    ProxyPass        /wgz-api/ http://127.0.0.1:5000/wgz-api/
+    ProxyPassReverse /wgz-api/ http://127.0.0.1:5000/wgz-api/
+
+    DocumentRoot /home/ubuntu/chiatien
+
+    <Directory /home/ubuntu/chiatien>
+        Options FollowSymLinks
+        AllowOverride None
+        Require all granted
+        DirectoryIndex index.html
+        FallbackResource /index.html
+
+        # Hashed assets — long cache
+        <FilesMatch "\.(js|css|woff2?|ttf|svg|png|jpg|jpeg|webp|avif|ico)$">
+            Header set Cache-Control "public, max-age=31536000, immutable"
+        </FilesMatch>
+
+        # HTML / SW / manifest — never cache
+        <FilesMatch "(index\.html|sw\.js|registerSW\.js|manifest\.webmanifest)$">
+            Header set Cache-Control "no-cache, no-store, must-revalidate"
+        </FilesMatch>
+    </Directory>
+
+    ErrorLog ${APACHE_LOG_DIR}/chiatien-error.log
+    CustomLog ${APACHE_LOG_DIR}/chiatien-access.log combined
+
+Include /etc/letsencrypt/options-ssl-apache.conf
+SSLCertificateFile /etc/letsencrypt/live/holao.online/fullchain.pem
+SSLCertificateKeyFile /etc/letsencrypt/live/holao.online/privkey.pem
+</VirtualHost>
+</IfModule>

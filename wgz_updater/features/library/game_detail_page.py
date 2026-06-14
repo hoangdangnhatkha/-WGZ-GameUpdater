@@ -475,6 +475,7 @@ class GameDetailPage(QWidget):
             from ...widgets.dialogs import wgz_warn
             wgz_warn(self, "Chọn đường dẫn", "Vui lòng chọn thư mục cài đặt trước.")
             return
+        self._stop_trailer()
         self._local.set_game_path(self._game.id, path)
         self._local.last_used_folder = path
         self._local.save()
@@ -525,6 +526,23 @@ class GameDetailPage(QWidget):
         log.info("[defender] %s", message)
         # If a status strip is wired up further down the tree it picks the
         # message up via the standard log → status bridge already in place.
+
+    def _stop_trailer(self) -> None:
+        """Pause + hide the trailer popup. Called whenever the user kicks off
+        a download or launches the game so the trailer audio/video doesn't
+        keep playing over the operation log or the live game window.
+        """
+        trailer = getattr(self, "_trailer", None)
+        if trailer is None:
+            return
+        try:
+            trailer.stop()
+        except Exception:
+            log.exception("Trailer stop failed")
+        try:
+            trailer.hide()
+        except Exception:
+            log.exception("Trailer hide failed")
 
     def _on_pick_launcher(self) -> None:
         """Pick (or change) the launcher file used by the Play button.
@@ -593,6 +611,7 @@ class GameDetailPage(QWidget):
         )
         if not path_str or not launch_rel:
             return
+        self._stop_trailer()
         launch_abs = Path(path_str) / launch_rel
         if launch_abs.exists():
             try:

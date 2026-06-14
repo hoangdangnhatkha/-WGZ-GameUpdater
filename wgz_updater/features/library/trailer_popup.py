@@ -421,7 +421,7 @@ class TrailerPopup(QWidget):
             "width:100%;height:100%;overflow:hidden;}"
             "video{width:100%;height:100%;object-fit:contain;display:block;background:#000;}"
             "</style></head><body>"
-            "<video id='v' playsinline controls controlsList='nodownload' muted></video>"
+            "<video id='v' playsinline controls controlsList='nodownload' muted loop></video>"
             "<script>(function(){"
             "var v=document.getElementById('v');"
             f"window.__wgz_force_mute={muted_js};"
@@ -435,6 +435,13 @@ class TrailerPopup(QWidget):
             "v.addEventListener('volumechange',function(){"
             "  if(window.__wgz_force_mute){"
             "    if(!v.muted)v.muted=true;if(v.volume>0)v.volume=0;}"
+            "});"
+            # Auto-replay the same trailer instead of rolling into a
+            # recommended video. The `loop` attribute on <video> handles
+            # the common case; this listener is a belt-and-braces guard
+            # for browsers that ignore `loop` after manual seeking.
+            "v.addEventListener('ended',function(){"
+            "  try{v.currentTime=0;v.play();}catch(_){}"
             "});"
             f"v.src={stream_url!r};"
             "var p=v.play();if(p&&p.catch)p.catch(function(){});"

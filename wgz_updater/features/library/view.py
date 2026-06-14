@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import QThread, pyqtSignal
+from PyQt6.QtCore import QThread, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QStackedWidget, QVBoxLayout, QWidget
 
 from ...core.config import AppConfig, load_config
@@ -78,7 +78,32 @@ class LibraryView(QWidget):
         self._progress_page.worker_progress.connect(self.worker_progress)
         self._progress_page.worker_finished.connect(self.worker_finished)
 
+        self._silent_worker: _RemoteConfigWorker | None = None
+
+        # Instant first paint from local cache so the UI is responsive even on
+        # cold start with a slow API, then silently refresh from wgz-api so the
+        # Library always reflects server state once the request completes.
         self.reload(prefer_remote=False)
+        QTimer.singleShot(0, self._refresh_remote_silent)
+
+    def _refresh_remote_silent(self) -> None:
+        if self._silent_worker is not None and self._silent_worker.isRunning():
+            return
+        worker = _RemoteConfigWorker(self)
+        worker.finished_ok.connect(self._on_silent_loaded)
+        worker.failed.connect(self._on_silent_failed)
+        self._silent_worker = worker
+        worker.start()
+
+    def _on_silent_loaded(self, cfg) -> None:
+        self._silent_worker = None
+        self._config = cfg
+        self._grid_page.populate(self._config)
+        log.info("Silent remote refresh ok: %d games", len(self._config.games))
+
+    def _on_silent_failed(self, msg: str) -> None:
+        self._silent_worker = None
+        log.warning("Silent remote refresh failed, keeping cache: %s", msg)
 
     def reload(self, *, prefer_remote: bool = True) -> None:
         try:
