@@ -5,9 +5,9 @@ from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from ...core.config import Game
-from ...resources.strings_vi import ACTION_DOWNLOAD, ACTION_UPDATE
+from ...resources.strings_vi import ACTION_DOWNLOAD, ACTION_LAUNCH_GAME, ACTION_UPDATE
 from .image_loader import ImageLoader
-from .models import InstallRegistry, InstallStatus
+from .models import InstallRegistry, InstallStatus, resolve_launch_target
 
 _TAG_COLORS: dict[str, str] = {
     "HOT":  "#ff5b3c",
@@ -22,7 +22,8 @@ _TAG_COLORS: dict[str, str] = {
 class FeaturedHero(QFrame):
     """Wide editorial hero card with full-bleed game art and gradient overlay."""
 
-    clicked = pyqtSignal(object)  # list[Game]
+    clicked = pyqtSignal(object)            # list[Game]
+    launch_requested = pyqtSignal(object, object, str)  # (Game, install_path: Path, launch_rel)
 
     def __init__(self, registry: InstallRegistry, parent=None) -> None:
         super().__init__(parent)
@@ -33,6 +34,7 @@ class FeaturedHero(QFrame):
         self._entries: list[Game] = []
         self._pixmap: QPixmap | None = None
         self._hover = False
+        self._launch_target: tuple | None = None
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(36, 26, 36, 26)
@@ -76,7 +78,7 @@ class FeaturedHero(QFrame):
         self._sec_btn = QPushButton("", self)
         self._sec_btn.setObjectName("HeroSecondary")
         self._sec_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._sec_btn.clicked.connect(lambda: self.clicked.emit(self._entries))
+        self._sec_btn.clicked.connect(self._on_sec_clicked)
         cta_row.addWidget(self._sec_btn)
 
         cta_row.addStretch(1)
@@ -112,9 +114,14 @@ class FeaturedHero(QFrame):
         else:
             self._tag.hide()
 
-        # Status + meta
+        # Status + meta. Promote the secondary CTA to "🚀 CHẠY GAME" whenever
+        # we can actually launch the game — overrides MỞ / TẢI VỀ / CẬP NHẬT.
+        self._launch_target = resolve_launch_target(entries, self._registry)
         statuses = [self._registry.status_for(g) for g in entries]
-        if any(s == InstallStatus.INSTALLED for s in statuses):
+        if self._launch_target is not None:
+            status_word = "READY TO LAUNCH"
+            sec_word = ACTION_LAUNCH_GAME.upper()
+        elif any(s == InstallStatus.INSTALLED for s in statuses):
             status_word = "INSTALLED"
             sec_word = "MỞ"
         elif any(s == InstallStatus.UPDATE for s in statuses):
@@ -134,6 +141,14 @@ class FeaturedHero(QFrame):
         meta_parts.append(status_word)
         self._meta.setText("   ·   ".join(meta_parts))
         self._sec_btn.setText(sec_word)
+        # Promote the secondary CTA to the cyan LaunchAccent style only when we
+        # can actually launch — keeps the launch action visually distinct from
+        # the lime acquire / open buttons used elsewhere.
+        self._sec_btn.setObjectName(
+            "LaunchAccent" if self._launch_target is not None else "HeroSecondary"
+        )
+        self._sec_btn.style().unpolish(self._sec_btn)
+        self._sec_btn.style().polish(self._sec_btn)
 
         # Image
         self._pixmap = None
@@ -202,6 +217,13 @@ class FeaturedHero(QFrame):
         painter.end()
 
     # ── interactions ─────────────────────────────────────────────
+
+    def _on_sec_clicked(self) -> None:
+        if self._launch_target is not None:
+            game, path, rel = self._launch_target
+            self.launch_requested.emit(game, path, rel)
+        else:
+            self.clicked.emit(self._entries)
 
     def enterEvent(self, event) -> None:
         self._hover = True

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 from pathlib import Path
 
@@ -19,7 +20,7 @@ from ...resources.strings_vi import (
 )
 from ...widgets.drop_zone import DropZone
 from .image_loader import ImageLoader
-from .models import InstallRegistry, InstallStatus
+from .models import InstallRegistry, InstallStatus, filter_slideshow_images
 from .trailer_popup import TrailerPopup
 
 log = logging.getLogger(__name__)
@@ -296,7 +297,7 @@ class GameDetailPage(QWidget):
         actions.addWidget(self._dl_btn, 2)
 
         self._launch_btn = QPushButton("►  " + ACTION_LAUNCH_GAME.upper(), self)
-        self._launch_btn.setObjectName("HeroSecondary")
+        self._launch_btn.setObjectName("LaunchAccent")
         self._launch_btn.setMinimumHeight(48)
         self._launch_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._launch_btn.setEnabled(False)
@@ -386,10 +387,14 @@ class GameDetailPage(QWidget):
                     if theme:
                         break
             if theme:
-                if theme.slideshow:
-                    self._slideshow_urls = list(theme.slideshow)
-                    ImageLoader.instance().request(theme.slideshow[0], self._hero.set_image)
-                    if len(theme.slideshow) > 1:
+                # Drop non-image slideshow URLs (Steam pages, etc.) so the hero
+                # doesn't render a black panel when ImageLoader can't decode the
+                # page HTML. Falls back to theme.image when nothing usable.
+                imgs = filter_slideshow_images(theme.slideshow)
+                if imgs:
+                    self._slideshow_urls = imgs
+                    ImageLoader.instance().request(imgs[0], self._hero.set_image)
+                    if len(imgs) > 1:
                         self._slide_timer.start()
                 elif theme.image:
                     ImageLoader.instance().request(theme.image, self._hero.set_image)
@@ -615,8 +620,20 @@ class GameDetailPage(QWidget):
         launch_abs = Path(path_str) / launch_rel
         if launch_abs.exists():
             try:
-                subprocess.Popen([str(launch_abs)], cwd=str(launch_abs.parent))
-            except Exception as exc:
+                # os.startfile() goes through ShellExecute → respects the exe's
+                # embedded manifest. Games with `requireAdministrator` then get
+                # a proper UAC prompt instead of crashing with WinError 740.
+                try:
+                    os.startfile(str(launch_abs), cwd=str(launch_abs.parent))
+                except TypeError:
+                    # cwd kwarg requires Python 3.10+. Fall back for older builds.
+                    prev = os.getcwd()
+                    try:
+                        os.chdir(str(launch_abs.parent))
+                        os.startfile(str(launch_abs))
+                    finally:
+                        os.chdir(prev)
+            except OSError as exc:
                 log.exception("Launch failed")
                 from ...widgets.dialogs import wgz_error
                 wgz_error(self, DIALOG_ERROR_TITLE, f"Không thể chạy game: {exc}")

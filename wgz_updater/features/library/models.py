@@ -17,6 +17,99 @@ log = logging.getLogger(__name__)
 _INSTALL_REGISTRY = USER_DATA_DIR / "install_paths.json"
 
 
+_IMAGE_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif")
+# Hosts that serve images without a recognisable extension in the URL path
+# (Google encrypted thumbs / user uploads, Steam CDN, GitHub raw, etc.).
+_IMAGE_HOSTS = (
+    "encrypted-tbn",
+    "googleusercontent.com",
+    "lh3.googleusercontent",
+    "steamcdn-a.akamaihd.net",
+    "cdn.akamai.steamstatic.com",
+    "shared.akamai.steamstatic.com",
+    "shared.cloudflare.steamstatic.com",
+    "raw.githubusercontent.com",
+)
+
+
+def _is_image_url(url: str) -> bool:
+    if not url:
+        return False
+    u = url.lower().split("?", 1)[0]
+    if any(u.endswith(ext) for ext in _IMAGE_EXTS):
+        return True
+    return any(host in u for host in _IMAGE_HOSTS)
+
+
+def filter_slideshow_images(slideshow) -> list[str]:
+    """Return only entries from `slideshow` that look like real image URLs.
+
+    Skips Steam store / Wikipedia / generic webpages that users sometimes
+    paste into the slideshow field — they'd otherwise render as a black
+    panel because ImageLoader can't decode an HTML page.
+    """
+    return [u for u in (slideshow or []) if _is_image_url(u)]
+
+
+def resolve_launch_target(entries, registry) -> tuple | None:
+    """For a list of mod entries, return the first one whose install dir +
+    resolved launch file actually exists on disk.
+
+    Returns `(Game, install_path: Path, launch_relative: str)` or None.
+    Honors per-user override from LocalConfig.game_launchers, falls back to
+    Game.launch_file from the server-side mod definition.
+    """
+    from ...core.local_config import LocalConfig
+    local = LocalConfig()
+    for e in entries:
+        path = registry.install_path(e.id)
+        if not path or not path.exists():
+            continue
+        launch_rel = (local.get_game_launcher(e.id) or e.launch_file or "").strip()
+        if not launch_rel:
+            continue
+        try:
+            target = path / launch_rel
+            if target.exists():
+                return (e, path, launch_rel)
+        except Exception:
+            continue
+    return None
+
+
+def launch_game(install_path, launch_relative: str) -> None:
+    """Launch the game exe through ShellExecute so UAC prompts work for exes
+    whose manifest declares `requireAdministrator`."""
+    import os
+    from pathlib import Path
+    target = Path(install_path) / launch_relative
+    if not target.exists():
+        raise FileNotFoundError(target)
+    try:
+        os.startfile(str(target), cwd=str(target.parent))
+    except TypeError:
+        prev = os.getcwd()
+        try:
+            os.chdir(str(target.parent))
+            os.startfile(str(target))
+        finally:
+            os.chdir(prev)
+
+
+def pick_theme_image(theme) -> str:
+    """Pick the best single image URL for a theme.
+
+    Prefers the first image-like slideshow entry, then falls back to
+    `theme.image`. Returns "" when nothing usable is configured.
+    """
+    if theme is None:
+        return ""
+    imgs = filter_slideshow_images(getattr(theme, "slideshow", None))
+    if imgs:
+        return imgs[0]
+    return getattr(theme, "image", "") or ""
+
+
 class InstallStatus(str, Enum):
     NOT_INSTALLED = "not_installed"
     INSTALLED = "installed"

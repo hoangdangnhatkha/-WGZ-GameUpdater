@@ -11,7 +11,7 @@ from ...widgets.loading_dialog import LoadingDialog
 from .download_progress_page import DownloadProgressPage
 from .game_detail_page import GameDetailPage
 from .game_grid_page import GameGridPage
-from .models import InstallRegistry
+from .models import InstallRegistry, launch_game, pick_theme_image
 
 log = logging.getLogger(__name__)
 
@@ -61,6 +61,7 @@ class LibraryView(QWidget):
 
         # Signals
         self._grid_page.game_selected.connect(self._on_game_selected)
+        self._grid_page.launch_requested.connect(self._on_launch_requested)
         self._grid_page.refresh_requested.connect(self._refresh_remote_blocking)
 
         self._detail_page.back_requested.connect(lambda: self._stack.setCurrentIndex(_PAGE_GRID))
@@ -143,6 +144,18 @@ class LibraryView(QWidget):
         from ...widgets.dialogs import wgz_error
         wgz_error(self, DIALOG_ERROR_TITLE, msg)
 
+    def _on_launch_requested(self, game, install_path, launch_rel: str) -> None:
+        try:
+            launch_game(install_path, launch_rel)
+        except OSError as exc:
+            log.exception("Launch from library landing failed")
+            from ...widgets.dialogs import wgz_error
+            wgz_error(self, DIALOG_ERROR_TITLE, f"Không thể chạy game: {exc}")
+        finally:
+            # Re-evaluate row/hero buttons so a deleted install file flips the
+            # button back to TẢI VỀ on next interaction.
+            self._grid_page.refresh_cards()
+
     def _on_game_selected(self, game) -> None:
         self._detail_page.show_game(game, self._config)
         self._stack.setCurrentIndex(_PAGE_DETAIL)
@@ -152,9 +165,7 @@ class LibraryView(QWidget):
         image_url = ""
         if self._config:
             canonical = (game.game or game.name or "").strip()
-            theme = self._config.themes.get(canonical)
-            if theme:
-                image_url = theme.slideshow[0] if theme.slideshow else theme.image
+            image_url = pick_theme_image(self._config.themes.get(canonical))
         self._progress_page.start(game, install_path, url_idx, image_url=image_url)
 
     def _on_download_finished(self, game, install_path: str) -> None:

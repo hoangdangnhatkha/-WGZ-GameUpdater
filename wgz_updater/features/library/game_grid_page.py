@@ -12,7 +12,7 @@ from ...core.config import AppConfig, Game
 from ...resources.strings_vi import ACTION_REFRESH, NAV_LIBRARY
 from .featured_hero import FeaturedHero
 from .game_row import GameRow
-from .models import InstallRegistry, InstallStatus
+from .models import InstallRegistry, InstallStatus, pick_theme_image
 
 log = logging.getLogger(__name__)
 
@@ -21,6 +21,7 @@ class GameGridPage(QWidget):
     """Library landing — featured hero + dense manifest of games."""
 
     game_selected = pyqtSignal(object)   # list[Game]
+    launch_requested = pyqtSignal(object, object, str)  # (Game, install_path: Path, launch_rel)
     refresh_requested = pyqtSignal()
 
     def __init__(self, registry: InstallRegistry, parent=None) -> None:
@@ -67,6 +68,7 @@ class GameGridPage(QWidget):
         # ── Featured hero ───────────────────────────────────────
         self._hero = FeaturedHero(self._registry, self)
         self._hero.clicked.connect(self.game_selected)
+        self._hero.launch_requested.connect(self.launch_requested)
         outer.addWidget(self._hero)
 
         # ── Section divider ─────────────────────────────────────
@@ -109,9 +111,7 @@ class GameGridPage(QWidget):
         if featured_idx >= 0 and groups:
             key, entries = groups[featured_idx]
             theme = config.themes.get(key)
-            img = ""
-            if theme:
-                img = theme.slideshow[0] if theme.slideshow else theme.image
+            img = pick_theme_image(theme)
             self._hero.set_game(entries, key, img)
             groups.pop(featured_idx)
             self._hero.show()
@@ -128,14 +128,13 @@ class GameGridPage(QWidget):
         # Build rows
         for i, (key, entries) in enumerate(groups, start=1):
             theme = config.themes.get(key)
-            img = ""
-            if theme:
-                img = theme.slideshow[0] if theme.slideshow else theme.image
+            img = pick_theme_image(theme)
             row = GameRow(
                 entries, self._registry,
                 image_url=img, index=i, parent=self._rows_widget,
             )
             row.clicked.connect(self.game_selected)
+            row.launch_requested.connect(self.launch_requested)
             self._rows_layout.addWidget(row)
             self._rows.append(row)
 
@@ -153,6 +152,18 @@ class GameGridPage(QWidget):
     def refresh_cards(self) -> None:
         for r in self._rows:
             r.refresh()
+        # Hero re-evaluates _launch_target inside set_game; re-emit with the
+        # cached entries + image so the secondary CTA flips if launch state
+        # changed (game deleted, launcher path edited, etc.).
+        if getattr(self._hero, "_entries", None):
+            entries = self._hero._entries
+            key = (entries[0].game or entries[0].name or "").strip() or entries[0].id
+            if self._config:
+                theme = self._config.themes.get(key)
+                img = pick_theme_image(theme)
+            else:
+                img = ""
+            self._hero.set_game(entries, key, img)
 
     # ── helpers ───────────────────────────────────────────────────
 

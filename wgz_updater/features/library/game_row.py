@@ -5,9 +5,9 @@ from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLayout
 
 from ...core.config import Game
-from ...resources.strings_vi import ACTION_DOWNLOAD, ACTION_UPDATE
+from ...resources.strings_vi import ACTION_DOWNLOAD, ACTION_LAUNCH_GAME, ACTION_UPDATE
 from .image_loader import ImageLoader
-from .models import InstallRegistry, InstallStatus
+from .models import InstallRegistry, InstallStatus, resolve_launch_target
 
 _TAG_COLORS: dict[str, str] = {
     "HOT":  "#ff5b3c",
@@ -25,7 +25,8 @@ class GameRow(QFrame):
     Layout:  [thumb 140×72] [idx ##] [title + tag/version meta] [status pill] [action btn]
     """
 
-    clicked = pyqtSignal(object)  # list[Game]
+    clicked = pyqtSignal(object)            # list[Game]
+    launch_requested = pyqtSignal(object, object, str)  # (Game, install_path: Path, launch_rel)
 
     def __init__(
         self,
@@ -129,11 +130,12 @@ class GameRow(QFrame):
         )
         layout.addWidget(self._status_lbl)
 
-        # Action button
+        # Action button — dispatches based on _launch_target set in _refresh_status.
+        self._launch_target: tuple | None = None
         self._btn = QPushButton(self)
-        self._btn.setFixedSize(120, 34)
+        self._btn.setFixedSize(140, 34)
         self._btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn.clicked.connect(lambda: self.clicked.emit(self._entries))
+        self._btn.clicked.connect(self._on_btn_clicked)
         layout.addWidget(self._btn)
 
         self._refresh_status()
@@ -155,8 +157,21 @@ class GameRow(QFrame):
             pass
 
     def _refresh_status(self) -> None:
+        # Resolve a launch target so we can promote the row's button to
+        # "🚀 CHẠY GAME" — that prompt takes priority over CHI TIẾT/TẢI VỀ when
+        # the user has a working launcher configured.
+        self._launch_target = resolve_launch_target(self._entries, self._registry)
+
         statuses = [self._registry.status_for(g) for g in self._entries]
-        if any(s == InstallStatus.INSTALLED for s in statuses):
+        if self._launch_target is not None:
+            self._status_lbl.setText("● READY")
+            self._status_lbl.setStyleSheet(
+                "font-family:'Cascadia Mono',Consolas,monospace;"
+                "color:#4dffaa;font-size:10px;font-weight:700;letter-spacing:1.2px;"
+            )
+            self._btn.setText(ACTION_LAUNCH_GAME.upper())
+            self._btn.setObjectName("LaunchAccent")
+        elif any(s == InstallStatus.INSTALLED for s in statuses):
             self._status_lbl.setText("● INSTALLED")
             self._status_lbl.setStyleSheet(
                 "font-family:'Cascadia Mono',Consolas,monospace;"
@@ -185,6 +200,13 @@ class GameRow(QFrame):
 
     def refresh(self) -> None:
         self._refresh_status()
+
+    def _on_btn_clicked(self) -> None:
+        if self._launch_target is not None:
+            game, path, rel = self._launch_target
+            self.launch_requested.emit(game, path, rel)
+        else:
+            self.clicked.emit(self._entries)
 
     def matches(self, q: str) -> bool:
         if not q:

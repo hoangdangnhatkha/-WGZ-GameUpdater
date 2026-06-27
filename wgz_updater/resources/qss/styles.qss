@@ -215,6 +215,33 @@ QPushButton#Accent:disabled {
     color: #5e5e62;
 }
 
+/* ─── LAUNCH-ACTION BUTTON ──────────────────────────────────────────────
+   Used for the "🚀 Chạy Game" CTA so it reads as a distinct action from
+   the lime "Tải Về / Cập Nhật" button. Cyan signals "ready-to-run /
+   active" while lime continues to signal "acquire". Both backgrounds
+   keep the same dark foreground for hierarchy parity. */
+QPushButton#LaunchAccent {
+    background: #5dffe1;
+    border: 1px solid #5dffe1;
+    color: #07070a;
+    font-family: "Bahnschrift", "Inter Tight", sans-serif;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding: 8px 18px;
+}
+QPushButton#LaunchAccent:hover {
+    background: #9fffec;
+    border: 1px solid #9fffec;
+}
+QPushButton#LaunchAccent:pressed {
+    background: #2ddfc1;
+}
+QPushButton#LaunchAccent:disabled {
+    background: #1d1d29;
+    border: 1px solid #24242f;
+    color: #5e5e62;
+}
+
 /* ─── INPUTS ────────────────────────────────────────────────────────── */
 
 QLineEdit, QTextEdit, QPlainTextEdit, QComboBox {
